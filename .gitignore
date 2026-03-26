@@ -1,6 +1,7 @@
 venv/
 src/venv/
-data/
+data/GLA_data
+data/venv
 *.npy
 *.so
 *.so.*
