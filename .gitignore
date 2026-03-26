@@ -1,0 +1,6 @@
+venv/
+src/venv/
+data/
+*.npy
+*.so
+*.so.*
