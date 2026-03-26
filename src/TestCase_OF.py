@@ -23,24 +23,24 @@ problem = {
     "input_parameters": [{ "name": "U_inf" }],
 
     "input_signals": [
-        { "name": "a" },
-        { "name": "ad" },
         { "name": "h" },
         { "name": "hd" },
+        { "name": "a" },
+        { "name": "ad" },
         { "name": "delta" },
         { "name": "W_gust" },
         
     ],
 
     "output_signals": [
-        { "name": "CL" },
-        { "name": "CM" },
+        { "name": "C_L" },
+        { "name": "C_M" },
 
     ],
 
     "output_fields": [
-        { "name": "ux" },
-        { "name": "uy" }
+        #{ "name": "ux" },
+        #{ "name": "uy" }
 
     ]
 }
@@ -69,25 +69,25 @@ normalization = {
     },
 
     'output_signals': {
-        'CL': { 'min': -20, 'max': 20 },
-        'CM': { 'min': -20, 'max': 20 }
+        'C_L': { 'min': -20, 'max': 20 },
+        'C_M': { 'min': -20, 'max': 20 }
     },
     
     'output_fields': {
-        'ux': { 'min': -20, "max": 20 },
-        'uy': { 'min': -20, 'max': 20 },
+        #'ux': { 'min': -20, "max": 20 },
+        #'uy': { 'min': -20, 'max': 20 },
     }
 }
 
 #%% Dataset
 
-data_set_1_path = '../data/NS/T20_80samples.npy'
-data_set_2_path = '../data/NS/T20_20samples.npy'
-data_set_3_path = '../data/NS/T40_10samples.npy'
+data_set_1_path = '../data/GLA_test.h5'
+data_set_2_path = '../data/GLA_valid.h5'
+data_set_3_path = '../data/GLA_train.h5'
 
-dataset_train = utils.NS_create_dataset(data_set_1_path, np.arange(0, 80))
-dataset_valid = utils.NS_create_dataset(data_set_2_path, np.arange(0, 20)) 
-dataset_tests = utils.NS_create_dataset(data_set_3_path, np.arange(0, 10))
+dataset_train = utils.load_gla_h5(data_set_1_path)
+dataset_valid = utils.load_gla_h5(data_set_2_path)
+dataset_tests = utils.load_gla_h5(data_set_3_path)
 
 # For reproducibility (delete if you want to test other random initializations)
 np.random.seed(0)

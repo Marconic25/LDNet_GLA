@@ -115,76 +115,25 @@ def plot_output_1D(dataset, out_fields_ref, out_fields_app, n_row, n_col, title_
 
 # Data conversion functions for specific Test Cases
 
-def ADR_create_dataset(dataset, idxs):
-    new_dataset = {
-        'points' : dataset['x'][:, None], # [num_points x num_coordinates]
-        'times' : dataset['t'], # [num_times]
-        'out_fields' : dataset['output'][idxs,:,:,None], # [num_samples x num_times x num_points x num_fields]
-    }
-    if 'param' in dataset.keys():
-        new_dataset['inp_parameters'] = dataset['param'][idxs,:] # [num_samples x num_par]
-    else:
-        new_dataset['inp_parameters'] = None
-    
-    if 'forcing' in dataset.keys():
-        new_dataset['inp_signals'] = dataset['forcing'][idxs,:,:] # [num_samples x num_times x num_signals]
-    else:
-        new_dataset['inp_signals'] = None
-    
-    return new_dataset
-
 def NS_create_dataset(dataset_path, idxs):
     print('loading dataset %s' % dataset_path)
     dataset = np.load(dataset_path, allow_pickle = True)[()]
     print('loaded dataset')
-
-    X, Y = np.meshgrid(dataset['x'], dataset['y'])
-    x = np.reshape(X, (-1,))
-    y = np.reshape(Y, (-1,))
-    points = np.concatenate([x[:,None], y[:,None]], axis = 1)
+    
+    #for now no fields, only signals
+    #X, Y = np.meshgrid(dataset['x'], dataset['y'])
+    #x = np.reshape(X, (-1,))
+    #y = np.reshape(Y, (-1,))
+    #points = np.concatenate([x[:,None], y[:,None]], axis = 1)
 
     return {
-        'points' : points, # [num_points x num_coordinates]
+        #'points' : points, # [num_points x num_coordinates]
         'times' : dataset['t'], # [num_times]
-        'inp_parameters' : None, # [num_samples x num_par]
+        'inp_parameters' : dataset['U_inf'][idxs,None], # [num_samples x num_par]
         'inp_signals' : dataset['velocity_top'][idxs,:,None], # [num_samples x num_times x num_signals]
         'out_fields' : np.concatenate([dataset['ux'][idxs,:,:,None], dataset['uy'][idxs,:,:,None]], axis = 3), # [num_samples x num_times x num_points x num_fields]
     }
 
-def AP_create_dataset(base_path, idxs, points_subsampling_rate = 8, time_steps = 501):
-
-    out_fields_vec = []
-    inp_signals_vec = []
-
-    for idx in idxs:
-        data_path_sol = base_path + '/APsolution%d.npy' % idx
-        data_path_inp = base_path + '/APsetting%d.csv' % idx
-
-        out_fields_vec.append(np.load(data_path_sol))
-        dataframe = pd.read_csv(data_path_inp)
-
-        t = np.array(dataframe['t'])
-        inp_signals_vec.append(np.array(dataframe[['u(t)_1', 'u(t)_2']]))
-
-        print('loaded sample %d' % idx)
-        
-    nodes = 801
-    domain_length = 100.0
-    delta_x = domain_length/(nodes-1)
-    x = np.arange(0,domain_length+delta_x,delta_x)
-
-    if time_steps is None:
-        time_steps = t.shape[0]
-
-    dataset = {
-            'points' : x[::points_subsampling_rate, None], # [num_points x num_coordinates]
-            'times' : t[:time_steps], # [num_times]
-            'out_fields' : np.array(out_fields_vec)[:,:time_steps,::points_subsampling_rate,None], # [num_samples x num_times x num_points x num_fields]
-            'inp_parameters' : None, # [num_samples x num_par]
-            'inp_signals' : np.array(inp_signals_vec)[:,:time_steps,:] # [num_samples x num_times x num_signals]
-        }
-    
-    return dataset
 
 def reentry_create_dataset(base_path,first_sample,last_sample):
 
@@ -237,3 +186,15 @@ def reentry_create_dataset(base_path,first_sample,last_sample):
     }
     
     return dataset
+
+import h5py
+
+def load_gla_h5(path):
+    with h5py.File(path, 'r') as f:
+        return {
+            'times': f['t'][:],
+            'inp_parameters': f['inp_parameters'][:],
+            'inp_signals': f['inp_signals'][:],
+            'out_fields': f['out_fields'][:],
+            'points': f['points'][:]
+        }
