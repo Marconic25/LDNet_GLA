@@ -39,8 +39,8 @@ problem = {
     ],
 
     "output_fields": [
-        #{ "name": "ux" },
-        #{ "name": "uy" }
+        { "name": "ux" },
+        { "name": "uy" }
 
     ]
 }
@@ -59,23 +59,23 @@ normalization = {
     },
 
     'input_signals': {
-        'a': { 'min': -20, 'max': 20 },
-        'ad': { 'min': -20, 'max': 20 },
-        'h': { 'min': -20, 'max': 20 },
-        'hd': { 'min': -20, 'max': 20 },
+        'h': { 'min': -0.025, 'max': 0.025 },
+        'hd': { 'min': -1, 'max': 1 },
+        'a': { 'min': -0.8, 'max': 0.8 },
+        'ad': { 'min': -0.8, 'max': 0.8 },
         'delta': { 'min': -20, 'max': 20 },
-        'W_gust': { 'min': -20, 'max': 20 }
+        'W_gust': { 'min': 0, 'max': 50 }
 
     },
 
     'output_signals': {
-        'C_L': { 'min': -20, 'max': 20 },
-        'C_M': { 'min': -20, 'max': 20 }
+        'C_L': { 'min': -0.1, 'max': 0.5 },
+        'C_M': { 'min': -0.05, 'max': 0.05 }
     },
     
     'output_fields': {
-        #'ux': { 'min': -20, "max": 20 },
-        #'uy': { 'min': -20, 'max': 20 },
+        'ux': { 'min': -50, "max": 150 },
+        'uy': { 'min': -100, 'max': 100 },
     }
 }
 
@@ -94,13 +94,13 @@ np.random.seed(0)
 tf.random.set_seed(0)
 
 # We re-sample the time transients with timestep dt and we rescale each variable between -1 and 1.
-utils.process_dataset(dataset_train, problem, normalization, dt = dt, num_points_subsample = 200)
-utils.process_dataset(dataset_valid, problem, normalization, dt = dt, num_points_subsample = 200)
+utils.process_dataset(dataset_train, problem, normalization, dt = dt, num_points_subsample = 1)
+utils.process_dataset(dataset_valid, problem, normalization, dt = dt, num_points_subsample = 1)
 utils.process_dataset(dataset_tests, problem, normalization, dt = dt)
 
 #%% Define LDNet model
 
-# dynamics network to BE MODIFIED FOR 2ND ORDER DYNAMICS
+# dynamics network
 input_shape = (num_latent_states + len(problem['input_parameters']) + len(problem['input_signals']),)
 NNdyn = tf.keras.Sequential([
             tf.keras.layers.Dense(7, activation = tf.nn.tanh, input_shape = input_shape),
@@ -116,28 +116,29 @@ NNrec = tf.keras.Sequential([
             tf.keras.layers.Dense(24, activation = tf.nn.tanh),
             tf.keras.layers.Dense(24, activation = tf.nn.tanh),
             tf.keras.layers.Dense(24, activation = tf.nn.tanh),
-            tf.keras.layers.Dense(len(problem['output_fields']))
+            tf.keras.layers.Dense(len(problem['output_signals']))
         ])
 NNrec.summary()
 
 def evolve_dynamics(dataset):
-    # intial condition
-    state = tf.zeros((dataset['num_samples'], num_latent_states), dtype=tf.float64)
-    state_history = tf.TensorArray(tf.float64, size = dataset['num_times'])
+    num_samples = dataset['input_signals'].shape[0]
+    num_times = dataset['input_signals'].shape[1]
+    state = tf.zeros((num_samples, num_latent_states), dtype=tf.float64)
+    state_history = tf.TensorArray(tf.float64, size=num_times)
     state_history = state_history.write(0, state)
     dt_ref = normalization['time']['time_constant']
-    
-    # time integration
-    for i in tf.range(dataset['num_times'] - 1):
-        state = state + dt/dt_ref * NNdyn(tf.concat([state, dataset['inp_signals'][:,i,:]], axis = -1))
+
+    for i in tf.range(num_times - 1):
+        # Concateno lo stato con input_parameters e input_signals al tempo i
+        state = state + dt/dt_ref * NNdyn(tf.concat([state, tf.expand_dims(dataset['input_parameters'][:, 0], axis=-1), dataset['input_signals'][:, i, :]], axis=-1))
         state_history = state_history.write(i + 1, state)
 
-    return tf.transpose(state_history.stack(), perm=(1,0,2))
+    return tf.transpose(state_history.stack(), perm=(1,0,2))  # (num_samples, num_times, num_latent_states)
 
 def reconstruct_output(dataset, states):    
     states_expanded = tf.broadcast_to(tf.expand_dims(states, axis = 2), 
         [dataset['num_samples'], dataset['num_times'], dataset['num_points'], num_latent_states])
-    inp_signals_expanded = tf.broadcast_to(tf.expand_dims(dataset['inp_signals'], axis = 2),
+    inp_signals_expanded = tf.broadcast_to(tf.expand_dims(dataset['input_signals'], axis = 2),
         [dataset['num_samples'], dataset['num_times'], dataset['num_points'], len(problem['input_signals'])])
     output = NNrec(tf.concat([states_expanded, inp_signals_expanded, dataset['points_full']], axis = 3))
     # nonlinear transformation to compress long tails
@@ -158,15 +159,21 @@ def get_direction(velocity):
 
 def loss(dataset, target_velocity, target_direction):
     velocity = LDNet(dataset)
-    MSE_velocity = tf.reduce_mean(tf.square(velocity - target_velocity))
+
+    # Convert target arrays to tf.Tensor
+    target_velocity_tf = tf.convert_to_tensor(target_velocity, dtype=tf.float64)
+    target_direction_tf = tf.convert_to_tensor(target_direction, dtype=tf.float64)
+
+    MSE_velocity = tf.reduce_mean(tf.square(velocity - target_velocity_tf))
     direction = get_direction(velocity)
-    MSE_direction = tf.reduce_mean(tf.square(direction - target_direction))
+    MSE_direction = tf.reduce_mean(tf.square(direction - target_direction_tf))
+
     return MSE_velocity + weight_direction * MSE_direction
 
-target_direction_train = get_direction(dataset_train['out_fields'])
-target_direction_valid = get_direction(dataset_valid['out_fields'])
-loss_train = lambda: loss(dataset_train, dataset_train['out_fields'], target_direction_train)
-loss_valid = lambda: loss(dataset_valid, dataset_valid['out_fields'], target_direction_valid)
+target_direction_train = get_direction(dataset_train['output_signals'])
+target_direction_valid = get_direction(dataset_valid['output_signals'])
+loss_train = lambda: loss(dataset_train, dataset_train['output_signals'], target_direction_train)
+loss_valid = lambda: loss(dataset_valid, dataset_valid['output_signals'], target_direction_valid)
 
 #%% Training
 trainable_variables = NNdyn.variables + NNrec.variables
@@ -190,11 +197,11 @@ axs.legend()
 #%% Testing 
 
 # Compute predictions.
-out_fields = LDNet(dataset_tests)
+out_signals = LDNet(dataset_tests)
 
 # Since the LDNet works with normalized data, we map back the outputs into the original ranges.
-out_fields_FOM = utils.denormalize_output(dataset_tests['out_fields'], problem, normalization).numpy()
-out_fields_ROM = utils.denormalize_output(out_fields                 , problem, normalization).numpy()
+out_fields_FOM = utils.denormalize_output(dataset_tests['output_signals'], problem, normalization).numpy()
+out_fields_ROM = utils.denormalize_output(out_signals                 , problem, normalization).numpy()
 
 NRMSE = np.sqrt(np.mean(np.square(out_fields_ROM - out_fields_FOM))) / (np.max(out_fields_FOM) - np.min(out_fields_FOM))
 

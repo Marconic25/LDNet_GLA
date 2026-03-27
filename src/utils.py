@@ -1,3 +1,5 @@
+from os import times
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -43,11 +45,11 @@ def dataset_normalize(dataset, problem, normalization_definition):
     dataset['times']              = dataset['times'] / normalization['dt_base']
     dataset['points']             = normalize_forw(dataset['points']        , normalization['x_min']             , normalization['x_max']             , axis = 1)
     dataset['points_full']        = normalize_forw(dataset['points_full']   , normalization['x_min']             , normalization['x_max']             , axis = 3)
-    if dataset['inp_parameters'] is not None:
-        dataset['inp_parameters'] = normalize_forw(dataset['inp_parameters'], normalization['inp_parameters_min'], normalization['inp_parameters_max'], axis = 1)
-    if dataset['inp_signals'] is not None:
-        dataset['inp_signals']    = normalize_forw(dataset['inp_signals']   , normalization['inp_signals_min']   , normalization['inp_signals_max']   , axis = 2)
-    dataset['out_fields']         = normalize_forw(dataset['out_fields']    , normalization['out_fields_min']    , normalization['out_fields_max']    , axis = 3)
+    if dataset['input_parameters'] is not None:
+        dataset['input_parameters'] = normalize_forw(dataset['input_parameters'], normalization['inp_parameters_min'], normalization['inp_parameters_max'], axis = 1)
+    if dataset['input_signals'] is not None:
+        dataset['input_signals']    = normalize_forw(dataset['input_signals']   , normalization['inp_signals_min']   , normalization['inp_signals_max']   , axis = 2)
+    dataset['output_fields']         = normalize_forw(dataset['output_fields']    , normalization['out_fields_min']    , normalization['out_fields_max']    , axis = 3)
     
 def denormalize_output(out_fields, problem, normalization_definition):
     normalization = analyze_normalization(problem, normalization_definition)
@@ -56,12 +58,34 @@ def denormalize_output(out_fields, problem, normalization_definition):
 def process_dataset(dataset, problem, normalization_definition, dt = None, num_points_subsample = None):
     if dt is not None:
         times = np.arange(dataset['times'][0], dataset['times'][-1] + dt * 1e-10, step = dt)
-        if dataset['inp_signals'] is not None:
-            dataset['inp_signals'] = interpolate.interp1d(dataset['times'], dataset['inp_signals'], axis = 1)(times)
-        dataset['out_fields'] = interpolate.interp1d(dataset['times'], dataset['out_fields'], axis = 1)(times)
-        dataset['times'] = times
+        if dataset['input_signals'] is not None:
+            sig = dataset['input_signals']
+            time_len = len(dataset['times'])
 
-    num_samples = dataset['out_fields'].shape[0]
+            # find which axis corresponds to time
+            axis = None
+            for ax, size in enumerate(sig.shape):
+                if size == time_len:
+                    axis = ax
+                    break
+
+            if axis is None:
+                raise ValueError(
+                    f"No axis of input_signals matches times length "
+                    f"{time_len}. Shape={sig.shape}"
+                )
+
+            dataset['input_signals'] = interpolate.interp1d(
+                dataset['times'],
+                sig,
+                axis=axis,
+                bounds_error=False,
+                fill_value="extrapolate"
+            )(times)
+    dataset['output_fields'] = interpolate.interp1d(dataset['times'], dataset['output_fields'], axis = 1)(times)
+    dataset['times'] = times
+
+    num_samples = dataset['output_fields'].shape[0]
     num_times = dataset['times'].shape[0]
     num_points = dataset['points'].shape[0]
     num_x = dataset['points'].shape[1]
@@ -73,7 +97,7 @@ def process_dataset(dataset, problem, normalization_definition, dt = None, num_p
     else:
         idxs = np.array([[np.random.choice(num_points, num_points_subsample) for j in range(num_times)] for i in range(num_samples)])
         dataset['points_full'] = np.array([[points_full          [i,j,idxs[i,j,:],:] for j in range(num_times)] for i in range(num_samples)])
-        dataset['out_fields']  = np.array([[dataset['out_fields'][i,j,idxs[i,j,:],:] for j in range(num_times)] for i in range(num_samples)])
+        dataset['output_fields']  = np.array([[dataset['output_fields'][i,j,idxs[i,j,:],:] for j in range(num_times)] for i in range(num_samples)])
 
     dataset['num_points'] = dataset['points_full'].shape[2]
     dataset['num_times'] = num_times
@@ -81,11 +105,11 @@ def process_dataset(dataset, problem, normalization_definition, dt = None, num_p
 
     dataset_normalize(dataset, problem, normalization_definition)
 
-    if dataset['inp_parameters'] is not None:
-        dataset['inp_parameters'] = tf.convert_to_tensor(dataset['inp_parameters'], tf.float64)
-    if dataset['inp_signals'] is not None:
-        dataset['inp_signals'] = tf.convert_to_tensor(dataset['inp_signals'], tf.float64)
-    dataset['out_fields'] = tf.convert_to_tensor(dataset['out_fields'], tf.float64)
+    if dataset['input_parameters'] is not None:
+        dataset['input_parameters'] = tf.convert_to_tensor(dataset['input_parameters'], tf.float64)
+    if dataset['input_signals'] is not None:
+        dataset['input_signals'] = tf.convert_to_tensor(dataset['input_signals'], tf.float64)
+    dataset['output_fields'] = tf.convert_to_tensor(dataset['output_fields'], tf.float64)
 
 def plot_output_1D(dataset, out_fields_ref, out_fields_app, n_row, n_col, title_ROM = 'ROM'):
     fig = plt.figure(figsize=(10, 8), constrained_layout=False)
@@ -121,13 +145,13 @@ def NS_create_dataset(dataset_path, idxs):
     print('loaded dataset')
     
     #for now no fields, only signals
-    #X, Y = np.meshgrid(dataset['x'], dataset['y'])
-    #x = np.reshape(X, (-1,))
-    #y = np.reshape(Y, (-1,))
-    #points = np.concatenate([x[:,None], y[:,None]], axis = 1)
+    X, Y = np.meshgrid(dataset['x'], dataset['y'])
+    x = np.reshape(X, (-1,))
+    y = np.reshape(Y, (-1,))
+    points = np.concatenate([x[:,None], y[:,None]], axis = 1)
 
     return {
-        #'points' : points, # [num_points x num_coordinates]
+        'points' : points, # [num_points x num_coordinates]
         'times' : dataset['t'], # [num_times]
         'inp_parameters' : dataset['U_inf'][idxs,None], # [num_samples x num_par]
         'inp_signals' : dataset['velocity_top'][idxs,:,None], # [num_samples x num_times x num_signals]
@@ -192,9 +216,11 @@ import h5py
 def load_gla_h5(path):
     with h5py.File(path, 'r') as f:
         return {
-            'times': f['t'][:],
-            'inp_parameters': f['inp_parameters'][:],
-            'inp_signals': f['inp_signals'][:],
-            'out_fields': f['out_fields'][:],
-            'points': f['points'][:]
+            'points': f['points'][:],
+            'times': f['times'][:],
+            'input_parameters': f['input_parameters'][:],
+            'input_signals': f['input_signals'][:],
+            'output_signals': f['output_signals'][:],
+            'output_fields': f['output_fields'][:],
+            
         }

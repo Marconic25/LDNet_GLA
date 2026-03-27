@@ -252,21 +252,22 @@ def write_h5(data_dict, filename):
     times = simulations[0][:, 0]
     
     # 3. Aggreghiamo gli input signals (N, 1500, 6)
-    Hint: input_signals = np.stack([s[:, 1:7] for s in simulations])
+    input_signals = np.stack([s[:, 1:7] for s in simulations])
     
-    # 4. Aggreghiamo gli output fields (N, 1500, 1, 2)
-    output_fields = np.expand_dims(np.stack([s[:, 7:9] for s in simulations]), axis=2)
+    # 4. Aggreghiamo gli output signals (N, 1500, 1, 2)
+    output_signals = np.expand_dims(np.stack([s[:, 7:9] for s in simulations]), axis=2)
     input_parameters = np.full((num_sims, 1), 80.0)
-    
+    output_fields = np.zeros((num_sims, 1500, 1, 2)) # Placeholder, no output fields in this dataset
     # 5. Creiamo il file H5
     with h5py.File(filename, 'w') as f:
-        f.create_dataset("times", data=times)
-        f.create_dataset("input_signals", data=input_signals)
-        f.create_dataset("output_fields", data=output_fields)
-        f.create_dataset("input_parameters", data=input_parameters)
-        # Aggiungiamo anche il punto fittizio
         f.create_dataset("points", data=np.array([[0.0, 0.0]]))
+        f.create_dataset("times", data=times)
+        f.create_dataset("input_parameters", data=input_parameters)
+        f.create_dataset("input_signals", data=input_signals)
+        f.create_dataset("output_signals", data=output_signals)
+        f.create_dataset("output_fields", data=output_fields) # Placeholder, no output fields in this dataset   
 
+        
     print(f"Dataset salvato correttamente in: {filename}")
 
     # Esempio di chiamata finale
