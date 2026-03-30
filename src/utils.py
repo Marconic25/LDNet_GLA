@@ -31,13 +31,15 @@ def analyze_normalization(problem, normalization_definition):
     normalization['x_min'] = np.array(normalization_definition['space']['min'])
     normalization['x_max'] = np.array(normalization_definition['space']['max'])
     if len(problem.get('input_parameters', [])) > 0:
-        normalization['inp_parameters_min'] = np.array([normalization_definition['input_parameters'][v['name']]['min'] for v in problem['input_parameters']])
-        normalization['inp_parameters_max'] = np.array([normalization_definition['input_parameters'][v['name']]['max'] for v in problem['input_parameters']])
+        normalization['input_parameters_min'] = np.array([normalization_definition['input_parameters'][v['name']]['min'] for v in problem['input_parameters']])
+        normalization['input_parameters_max'] = np.array([normalization_definition['input_parameters'][v['name']]['max'] for v in problem['input_parameters']])
     if len(problem.get('input_signals', [])) > 0:
-        normalization['inp_signals_min'] = np.array([normalization_definition['input_signals'][v['name']]['min'] for v in problem['input_signals']])
-        normalization['inp_signals_max'] = np.array([normalization_definition['input_signals'][v['name']]['max'] for v in problem['input_signals']])
-    normalization['out_fields_min'] = np.array([normalization_definition['output_fields'][v['name']]['min'] for v in problem['output_fields']])
-    normalization['out_fields_max'] = np.array([normalization_definition['output_fields'][v['name']]['max'] for v in problem['output_fields']])
+        normalization['input_signals_min'] = np.array([normalization_definition['input_signals'][v['name']]['min'] for v in problem['input_signals']])
+        normalization['input_signals_max'] = np.array([normalization_definition['input_signals'][v['name']]['max'] for v in problem['input_signals']])
+    normalization['output_fields_min'] = np.array([normalization_definition['output_fields'][v['name']]['min'] for v in problem['output_fields']])
+    normalization['output_fields_max'] = np.array([normalization_definition['output_fields'][v['name']]['max'] for v in problem['output_fields']])
+    normalization['output_signals_min'] = np.array([normalization_definition['output_signals'][v['name']]['min'] for v in problem['output_signals']])
+    normalization['output_signals_max'] = np.array([normalization_definition['output_signals'][v['name']]['max'] for v in problem['output_signals']])
     return normalization
 
 def dataset_normalize(dataset, problem, normalization_definition):
@@ -46,14 +48,15 @@ def dataset_normalize(dataset, problem, normalization_definition):
     dataset['points']             = normalize_forw(dataset['points']        , normalization['x_min']             , normalization['x_max']             , axis = 1)
     dataset['points_full']        = normalize_forw(dataset['points_full']   , normalization['x_min']             , normalization['x_max']             , axis = 3)
     if dataset['input_parameters'] is not None:
-        dataset['input_parameters'] = normalize_forw(dataset['input_parameters'], normalization['inp_parameters_min'], normalization['inp_parameters_max'], axis = 1)
+        dataset['input_parameters'] = normalize_forw(dataset['input_parameters'], normalization['input_parameters_min'], normalization['input_parameters_max'], axis = 1)
     if dataset['input_signals'] is not None:
-        dataset['input_signals']    = normalize_forw(dataset['input_signals']   , normalization['inp_signals_min']   , normalization['inp_signals_max']   , axis = 2)
-    dataset['output_fields']         = normalize_forw(dataset['output_fields']    , normalization['out_fields_min']    , normalization['out_fields_max']    , axis = 3)
+        dataset['input_signals']    = normalize_forw(dataset['input_signals']   , normalization['input_signals_min']   , normalization['input_signals_max']   , axis = 2)
+    dataset['output_fields']         = normalize_forw(dataset['output_fields']    , normalization['output_fields_min']    , normalization['output_fields_max']    , axis = 3)
+    dataset['output_signals']        = normalize_forw(dataset['output_signals']   , normalization['output_signals_min']   , normalization['output_signals_max']   , axis = 3)
     
 def denormalize_output(out_fields, problem, normalization_definition):
     normalization = analyze_normalization(problem, normalization_definition)
-    return normalize_back(out_fields , normalization['out_fields_min'], normalization['out_fields_max'], axis = 3)
+    return normalize_back(out_fields , normalization['output_signals_min'], normalization['output_signals_max'], axis = 3)
     
 def process_dataset(dataset, problem, normalization_definition, dt = None, num_points_subsample = None):
     if dt is not None:
@@ -83,6 +86,7 @@ def process_dataset(dataset, problem, normalization_definition, dt = None, num_p
                 fill_value="extrapolate"
             )(times)
     dataset['output_fields'] = interpolate.interp1d(dataset['times'], dataset['output_fields'], axis = 1)(times)
+    dataset['output_signals'] = interpolate.interp1d(dataset['times'], dataset['output_signals'], axis = 1)(times)
     dataset['times'] = times
 
     num_samples = dataset['output_fields'].shape[0]
@@ -98,7 +102,7 @@ def process_dataset(dataset, problem, normalization_definition, dt = None, num_p
         idxs = np.array([[np.random.choice(num_points, num_points_subsample) for j in range(num_times)] for i in range(num_samples)])
         dataset['points_full'] = np.array([[points_full          [i,j,idxs[i,j,:],:] for j in range(num_times)] for i in range(num_samples)])
         dataset['output_fields']  = np.array([[dataset['output_fields'][i,j,idxs[i,j,:],:] for j in range(num_times)] for i in range(num_samples)])
-
+        
     dataset['num_points'] = dataset['points_full'].shape[2]
     dataset['num_times'] = num_times
     dataset['num_samples'] = num_samples
@@ -110,6 +114,8 @@ def process_dataset(dataset, problem, normalization_definition, dt = None, num_p
     if dataset['input_signals'] is not None:
         dataset['input_signals'] = tf.convert_to_tensor(dataset['input_signals'], tf.float64)
     dataset['output_fields'] = tf.convert_to_tensor(dataset['output_fields'], tf.float64)
+    dataset['output_signals'] = tf.convert_to_tensor(dataset['output_signals'], tf.float64)
+
 
 def plot_output_1D(dataset, out_fields_ref, out_fields_app, n_row, n_col, title_ROM = 'ROM'):
     fig = plt.figure(figsize=(10, 8), constrained_layout=False)

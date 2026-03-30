@@ -18,6 +18,11 @@ EXPECTED_COUNTS = {
     "B2": {"train": 12, "test": 3},
     "B3": {"train": 10, "test": 3},
     "C":  {"train": 6,  "test": 2},
+    "B1n": {"train": 10, "test": 3},
+    "B2n": {"train": 8,  "test": 2},
+    "B3n": {"train": 6,  "test": 2},
+    "Cn":  {"train": 4,  "test": 1},
+    "D":   {"train": 10, "test": 3},
 }
 
 #Scanning and parsing the directory
@@ -42,17 +47,17 @@ def scan_dir(DATA_DIR):
         prefix, family, index, split = name_parts
 
         if prefix != "sim":
-            anomalies.append(f"Prefisso inatteso: {name} ('{prefix}' invece di 'sim')")
+            anomalies.append(f"Prefisso inatteso: {file.name} ('{prefix}' invece di 'sim')")
             continue
         
         
         if family not in EXPECTED_COUNTS:
-            anomalies.append(f"Famiglia sconosciuta: {name} ('{family}')")
+            anomalies.append(f"Famiglia sconosciuta: {file.name} ('{family}')")
             continue
         
         # Verifica che lo split sia train o test
         if split not in ("train", "test"):
-            anomalies.append(f"Split sconosciuto: {name} ('{split}')")
+            anomalies.append(f"Split sconosciuto: {file.name} ('{split}')")
             continue
         
         # Tutto ok: aggiungi al gruppo corrispondente

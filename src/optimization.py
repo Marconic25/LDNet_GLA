@@ -47,9 +47,10 @@ class OptimizationProblem():
         #1 aggiorna variabili dal vettore 1D 2calcola loss 3 calcola gradiente
         self.stitcher.update_variables(params_1d)
         with tf.GradientTape(watch_accessed_variables = False) as tape:
-            tape.watch(self.variables)
+            for var in self.variables:
+                tape.watch(var.value)
             loss_value = self.loss_train()
-        grads = self.stitcher.stitch(tape.gradient(loss_value, self.variables, unconnected_gradients = tf.UnconnectedGradients.ZERO))
+        grads = self.stitcher.stitch(tape.gradient(loss_value, [var.value for var in self.variables], unconnected_gradients = tf.UnconnectedGradients.ZERO))
         return loss_value, grads
         
     def ag_train_loss_grad_numpy(self, params_1d):
@@ -58,9 +59,10 @@ class OptimizationProblem():
         
     def compute_gradient(self):
         with tf.GradientTape(watch_accessed_variables = False) as tape:
-            tape.watch(self.variables)
+            for var in self.variables:
+                tape.watch(var.value)
             loss_value = self.loss_train()
-        return tape.gradient(loss_value, self.variables, unconnected_gradients = tf.UnconnectedGradients.ZERO)
+        return tape.gradient(loss_value, [var.value for var in self.variables], unconnected_gradients = tf.UnconnectedGradients.ZERO)
 
     def iteration_callback(self):
         if self.iteration % 10 == 0:

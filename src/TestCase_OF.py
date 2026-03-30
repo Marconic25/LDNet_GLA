@@ -61,15 +61,15 @@ normalization = {
     'input_signals': {
         'h': { 'min': -0.025, 'max': 0.025 },
         'hd': { 'min': -1, 'max': 1 },
-        'a': { 'min': -0.8, 'max': 0.8 },
-        'ad': { 'min': -0.8, 'max': 0.8 },
+        'a': { 'min': -0.1, 'max': 0.1 },
+        'ad': { 'min': -1, 'max': 1 },
         'delta': { 'min': -20, 'max': 20 },
         'W_gust': { 'min': 0, 'max': 50 }
 
     },
 
     'output_signals': {
-        'C_L': { 'min': -0.1, 'max': 0.5 },
+        'C_L': { 'min': -0.01, 'max': 0.5 },
         'C_M': { 'min': -0.05, 'max': 0.05 }
     },
     
@@ -109,6 +109,12 @@ NNdyn = tf.keras.Sequential([
         ])
 NNdyn.summary()
 
+v = NNdyn.variables[0]
+print(type(v))
+print(type(v.value))
+print(hasattr(v, '_variable'))
+print(hasattr(v, 'handle'))
+
 # reconstruction network
 input_shape = (None, None, num_latent_states + len(problem['input_signals']) + problem['space']['dimension'])
 NNrec = tf.keras.Sequential([
@@ -119,6 +125,7 @@ NNrec = tf.keras.Sequential([
             tf.keras.layers.Dense(len(problem['output_signals']))
         ])
 NNrec.summary()
+
 
 def evolve_dynamics(dataset):
     num_samples = dataset['input_signals'].shape[0]
@@ -151,7 +158,7 @@ def LDNet(dataset):
     return reconstruct_output(dataset, states)
 
 #%% Loss function
-weight_direction = 0.1
+weight_direction = 0 #for cl and cm only, we can set to 0 the weight of the direction loss, since the velocity is already constrained in magnitude by the MSE loss. For other problems, it might be useful to set a positive weight to better constrain the direction of the velocity vector.
 epsilon = 1e-4
 
 def get_direction(velocity): 
@@ -200,13 +207,13 @@ axs.legend()
 out_signals = LDNet(dataset_tests)
 
 # Since the LDNet works with normalized data, we map back the outputs into the original ranges.
-out_fields_FOM = utils.denormalize_output(dataset_tests['output_signals'], problem, normalization).numpy()
-out_fields_ROM = utils.denormalize_output(out_signals                 , problem, normalization).numpy()
+out_signals_FOM = utils.denormalize_output(dataset_tests['output_signals'], problem, normalization).numpy()
+out_signals_ROM = utils.denormalize_output(out_signals                 , problem, normalization).numpy()
 
-NRMSE = np.sqrt(np.mean(np.square(out_fields_ROM - out_fields_FOM))) / (np.max(out_fields_FOM) - np.min(out_fields_FOM))
+NRMSE = np.sqrt(np.mean(np.square(out_signals_ROM - out_signals_FOM))) / (np.max(out_signals_FOM) - np.min(out_signals_FOM))
 
 import scipy.stats
-R_coeff = scipy.stats.pearsonr(np.reshape(out_fields_ROM, (-1,)), np.reshape(out_fields_FOM, (-1,)))
+R_coeff = scipy.stats.pearsonr(np.reshape(out_signals_ROM, (-1,)), np.reshape(out_signals_FOM, (-1,)))
 
 print('Normalized RMSE:       %1.3e' % NRMSE)
 print('Pearson dissimilarity: %1.3e' % (1 - R_coeff[0]))
@@ -215,31 +222,12 @@ print('Pearson dissimilarity: %1.3e' % (1 - R_coeff[0]))
 num_times = 8
 i_sample = 0
 
-n_pts = int(np.sqrt(dataset_tests['points'].shape[0]))
-X = np.reshape(dataset_tests['points'][:,0], (n_pts,n_pts))
-Y = np.reshape(dataset_tests['points'][:,1], (n_pts,n_pts))
+fig, axs = plt.subplots(2,1)
 
-v_min = np.min(out_fields_FOM[i_sample,:,:,:], axis = (0,1))
-v_max = np.max(out_fields_FOM[i_sample,:,:,:], axis = (0,1))
+axs[0].plot(dataset_tests['times'][:]*dt_base, out_signals_FOM[i_sample, :, 0, 0], 'o-', label = 'C_L FOM')
+axs[0].plot(dataset_tests['times'][:]*dt_base, out_signals_ROM[i_sample, :, 0, 0], 'o-', label = 'C_L ROM')
 
-times = np.linspace(0, len(dataset_tests['times']) - 1, num = num_times, dtype = int)
-fig, axs = plt.subplots(4, num_times, figsize = (2*num_times, 8))
-for idxT, iT in enumerate(times):
-    axs[0, idxT].set_title('t = %.2f' % (dataset_tests['times'][iT] * dt_base))
-    for i in range(2):
-        levels = matplotlib.ticker.MaxNLocator(nbins=40).tick_values(v_min[i], v_max[i])
-        Z_FOM = np.reshape(out_fields_FOM[i_sample,iT,:,i], (n_pts,n_pts))
-        Z_ROM = np.reshape(out_fields_ROM[i_sample,iT,:,i], (n_pts,n_pts))
-        axs[2*i+0, idxT].contourf(X, Y, Z_FOM, cmap='magma', levels=levels, extend = 'both')    
-        axs[2*i+1, idxT].contourf(X, Y, Z_ROM, cmap='magma', levels=levels, extend = 'both')
-
-axs[0, 0].set_ylabel('$v_x$ (FOM)')
-axs[1, 0].set_ylabel('$v_x$ (ROM)')
-axs[2, 0].set_ylabel('$v_y$ (FOM)')
-axs[3, 0].set_ylabel('$v_y$ (ROM)')
-
-for ax in axs.flatten():
-    ax.set_xticks([])
-    ax.set_yticks([])
+axs[1].plot(dataset_tests['times'][:]*dt_base, out_signals_FOM[i_sample, :, 0, 1], 'o-', label = 'C_M FOM')
+axs[1].plot(dataset_tests['times'][:]*dt_base, out_signals_ROM[i_sample, :, 0, 1], 'o-', label = 'C_M ROM')    
 
 fig.savefig('TestCase2.png')
