@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 # We configure TensorFlow to work in double precision 
 tf.keras.backend.set_floatx('float64')
-
+import json
 import utils
 import optimization
 
@@ -81,9 +81,9 @@ normalization = {
 
 #%% Dataset
 
-data_set_1_path = '../data/GLA_test.h5'
+data_set_1_path = '../data/GLA_train.h5'
 data_set_2_path = '../data/GLA_valid.h5'
-data_set_3_path = '../data/GLA_train.h5'
+data_set_3_path = '../data/GLA_test.h5'
 
 dataset_train = utils.load_gla_h5(data_set_1_path)
 dataset_valid = utils.load_gla_h5(data_set_2_path)
@@ -201,6 +201,15 @@ axs.axvline(num_epochs_Adam)
 axs.set_xlabel('epochs'), plt.ylabel('loss')
 axs.legend()
 
+
+NNdyn.save_weights('../models/NNdyn_weights.weights.h5')
+NNrec.save_weights('../models/NNrec_weights.weights.h5')
+import json
+config = {'problem': problem, 'normalization': normalization, 'num_latent_states': num_latent_states}
+with open('../models/config.json', 'w') as f:
+    json.dump(config, f, indent=2)
+
+
 #%% Testing 
 
 # Compute predictions.
@@ -219,15 +228,38 @@ print('Normalized RMSE:       %1.3e' % NRMSE)
 print('Pearson dissimilarity: %1.3e' % (1 - R_coeff[0]))
 
 #%% Postprocessing
-num_times = 8
 i_sample = 0
+time_axis = dataset_tests['times'][:] * dt_base
 
-fig, axs = plt.subplots(2,1)
+fig, axs = plt.subplots(3, 1, figsize=(10, 8))
 
-axs[0].plot(dataset_tests['times'][:]*dt_base, out_signals_FOM[i_sample, :, 0, 0], 'o-', label = 'C_L FOM')
-axs[0].plot(dataset_tests['times'][:]*dt_base, out_signals_ROM[i_sample, :, 0, 0], 'o-', label = 'C_L ROM')
+# C_L
+axs[0].plot(time_axis, out_signals_FOM[i_sample, :, 0, 0], 'b-', label='C_L FOM')
+axs[0].plot(time_axis, out_signals_ROM[i_sample, :, 0, 0], 'r--', label='C_L ROM')
+axs[0].set_ylabel('C_L')
+axs[0].legend()
 
-axs[1].plot(dataset_tests['times'][:]*dt_base, out_signals_FOM[i_sample, :, 0, 1], 'o-', label = 'C_M FOM')
-axs[1].plot(dataset_tests['times'][:]*dt_base, out_signals_ROM[i_sample, :, 0, 1], 'o-', label = 'C_M ROM')    
+# C_M
+axs[1].plot(time_axis, out_signals_FOM[i_sample, :, 0, 1], 'b-', label='C_M FOM')
+axs[1].plot(time_axis, out_signals_ROM[i_sample, :, 0, 1], 'r--', label='C_M ROM')
+axs[1].set_ylabel('C_M')
+axs[1].legend()
 
+# Errore assoluto
+err_CL = np.abs(out_signals_FOM[i_sample, :, 0, 0] - out_signals_ROM[i_sample, :, 0, 0])
+err_CM = np.abs(out_signals_FOM[i_sample, :, 0, 1] - out_signals_ROM[i_sample, :, 0, 1])
+axs[2].plot(time_axis, err_CL, 'b-', label='|err C_L|')
+axs[2].plot(time_axis, err_CM, 'r-', label='|err C_M|')
+axs[2].set_ylabel('Errore assoluto')
+axs[2].set_xlabel('Tempo [s]')
+axs[2].legend()
+
+# NRMSE per C_L e C_M separatamente
+for i, name in enumerate(['C_L', 'C_M']):
+    fom = out_signals_FOM[:, :, 0, i]
+    rom = out_signals_ROM[:, :, 0, i]
+    nrmse = np.sqrt(np.mean(np.square(rom - fom))) / (np.max(fom) - np.min(fom))
+    print(f'NRMSE {name}: {nrmse:.3e}')
+
+fig.tight_layout()
 fig.savefig('TestCase2.png')

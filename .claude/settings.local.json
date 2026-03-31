@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/wsl/**)",
+      "Bash(ls \\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\marco\\\\LDNet_OF)",
+      "Read(//c/Users/marco/**)",
+      "Read(///wsl.localhost/Ubuntu/home/**)",
+      "Read(///wsl.localhost/Ubuntu/mnt/**)",
+      "Read(///wsl.localhost/Ubuntu//**)",
+      "Bash(echo \"HOME=$HOME\")",
+      "Read(///wsl.localhost/Ubuntu/home/marco/LDNet_OF/**)",
+      "Read(///wsl$/Ubuntu/home/marco/LDNet_OF/**)"
+    ]
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "problem": {
+    "space": {
+      "dimension": 2
+    },
+    "input_parameters": [
+      {
+        "name": "U_inf"
+      }
+    ],
+    "input_signals": [
+      {
+        "name": "h"
+      },
+      {
+        "name": "hd"
+      },
+      {
+        "name": "a"
+      },
+      {
+        "name": "ad"
+      },
+      {
+        "name": "delta"
+      },
+      {
+        "name": "W_gust"
+      }
+    ],
+    "output_signals": [
+      {
+        "name": "C_L"
+      },
+      {
+        "name": "C_M"
+      }
+    ],
+    "output_fields": [
+      {
+        "name": "ux"
+      },
+      {
+        "name": "uy"
+      }
+    ]
+  },
+  "normalization": {
+    "space": {
+      "min": [
+        0,
+        0
+      ],
+      "max": [
+        1,
+        1
+      ]
+    },
+    "time": {
+      "time_constant": 5.4
+    },
+    "input_parameters": {
+      "U_inf": {
+        "min": 0,
+        "max": 120
+      }
+    },
+    "input_signals": {
+      "h": {
+        "min": -0.025,
+        "max": 0.025
+      },
+      "hd": {
+        "min": -1,
+        "max": 1
+      },
+      "a": {
+        "min": -0.1,
+        "max": 0.1
+      },
+      "ad": {
+        "min": -1,
+        "max": 1
+      },
+      "delta": {
+        "min": -20,
+        "max": 20
+      },
+      "W_gust": {
+        "min": 0,
+        "max": 50
+      }
+    },
+    "output_signals": {
+      "C_L": {
+        "min": -0.01,
+        "max": 0.5
+      },
+      "C_M": {
+        "min": -0.05,
+        "max": 0.05
+      }
+    },
+    "output_fields": {
+      "ux": {
+        "min": -50,
+        "max": 150
+      },
+      "uy": {
+        "min": -100,
+        "max": 100
+      }
+    }
+  },
+  "num_latent_states": 1
+}
