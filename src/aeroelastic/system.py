@@ -1,7 +1,7 @@
 import numpy as np
-from aerodynamics.model import Model as AeroModel
+from aerodynamics.model import LDNetModel as AeroModel
 from structural.smd import integrate_structural
-
+from pathlib import Path
 
 """
 Aeroelastic system definition and parameters.
@@ -14,11 +14,9 @@ For each step:
 """
 
 # Aero parameters to compute F_L and M from C_L and C_M
-from structural.smd import integrate_structural
-
 
 rho_inf = 1.225  # air density [kg/m^3]
-S_ref = 0.5      # reference area [m^2]
+S_ref = 0.05      # reference area [m^2]
 c = 1.0          # reference chord length [m]
 
 # Gust parameters (cosine gust, EASA CS-25 profile)
@@ -35,29 +33,42 @@ def gust_velocity(t):
         return (GUST_W0 / 2.0) * (1.0 - np.cos(2.0 * np.pi * t_rel / T_g))
     return 0.0
 
-def run_aeroelastic_simulation():
+T_END = 5.0  # total simulation time [s]
+DT = 0.01    # time step for integration [s]
+def run_aeroelastic_simulation(delta_control, U_INF, T_END, DT, aero_model=None):
     """Run the aeroelastic simulation, integrating the structural model and updating the aerodynamic model at each time step."""
+    if aero_model is None:
+        aero_model = AeroModel(str(Path(__file__).parent.parent.parent / 'models'))
+
     # Time window for simulation
-    t_win = np.linspace(0.0, 5.0, 500)  # simulate for 5 seconds with 500 time points
+    t_win = np.linspace(0.0, T_END, int(T_END/DT))  # simulate for T_END seconds with DT time step
 
     # Initialize state variables (z, h, hd, a, ad)
-    z0 = np.zeros((num_latent_states,))  # initial latent state (can be adjusted based on the problem)
+    z0 = np.zeros((aero_model.num_latent_states,))  # initial latent state (can be adjusted based on the problem)
     h0 = 0.0   # initial vertical displacement [m]
     hd0 = 0.0  # initial vertical velocity [m/s]
     a0 = 0.0   # initial angle of attack [rad]
     ad0 = 0.0  # initial angular velocity [rad/s]
-
+    z= z0
     # Precompute gust velocities and aerodynamic forces/moments for the time window
     W_gust_arr = np.array([gust_velocity(t) for t in t_win])
+    C_L_arr = np.zeros_like(t_win)
+    C_M_arr = np.zeros_like(t_win)
+    Fy_arr = np.zeros_like(t_win)
+    Mz_arr = np.zeros_like(t_win)
+    delta_dot_arr = np.zeros_like(t_win)
+    delta_ddot_arr = np.zeros_like(t_win)
 
-    # Aerodynamic model
-    aero_model = AeroModel(problem, normalization)
-   
-    #conversion
+    for i, t in enumerate(t_win):
+         z, C_L, C_M = aero_model.step(z,h0,hd0,a0,ad0, delta_control[i], W_gust_arr[i], U_INF,DT)
+         C_L_arr[i] = C_L
+         C_M_arr[i] = C_M
+              # Convert C_L and C_M to aerodynamic forces and moments
+         Fy_arr[i] = 0.5 * rho_inf * U_INF**2 * S_ref * C_L_arr[i]  # lift force array [N]
+         Mz_arr[i] = 0.5 * rho_inf * U_INF**2 * S_ref * c * C_M_arr[i]  # pitching moment array [N*m]
 
     # Integrate structural model over time window
-    h_arr, hd_arr, a_arr, ad_arr, h_traj, alpha_traj = integrate_structural(z0 ,h0, hd0, a0, ad0, t_win, Fy_arr, Mz_arr)
+    h_arr, hd_arr, a_arr, ad_arr, h_traj, alpha_traj = integrate_structural(h0, hd0, a0, ad0, t_win, Fy_arr, Mz_arr, delta_dot_arr, delta_ddot_arr)
+    
 
-    #save story
-
-    return h_arr, hd_arr, a_arr,ad_arr, C_L_arr, C_M_arr
+    return h_arr, hd_arr, a_arr,ad_arr, C_L_arr, C_M_arr, h_traj, alpha_traj
