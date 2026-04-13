@@ -31,4 +31,9 @@ def optimize_gla(U_INF=U_INF_DEFAULT, T_END=T_END_DEFAULT, DT=DT_DEFAULT, r=R_DE
         constraints.append({'type': 'ineq', 'fun': lambda x, i=i: max_step + (x[i+1] - x[i])})
     
     result = minimize(cost_function, delta0, args=(U_INF, T_END, DT, r), bounds=bounds, constraints = constraints, method='SLSQP', options={'maxiter': 100, 'ftol': 1e-6})
-    return result.x  # optimized control input array    
+
+    # Riesegui simulazione con delta ottimale per ottenere storia completa
+    delta_opt = result.x
+    h, hd, a, ad, C_L_arr, C_M_arr, h_traj, alpha_traj = run_aeroelastic_simulation(delta_opt, U_INF, T_END, DT, aero_model)
+
+    return delta_opt, C_L_arr, C_M_arr, h_traj, alpha_traj, U_INF, T_END, DT    
