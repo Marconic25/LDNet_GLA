@@ -9,7 +9,8 @@
       "Read(///wsl.localhost/Ubuntu//**)",
       "Bash(echo \"HOME=$HOME\")",
       "Read(///wsl.localhost/Ubuntu/home/marco/LDNet_OF/**)",
-      "Read(///wsl$/Ubuntu/home/marco/LDNet_OF/**)"
+      "Read(///wsl$/Ubuntu/home/marco/LDNet_OF/**)",
+      "Read(//mnt/c/Users/**)"
     ]
   }
 }

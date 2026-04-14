@@ -40,7 +40,7 @@ I_FLAP_HINGE = I_FLAP_CG + M_FLAP * _D2           # MoI about hinge (same d) [kg
 
 # ─────────────────────── structural integrator ──────────────────────────────
 
-def structural_rhs(t, state, Fy_interp, Mz_interp, delta_dot_interp, delta_ddot_interp):
+def structural_rhs(t, state, Fy, Mz, delta_dot, delta_ddot):
     """
     RHS of augmented 2-DOF EOM: state = [h, h_dot, alpha, alpha_dot].
 
@@ -65,11 +65,11 @@ def structural_rhs(t, state, Fy_interp, Mz_interp, delta_dot_interp, delta_ddot_
     for small δ where flap lift ≪ wing lift.
     """
     h, hd, a, ad = state
-    Fy = float(Fy_interp(t))
-    Mz = float(Mz_interp(t))
+    Fy = float(Fy)
+    Mz = float(Mz)
 
-    dlt_ddot = float(delta_ddot_interp(t))   # [rad/s²]
-    dlt_dot  = float(delta_dot_interp(t))    # [rad/s]
+    dlt_ddot = float(delta_ddot)
+    dlt_dot  = float(delta_dot)
 
     # Augmented mass matrix entries
     M_hh = M_WING + M_FLAP
@@ -90,6 +90,32 @@ def structural_rhs(t, state, Fy_interp, Mz_interp, delta_dot_interp, delta_ddot_
     a_ddot = (M_hh * RHS_a - M_ha * RHS_h) / det
 
     return [hd, h_ddot, ad, a_ddot]
+
+def get_space_state_matrices():
+    M_hh = M_WING + M_FLAP
+    M_aa = I_WING + I_FLAP_EA
+    M_ha = M_FLAP * _D_X
+    det = M_hh * M_aa - M_ha * M_ha
+    M_aug_inv = np.array([[M_aa, -M_ha], [-M_ha, M_hh]]) / det
+    K_struct = np.array([[K_H, 0], [0, K_ALPHA]])
+    D_struct = np.array([[D_H, 0], [0, D_ALPHA]])
+    acc_K = -M_aug_inv @ K_struct 
+    acc_D = -M_aug_inv @ D_struct
+    A_s = np.array([[0, 1, 0, 0], 
+                    [acc_K[0,0], acc_D[0,0], acc_K[0,1], acc_D[0,1]], 
+                    [0, 0, 0, 1], 
+                    [acc_K[1,0], acc_D[1,0], acc_K[1,1], acc_D[1,1]]])
+    B_s = np.zeros((4, 1))
+    b_acc = M_aug_inv @ np.array([[-1.0], [1.0]])
+    B_s[1, 0] = b_acc[0, 0]
+    B_s[3, 0] = b_acc[1, 0]
+    C_s = np.array([[1, 0, 0, 0],
+                    [0, 0, 1, 0]])
+    D_s = np.zeros((2, 1))
+    
+
+    return A_s, B_s, C_s, D_s
+
 
 
 def integrate_structural(h0, hd0, a0, ad0, t_win, Fy_arr, Mz_arr, delta_dot_arr, delta_ddot_arr):

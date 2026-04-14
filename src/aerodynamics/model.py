@@ -2,7 +2,11 @@ import json
 import tensorflow as tf
 from pathlib import Path
 import numpy as np
+import os
 
+# Force CPU only (avoid CUDA lock issues)
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+tf.config.set_visible_devices([], 'GPU')
 tf.keras.backend.set_floatx('float64')
 
 class LDNetModel: #create a class cause all the functions share the state
@@ -34,9 +38,27 @@ class LDNetModel: #create a class cause all the functions share the state
             tf.keras.layers.Dense(len(self.problem['output_signals']))
         ])
         
-        # Load the weights
-        self.NNdyn.load_weights(model_dir / 'NNdyn_weights.weights.h5')
-        self.NNrec.load_weights(model_dir / 'NNrec_weights.weights.h5')
+        # Load the weights with file locking workaround for Windows/WSL2
+        try:
+            self.NNdyn.load_weights(model_dir / 'NNdyn_weights.weights.h5')
+            self.NNrec.load_weights(model_dir / 'NNrec_weights.weights.h5')
+        except OSError as e:
+            # Workaround for h5py file locking on Windows/WSL2
+            import shutil
+            import tempfile
+            if "Unable to synchronously open file" in str(e) or "lock" in str(e).lower():
+                print("  [WARNING] File locking detected, attempting workaround...")
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmpdir = Path(tmpdir)
+                    # Copy weights to temp location
+                    shutil.copy(model_dir / 'NNdyn_weights.weights.h5', tmpdir / 'NNdyn_weights.weights.h5')
+                    shutil.copy(model_dir / 'NNrec_weights.weights.h5', tmpdir / 'NNrec_weights.weights.h5')
+                    # Load from temp
+                    self.NNdyn.load_weights(str(tmpdir / 'NNdyn_weights.weights.h5'))
+                    self.NNrec.load_weights(str(tmpdir / 'NNrec_weights.weights.h5'))
+                    print("  [OK] Weights loaded successfully from temp location")
+            else:
+                raise
 
     def normalize_input(self, h, hd, a, ad, delta, W_gust, U_inf):
         h_n=(2.0*h - self.normalization['input_signals']['h']['min'] - self.normalization['input_signals']['h']['max']) / (self.normalization['input_signals']['h']['max'] - self.normalization['input_signals']['h']['min'])

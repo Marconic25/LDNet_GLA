@@ -59,6 +59,10 @@ def run_aeroelastic_simulation(delta_control, U_INF, T_END, DT, aero_model=None)
     delta_dot_arr = np.zeros_like(t_win)
     delta_ddot_arr = np.zeros_like(t_win)
 
+    def struct_deriv(h, hd, a, ad, Fy, Mz):
+
+        return hd,h_ddot, ad, a_ddot
+
     for i, t in enumerate(t_win):
          z, C_L, C_M = aero_model.step(z,h0,hd0,a0,ad0, delta_control[i], W_gust_arr[i], U_INF,DT)
          C_L_arr[i] = C_L
