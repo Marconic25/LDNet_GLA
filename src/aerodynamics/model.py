@@ -94,13 +94,3 @@ class LDNetModel: #create a class cause all the functions share the state
 
         return z_new, C_L, C_M
 
-#Concatenare = mettere tutto in fila in un unico vettore:
-#[0.3,  0.5,  0.1, -0.2, 0.0, 0.4, -0.1, 0.7]
- #^z    ^Uinf  ←────── 6 segnali ─────────────^
- #→ 8 numeri in fila, shape (8,)
-#Reshape = stessa identica lista di numeri, ma "organizzati diversamente":
-#Shape (8,) → 8 numeri in una riga sola:
-#[[0.3, 0.5, 0.1, -0.2, 0.0, 0.4, -0.1, 0.7]]
-#Shape (1, 1, 1, 8) → la stessa cosa ma con 3 "contenitori" annidati:
-#[[[[0.3, 0.5, 0.1, -0.2, 0.0, 0.4, -0.1, 0.7]]]]
-#Perché NNdyn vuole (1, 8) e NNrec vuole (1, 1, 1, 9)?Perché sono stati addestrati così. NNdyn è una rete "semplice" → batch + features. NNrec è una rete "spazio-temporale" → batch + time + points + features.

@@ -92,15 +92,20 @@ def structural_rhs(t, state, Fy, Mz, delta_dot, delta_ddot):
     return [hd, h_ddot, ad, a_ddot]
 
 def get_space_state_matrices():
+    """Get state-space matrices (A, B, C, D) for the augmented 2-DOF structural model."""
+    # Augmented mass matrix entries
     M_hh = M_WING + M_FLAP
     M_aa = I_WING + I_FLAP_EA
     M_ha = M_FLAP * _D_X
     det = M_hh * M_aa - M_ha * M_ha
-    M_aug_inv = np.array([[M_aa, -M_ha], [-M_ha, M_hh]]) / det
+    M_aug_inv = np.array([[M_aa, -M_ha], [-M_ha, M_hh]]) / det   # inverse of augmented mass matrix
+
+    #structural stiffness and damping matrices (diagonal)
     K_struct = np.array([[K_H, 0], [0, K_ALPHA]])
     D_struct = np.array([[D_H, 0], [0, D_ALPHA]])
-    acc_K = -M_aug_inv @ K_struct 
-    acc_D = -M_aug_inv @ D_struct
+
+    acc_K = -M_aug_inv @ K_struct # acceleration contribution from stiffness 
+    acc_D = -M_aug_inv @ D_struct # acceleration contribution from damping
     A_s = np.array([[0, 1, 0, 0], 
                     [acc_K[0,0], acc_D[0,0], acc_K[0,1], acc_D[0,1]], 
                     [0, 0, 0, 1], 

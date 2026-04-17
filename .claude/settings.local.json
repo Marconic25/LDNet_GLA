@@ -10,7 +10,25 @@
       "Bash(echo \"HOME=$HOME\")",
       "Read(///wsl.localhost/Ubuntu/home/marco/LDNet_OF/**)",
       "Read(///wsl$/Ubuntu/home/marco/LDNet_OF/**)",
-      "Read(//mnt/c/Users/**)"
+      "Read(//mnt/c/Users/**)",
+      "Bash(wsl bash -c 'cd /home/marco/LDNet_OF/src && source venv/bin/activate && timeout 30 python3 -c \" *)",
+      "Bash(wsl bash *)",
+      "Skill(ralph-wiggum:ralph-loop)",
+      "Skill(ralph-wiggum:ralph-loop:*)",
+      "Bash(wsl.exe -e bash -c 'cd /home/marco/LDNet_OF/src && source venv/bin/activate && python3 -c \" *)",
+      "Bash(wslpath -u \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\marco\\\\LDNet_OF\")",
+      "Bash(wsl.exe bash *)",
+      "WebFetch(domain:scholar.google.com)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:www.researchgate.net)",
+      "WebFetch(domain:www.semanticscholar.org)",
+      "WebFetch(domain:api.semanticscholar.org)",
+      "WebFetch(domain:www.sciencedirect.com)",
+      "WebFetch(domain:arc.aiaa.org)",
+      "WebFetch(domain:ntrs.nasa.gov)",
+      "WebFetch(domain:www.mdpi.com)",
+      "WebSearch",
+      "Bash(wsl -e bash -c \"cd /home/marco/LDNet_OF/src && source venv/bin/activate && python test_mpc.py 2>/dev/null\")"
     ]
   }
 }
