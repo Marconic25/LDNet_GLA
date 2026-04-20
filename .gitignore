@@ -5,3 +5,4 @@ data/venv
 *.npy
 *.so
 *.so.*
+.claude
