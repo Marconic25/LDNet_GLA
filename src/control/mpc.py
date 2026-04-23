@@ -321,7 +321,7 @@ def _estimate_W_from_CL(aero_model, z_hat, x_hat, delta, C_L_meas, U_INF, DT,
 def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
                        use_ekf=True, Q_noise=None, R_noise=None,
                        L_g=50.0, sigma_w=5.0, W_obs_gain=0.3,
-                       gust_profile=None, gust_gate=False):
+                       gust_profile=None, gust_gate=False, gust_fade=0.0):
     """
     Closed-loop MPC simulation with C_L-inversion gust observer.
 
@@ -415,11 +415,24 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
         ad_hist[i]    = x[3]
 
         if gust_gate:
-            mpc_enabled = bool(W_gust_arr[i] > 0.0)
+            W_now = W_gust_arr[i]
+            # look back to find how long since gust ended
+            t_since_end = 0.0
+            if W_now <= 0.0 and gust_fade > 0.0:
+                for j in range(i - 1, max(i - int(gust_fade / DT) - 2, -1), -1):
+                    if W_gust_arr[j] > 0.0:
+                        t_since_end = (i - j) * DT
+                        break
+                else:
+                    t_since_end = gust_fade + 1.0
+            mpc_enabled = bool(W_now > 0.0 or t_since_end < gust_fade)
             gust_phase  = mpc_enabled
+            # fade factor: 1 during gust, linear ramp to 0 over gust_fade seconds
+            _fade = 1.0 if W_now > 0.0 else max(0.0, 1.0 - t_since_end / gust_fade) if gust_fade > 0.0 else 0.0
         else:
             mpc_enabled = True
             gust_phase  = True
+            _fade       = 1.0
 
         # ─────────────────────────────────────────────────────────────
         # MPC CONTROL (or baseline: delta = 0)
@@ -443,6 +456,7 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
                 else:
                     delta, _ = mpc_controller.solve(x_hat, z_hat, W_gust_seq,
                                                      gust_phase=gust_phase)
+                delta *= _fade   # linear ramp-down during fade-out window
             else:
                 delta = 0.0
                 mpc_controller.k_prev = 0.0

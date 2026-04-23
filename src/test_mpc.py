@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 # PARAMETERS
 # ─────────────────────────────────────────────────────────────
 U_INF       = 75.0
-T_END       = 20.0
+T_END       = 3.0
 DT          = 0.01
 MPC_HORIZON = 10      # 0.1s horizon
 
@@ -79,7 +79,7 @@ print(f"\nRunning BASELINE (no control)...")
 res_b = run_mpc_simulation(U_INF, T_END, DT, aero_model, None, A_s, B_s,
                            use_ekf=False, gust_profile=single_gust)
 
-print(f"Running MPC (dC_L/dt regulator, C_L observer)...")
+print(f"Running MPC (Q_CL + Q_dCL, C_L observer)...")
 res_tf = run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_tf, A_s, B_s,
                             use_ekf=True, gust_profile=single_gust)
 
