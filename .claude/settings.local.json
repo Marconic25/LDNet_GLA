@@ -28,7 +28,24 @@
       "WebFetch(domain:ntrs.nasa.gov)",
       "WebFetch(domain:www.mdpi.com)",
       "WebSearch",
-      "Bash(wsl -e bash -c \"cd /home/marco/LDNet_OF/src && source venv/bin/activate && python test_mpc.py 2>/dev/null\")"
+      "Bash(wsl -e bash -c \"cd /home/marco/LDNet_OF/src && source venv/bin/activate && python test_mpc.py 2>/dev/null\")",
+      "Bash(wsl.exe -e bash -c 'cd /home/marco/LDNet_OF/src && python3 -c \" *)",
+      "Bash(wsl.exe -e bash -c 'cd /home/marco/LDNet_OF/src && source ~/.bashrc 2>/dev/null; which python3; python3 -c \"import sys; print\\(sys.path\\)\"')",
+      "Bash(wsl.exe -e bash -c 'find /home/marco -name \"*.env\" -o -name \"activate\" 2>/dev/null | head -10; ls /home/marco/')",
+      "Bash(wsl.exe -e bash -c 'source /home/marco/LDNet_OF/src/venv/bin/activate && cd /home/marco/LDNet_OF/src && python3 -c \" *)",
+      "Bash(wsl.exe -e bash -c 'source /home/marco/LDNet_OF/src/venv/bin/activate && cd /home/marco/LDNet_OF/src && python3 test_mpc.py 2>/dev/null')",
+      "Bash(wsl.exe -e bash -c 'source /home/marco/LDNet_OF/src/venv/bin/activate && cd /home/marco/LDNet_OF/src && python3 stability_check.py 2>/dev/null')",
+      "Bash(python src/test_mpc.py)",
+      "Bash(cd /mnt/wsl/instances/Ubuntu/home/marco/LDNet_OF)",
+      "Bash(wsl -d Ubuntu -- bash -c \"cd ~/LDNet_OF && python src/test_mpc.py 2>&1\")",
+      "Bash(wsl -d Ubuntu -- bash -c \"cd ~/LDNet_OF && source ~/.bashrc 2>/dev/null; conda run -n ldnet python src/test_mpc.py 2>&1 | tail -5\")",
+      "Bash(wsl -d Ubuntu -- bash -c \"cd ~/LDNet_OF && ls ~/.local/lib/python*/site-packages/tensorflow* 2>/dev/null | head -3; which python3; python3 -c 'import tensorflow' 2>&1 | head -2; find ~ -name 'activate' 2>/dev/null | head -5\")",
+      "Bash(wsl -d Ubuntu -- bash -c \"cd ~/LDNet_OF && source src/venv/bin/activate && python src/test_mpc.py 2>&1\")",
+      "Bash(wsl -d Ubuntu -- bash -c \"cd ~/LDNet_OF && source src/venv/bin/activate && timeout 300 python src/test_mpc.py 2>&1\")",
+      "Bash(grep -E \"\\\\.py$|^d\")",
+      "Bash(python3 -c ' *)",
+      "Bash(ls /wsl.localhost/)",
+      "Bash(mount)"
     ]
   }
 }

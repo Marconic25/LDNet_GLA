@@ -75,6 +75,40 @@ class LDNetModel: #create a class cause all the functions share the state
         C_M = 0.5*C_M_n*(self.normalization['output_signals']['C_M']['max'] - self.normalization['output_signals']['C_M']['min']) + 0.5*(self.normalization['output_signals']['C_M']['max'] + self.normalization['output_signals']['C_M']['min'])
         return C_L, C_M
     
+    def step_tf(self, z, h, hd, a, ad, delta, W_gust, U_inf, dt):
+        """TF-native step for use inside tf.GradientTape. All inputs are tf.Tensor float64."""
+        norm = self.normalization
+        def n(v, key):
+            lo = norm['input_signals'][key]['min']
+            hi = norm['input_signals'][key]['max']
+            return (2.0 * v - lo - hi) / (hi - lo)
+        U_lo = norm['input_parameters']['U_inf']['min']
+        U_hi = norm['input_parameters']['U_inf']['max']
+        U_n  = (2.0 * U_inf - U_lo - U_hi) / (U_hi - U_lo)
+
+        inp = tf.stack([n(h,'h'), n(hd,'hd'), n(a,'a'), n(ad,'ad'),
+                        n(delta,'delta'), n(W_gust,'W_gust')], axis=0)
+        inp_full = tf.reshape(tf.concat([z, [U_n], inp], axis=0), (1, -1))
+
+        state = self.NNdyn(inp_full, training=False)
+        dt_ref = norm['time']['time_constant']
+        z_new = z + (dt / dt_ref) * tf.reshape(state, (-1,))
+
+        pts = tf.zeros(2, dtype=tf.float64)
+        rec_inp = tf.reshape(tf.concat([z_new, inp, pts], axis=0),
+                             (1, 1, 1, -1))
+        out_n = self.NNrec(rec_inp, training=False)
+        CL_n = out_n[0, 0, 0, 0]
+        CM_n = out_n[0, 0, 0, 1]
+
+        CL_lo = norm['output_signals']['C_L']['min']
+        CL_hi = norm['output_signals']['C_L']['max']
+        CM_lo = norm['output_signals']['C_M']['min']
+        CM_hi = norm['output_signals']['C_M']['max']
+        C_L = 0.5 * CL_n * (CL_hi - CL_lo) + 0.5 * (CL_hi + CL_lo)
+        C_M = 0.5 * CM_n * (CM_hi - CM_lo) + 0.5 * (CM_hi + CM_lo)
+        return z_new, C_L, C_M
+
     def step(self,z, h, hd, a, ad, delta, W_gust, U_inf, dt):
         # Normalize the input
         input_signals_n, input_parameters_n = self.normalize_input(h, hd, a, ad, delta, W_gust, U_inf)

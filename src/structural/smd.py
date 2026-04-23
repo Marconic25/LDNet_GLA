@@ -15,9 +15,9 @@ from scipy.integrate import solve_ivp
 M_WING   = 22.9          # wing mass [kg]
 I_WING   = 2.057121362   # wing MoI about z-axis [kg·m²]
 K_H      = 4000.0        # heave spring stiffness [N/m]
-D_H      = 2.0           # heave damping [N·s/m]
+D_H      = 12.0          # heave damping [N·s/m]  — ζ_h ≈ 2% (was 0.8% at D_H=2)
 K_ALPHA  = 700.0         # pitch spring stiffness [N·m/rad]
-D_ALPHA  = 0.5           # pitch damping [N·m·s/rad]
+D_ALPHA  = 1.6           # pitch damping [N·m·s/rad]  — ζ_α ≈ 2% (was 0.6% at D_ALPHA=0.5)
 
 # Geometry (initial mesh coordinates)
 EA_X, EA_Y = 0.25, 0.0          # elastic axis (CoR) initial position
