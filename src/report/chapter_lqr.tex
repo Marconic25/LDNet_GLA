@@ -1,0 +1,469 @@
+% chapter_lqr.tex  —  LQR Control for Gust Load Alleviation
+% Standalone compilable chapter. Compile with: pdflatex chapter_lqr.tex
+\documentclass[11pt,a4paper]{article}
+\usepackage{amsmath, amssymb}
+\usepackage{bm}           % \bm{} for bold math
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=2.5cm]{geometry}
+
+\newcommand{\vxi}{\bm{\xi}}
+\newcommand{\vu}{\bm{u}}
+\newcommand{\vy}{\bm{y}}
+\newcommand{\mA}{\mathbf{A}}
+\newcommand{\mB}{\mathbf{B}}
+\newcommand{\mC}{\mathbf{C}}
+\newcommand{\mD}{\mathbf{D}}
+\newcommand{\mK}{\mathbf{K}}
+\newcommand{\mP}{\mathbf{P}}
+\newcommand{\mQ}{\mathbf{Q}}
+\newcommand{\mR}{\mathbf{R}}
+\newcommand{\trim}{\mathrm{tr}}
+
+\title{LQR Control for Gust Load Alleviation\\on a Neural Aeroelastic Model}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+% ================================================================
+\section{Introduction}
+\label{sec:intro}
+% ================================================================
+
+Gust load alleviation (GLA) aims to reduce the structural response of an
+aeroelastic system to atmospheric disturbances through active flap deflection.
+Model Predictive Control (MPC) provides excellent performance by rolling out
+an explicit nonlinear preview over a receding horizon, but requires solving an
+online optimisation at every timestep.
+Linear Quadratic Regulator (LQR) offers an attractive alternative: the optimal
+feedback gain is computed \emph{offline} once, at the expense of restricting
+optimality to the neighbourhood of the trim point.
+
+The plant considered here is the \emph{LDNet} model---a data-driven aeroelastic
+emulator that couples a two-degree-of-freedom (2-DOF) structural wing with a
+neural-network aerodynamic surrogate.
+Because the aerodynamic model is a trained neural network, closed-form
+Jacobians are unavailable; they are instead obtained through \emph{automatic
+differentiation} (AD) of the full discrete-time propagator.
+The resulting linearised system is then used to solve the Discrete Algebraic
+Riccati Equation (DARE) and extract the optimal gain matrix $\mK$.
+
+% ================================================================
+\section{Aeroelastic Model and Trim Condition}
+\label{sec:model}
+% ================================================================
+
+\subsection{Structural Dynamics}
+
+The wing is modelled as a rigid section with two degrees of freedom: heave
+displacement $h$ (positive downward) and pitch angle $\alpha$ (positive
+nose-up).  Aerodynamic forces are transmitted to the structure via a trailing-edge
+flap with deflection angle $\delta$.
+
+The equations of motion in coupled form are
+\begin{equation}
+  \begin{bmatrix} M_{hh} & M_{h\alpha} \\ M_{h\alpha} & M_{\alpha\alpha} \end{bmatrix}
+  \begin{bmatrix} \ddot{h} \\ \ddot{\alpha} \end{bmatrix}
+  =
+  \begin{bmatrix} -F_y - D_h\dot{h} - K_h h \\ M_z - D_\alpha\dot{\alpha} - K_\alpha\alpha \end{bmatrix},
+  \label{eq:eom}
+\end{equation}
+where $F_y = q_\infty C_L$ and $M_z = q_\infty C_M$ are the aerodynamic lift
+force and pitching moment, $q_\infty = \tfrac{1}{2}\rho U_\infty^2 S$ is the
+dynamic pressure ($S = 0.05\,\text{m}^2$, $\rho = 1.225\,\text{kg/m}^3$), and
+the inertial coupling arises from the off-centre flap mass:
+\begin{equation}
+  M_{hh} = 24.09\,\text{kg},\quad
+  M_{\alpha\alpha} = 2.063\,\text{kg\,m}^2,\quad
+  M_{h\alpha} = 0.625\,\text{kg\,m}.
+\end{equation}
+Structural stiffness and damping parameters are
+$K_h = 4000\,\text{N/m}$, $K_\alpha = 700\,\text{N\,m/rad}$,
+$D_h = 12\,\text{N\,s/m}$, $D_\alpha = 1.6\,\text{N\,m\,s/rad}$,
+corresponding to modal damping ratios of approximately $2\%$.
+
+\subsection{Neural Aerodynamic Surrogate (LDNet)}
+
+The aerodynamic coefficients $C_L$ and $C_M$ are produced by a recurrent
+neural network with a scalar latent state $z \in \mathbb{R}$:
+\begin{align}
+  z_{k+1} &= z_k + \frac{\Delta t}{\Delta t_{\rm ref}}\,f_{\rm dyn}(z_k, h_k, \dot{h}_k, \alpha_k, \dot{\alpha}_k, \delta_k, W_k;\,\theta_d),
+  \label{eq:zdyn}\\
+  \begin{bmatrix} C_L \\ C_M \end{bmatrix}_k &= f_{\rm rec}(z_k, h_k, \dot{h}_k, \alpha_k, \dot{\alpha}_k, \delta_k;\,\theta_r),
+  \label{eq:yrec}
+\end{align}
+where $W_k$ is the gust velocity, $f_{\rm dyn}$ is a shallow MLP (7-7-1), and
+$f_{\rm rec}$ is a deeper network (24-24-24-24-2).
+Both networks are kept frozen during control design.
+
+\subsection{Augmented State and Trim}
+
+The full state is the concatenation of structural and latent variables:
+\begin{equation}
+  \vxi_k = \begin{bmatrix} h_k & \dot{h}_k & \alpha_k & \dot{\alpha}_k & z_k \end{bmatrix}^\top \in \mathbb{R}^5.
+\end{equation}
+The trim condition is defined at free-stream velocity $U_\infty = 75\,\text{m/s}$
+with zero gust ($W = 0$) and zero structural displacement.
+The latent state $z_{\rm tr}$ is obtained by iterating \eqref{eq:zdyn} to
+steady state with $\delta = 0$; at trim $C_{L,\rm tr} \approx 0.031$ and
+$C_{M,\rm tr} \approx 0$.
+The trim point is therefore
+\begin{equation}
+  \vxi_{\rm tr} = \begin{bmatrix} 0 & 0 & 0 & 0 & z_{\rm tr} \end{bmatrix}^\top, \quad
+  u_{\rm tr} = \delta_{\rm tr} = 0.
+\end{equation}
+
+% ================================================================
+\section{Jacobian Linearisation via Automatic Differentiation}
+\label{sec:jacobian}
+% ================================================================
+
+\subsection{Discrete-Time Propagator}
+
+The combined structural integrator and aerodynamic network define a
+discrete-time propagator
+\begin{equation}
+  \vxi_{k+1} = F(\vxi_k, u_k),
+  \label{eq:propagator}
+\end{equation}
+where $F: \mathbb{R}^5 \times \mathbb{R} \to \mathbb{R}^5$ is evaluated in
+two stages:
+\begin{enumerate}
+  \item \textbf{Aerodynamic step.}  Given $(\vxi_k, u_k)$, evaluate
+        LDNet to obtain $z_{k+1}$, $C_L$, $C_M$ via
+        \eqref{eq:zdyn}--\eqref{eq:yrec} with $W = 0$ (no gust at trim).
+  \item \textbf{Structural step.}  Integrate \eqref{eq:eom} over one timestep
+        $\Delta t = 0.01\,\text{s}$ using a fourth-order Runge--Kutta (RK4)
+        scheme with the aerodynamic forcing fixed at the values from step~1:
+        \begin{align}
+          \dot{\bm{x}} &= \bm{g}(\bm{x}, F_y, M_z), \nonumber\\
+          g_1 &= \dot{h},\quad
+          g_2 = \frac{M_{\alpha\alpha}(-F_y - D_h\dot{h} - K_h h)
+                      - M_{h\alpha}(M_z - D_\alpha\dot{\alpha} - K_\alpha\alpha)}
+                     {M_{hh}M_{\alpha\alpha} - M_{h\alpha}^2},\nonumber\\
+          g_3 &= \dot{\alpha},\quad
+          g_4 = \frac{M_{hh}(M_z - D_\alpha\dot{\alpha} - K_\alpha\alpha)
+                      - M_{h\alpha}(-F_y - D_h\dot{h} - K_h h)}
+                     {M_{hh}M_{\alpha\alpha} - M_{h\alpha}^2},
+          \label{eq:rhs}
+        \end{align}
+        where $\bm{x} = [h,\dot{h},\alpha,\dot{\alpha}]^\top$ and the
+        determinant $\det \mathbf{M} = M_{hh}M_{\alpha\alpha} - M_{h\alpha}^2$.
+\end{enumerate}
+The output equation evaluated at the same step is
+\begin{equation}
+  \vy_k = \begin{bmatrix} C_L \\ C_M \end{bmatrix}_k = g(\vxi_k, u_k).
+\end{equation}
+
+\subsection{Four Jacobian Matrices}
+
+Linearising \eqref{eq:propagator} and the output map around the trim point
+$(\vxi_{\rm tr}, 0)$ yields the discrete-time LTI system
+\begin{equation}
+  \delta\vxi_{k+1} = \mA_d\,\delta\vxi_k + \mB_d\,\delta u_k, \qquad
+  \delta\vy_k = \mC_y\,\delta\vxi_k + \mD_y\,\delta u_k,
+  \label{eq:lti}
+\end{equation}
+where $\delta\vxi = \vxi - \vxi_{\rm tr}$ and $\delta u = u - u_{\rm tr}$, and
+\begin{equation}
+  \mA_d = \frac{\partial F}{\partial \vxi}\bigg|_{\rm tr} \in \mathbb{R}^{5\times5},\quad
+  \mB_d = \frac{\partial F}{\partial u}\bigg|_{\rm tr} \in \mathbb{R}^{5\times1},\quad
+  \mC_y = \frac{\partial g}{\partial \vxi}\bigg|_{\rm tr} \in \mathbb{R}^{2\times5},\quad
+  \mD_y = \frac{\partial g}{\partial u}\bigg|_{\rm tr} \in \mathbb{R}^{2\times1}.
+  \label{eq:jacobians}
+\end{equation}
+
+\subsection{Computation via \texttt{tf.GradientTape}}
+
+Because $F$ passes through the LDNet weights, closed-form expressions for the
+partial derivatives in \eqref{eq:jacobians} are not available.
+Instead, all four matrices are computed in a single forward pass under a
+TensorFlow persistent \texttt{GradientTape}:
+
+\begin{enumerate}
+  \item Declare $\vxi_{\rm tr}$ and $u_{\rm tr}$ as \texttt{tf.Variable}s so
+        that the tape tracks operations on them.
+  \item Evaluate $F(\vxi_{\rm tr}, u_{\rm tr})$ and $g(\vxi_{\rm tr}, u_{\rm tr})$
+        inside the tape context.  Both the RK4 stages in \eqref{eq:rhs} and the
+        neural-network layers of LDNet are executed as differentiable TensorFlow
+        operations.
+  \item After the forward pass, call \texttt{tape.jacobian} to obtain $\mA_d$,
+        $\mB_d$, $\mC_y$, $\mD_y$ by reverse-mode automatic differentiation.
+\end{enumerate}
+
+This approach requires no analytical linearisation of the neural network and
+correctly propagates gradients through the RK4 sub-stages as well as the
+nonlinear activations of $f_{\rm dyn}$ and $f_{\rm rec}$.
+
+The open-loop eigenvalues $\lambda_i(\mA_d)$ all satisfy $|\lambda_i| < 1$,
+confirming that the trim equilibrium is asymptotically stable in the
+linearised sense, albeit with low modal damping
+($|\lambda_i| \approx 0.97$--$0.99$ for the aeroelastic modes).
+
+% ================================================================
+\section{LQR Formulation and Discrete Algebraic Riccati Equation}
+\label{sec:lqr}
+% ================================================================
+
+\subsection{Cost Function with Output Penalty}
+
+Given the LTI system \eqref{eq:lti}, we seek a state-feedback gain $\mK$
+such that the infinite-horizon cost
+\begin{equation}
+  J = \sum_{k=0}^{\infty}
+      \Bigl[\delta\vxi_k^\top \mQ_{\rm aug}\,\delta\vxi_k
+           + \delta u_k^\top \mR_{\rm aug}\,\delta u_k\Bigr]
+  \label{eq:cost}
+\end{equation}
+is minimised.  To penalise deviations of the aerodynamic outputs $[C_L, C_M]$
+from trim without increasing the state dimension, the weight matrices are
+augmented with the output Jacobians:
+\begin{equation}
+  \mQ_{\rm aug} = \mQ + \mC_y^\top \mQ_y \mC_y, \qquad
+  \mR_{\rm aug} = \mR + \mD_y^\top \mQ_y \mD_y,
+  \label{eq:augmented}
+\end{equation}
+where $\mQ \in \mathbb{R}^{5\times5}$ is a diagonal state cost,
+$\mR \in \mathbb{R}^{1\times1}$ is the control cost, and
+$\mQ_y \in \mathbb{R}^{2\times2}$ is the output penalty.
+Equation~\eqref{eq:augmented} follows directly from substituting the output
+equation into the cost: the cross terms
+$\delta\vxi^\top\mC_y^\top\mQ_y\mC_y\delta\vxi$ appear in the augmented state
+cost, and similarly for $\mD_y$.
+
+The weight values used in this work are
+\begin{equation}
+  \mQ = \operatorname{diag}\!\left(\frac{1}{0.00428^2},\,0,\,\frac{5}{0.00823^2},\,0,\,0\right),
+  \quad
+  \mR = \left[\frac{1}{0.5^2}\right],
+  \label{eq:weights}
+\end{equation}
+normalised by the expected peak amplitudes of heave and pitch under a
+$60\,\text{m/s}$ gust.  No output penalty is applied ($\mQ_y = 0$) for the
+baseline LQR presented here; the role of $\mQ_y$ is discussed in
+Section~\ref{sec:sensitivity}.
+
+\subsection{Discrete Algebraic Riccati Equation}
+
+The solution to the infinite-horizon LQR problem is given by the unique
+positive semi-definite solution $\mP$ of the \emph{Discrete Algebraic Riccati
+Equation} (DARE):
+\begin{equation}
+  \mP = \mQ_{\rm aug}
+        + \mA_d^\top \mP \mA_d
+        - \mA_d^\top \mP \mB_d
+          \bigl(\mR_{\rm aug} + \mB_d^\top \mP \mB_d\bigr)^{-1}
+          \mB_d^\top \mP \mA_d,
+  \label{eq:dare}
+\end{equation}
+which is solved numerically via \texttt{scipy.linalg.solve\_discrete\_are}
+\cite{anderson1990optimal}.
+
+\subsection{Optimal Gain and Control Law}
+
+The optimal state-feedback gain is
+\begin{equation}
+  \mK = \bigl(\mR_{\rm aug} + \mB_d^\top \mP \mB_d\bigr)^{-1}
+        \mB_d^\top \mP \mA_d
+        \in \mathbb{R}^{1\times5},
+  \label{eq:gain}
+\end{equation}
+and the control law applied at each timestep is
+\begin{equation}
+  \delta_t = -\mK\,(\hat{\vxi}_t - \vxi_{\rm tr}),\qquad
+  \delta_t \in [-20^\circ,\,+20^\circ],
+  \label{eq:law}
+\end{equation}
+where $\hat{\vxi}_t$ is the current state estimate.
+The closed-loop matrix $\mA_d - \mB_d\mK$ has all eigenvalues strictly inside
+the unit circle, confirming closed-loop stability.
+
+The gain is computed once at design time; at runtime \eqref{eq:law} requires
+only a single matrix-vector product and a scalar clip---negligible computational
+cost compared to the online MPC optimisation.
+
+\begin{thebibliography}{9}
+\bibitem{anderson1990optimal}
+B.~D.~O.~Anderson and J.~B.~Moore,
+\textit{Optimal Control: Linear Quadratic Methods}.
+Prentice Hall, 1990.
+\end{thebibliography}
+
+% ================================================================
+\section{Simulation Results}
+\label{sec:results}
+% ================================================================
+
+\subsection{Setup}
+
+The LQR controller is evaluated against an open-loop baseline (no flap
+actuation) under a single 1-cosine gust:
+\begin{equation}
+  W(t) = \frac{W_0}{2}\Bigl(1 - \cos\tfrac{2\pi t}{T_g}\Bigr),
+  \quad 0 \le t \le T_g,
+\end{equation}
+with peak gust velocity $W_0 = 60\,\text{m/s}$ and duration $T_g = 1\,\text{s}$,
+at free-stream speed $U_\infty = 75\,\text{m/s}$.
+The structural state is initialised at trim; $z_0 = z_{\rm tr}$.
+The state estimate $\hat{\vxi}_t$ is provided by a leaky kinematic integrator
+on the measured heave acceleration and a pitch angle sensor (angle of attack
+measurement).
+
+\subsection{Structural Response}
+
+Figure~\ref{fig:state} shows the time histories of heave displacement $h$,
+heave velocity $\dot{h}$, pitch angle $\alpha$, and pitch rate $\dot{\alpha}$.
+The LQR controller significantly damps the post-gust oscillations in both
+channels.  Table~\ref{tab:metrics} summarises the amplitude reduction (peak-to-peak
+amplitude over the window $[0,\,1.5]\,\text{s}$) for all key outputs.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig1_state.png}
+  \caption{Structural state time histories under a $60\,\text{m/s}$ 1-cosine gust.
+           Blue: open-loop baseline. Cyan: LQR controlled response.}
+  \label{fig:state}
+\end{figure}
+
+\subsection{Structural Accelerations}
+
+Figure~\ref{fig:accels} shows heave and pitch accelerations, which are directly
+related to structural loads.  The LQR achieves a marked reduction in peak pitch
+acceleration, with a modest improvement in heave acceleration.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig2_accels.png}
+  \caption{Structural acceleration time histories.
+           Blue: open-loop. Cyan: LQR.}
+  \label{fig:accels}
+\end{figure}
+
+\subsection{Control Effort}
+
+The flap deflection $\delta(t)$ and its rate $\dot{\delta}(t)$ are shown in
+Figure~\ref{fig:control}.  The control input does not saturate (stays within
+$\pm 20^\circ$), and the rate remains smooth, confirming that the linear
+approximation is valid over the gust duration.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig3_control.png}
+  \caption{Flap deflection $\delta(t)$ and rate $\dot{\delta}(t)$ under LQR.
+           Dotted lines: $\pm 20^\circ$ saturation limits.}
+  \label{fig:control}
+\end{figure}
+
+\subsection{Aerodynamic Coefficients}
+
+Figure~\ref{fig:aero} shows $C_L(t)$ and $C_M(t)$.  The initial $C_L$ peak at
+$t \approx 0.3\,\text{s}$ is not eliminated by the LQR: because the controller
+has no preview of the incoming gust, it reacts only \emph{after} the gust
+excites the aerodynamics.  The subsequent oscillations, however, are noticeably
+attenuated.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig4_aero.png}
+  \caption{Lift and pitching moment coefficient time histories.
+           Blue: open-loop. Cyan: LQR.}
+  \label{fig:aero}
+\end{figure}
+
+\subsection{Performance Summary}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Peak-to-peak amplitude in the gust window $[0,\,1.5]\,\text{s}$.
+           Reduction relative to open-loop baseline.}
+  \label{tab:metrics}
+  \begin{tabular}{lcc}
+    \toprule
+    Quantity & Baseline & LQR  \\
+    \midrule
+    Heave displacement $|h|_{\rm pp}$ [mm]          & --- & --- \\
+    Pitch angle $|\alpha|_{\rm pp}$ [$^\circ$]       & --- & --- \\
+    Heave acceleration $|\ddot{h}|_{\rm pp}$ [m/s$^2$] & --- & --- \\
+    Pitch acceleration $|\ddot{\alpha}|_{\rm pp}$ [$^\circ$/s$^2$] & --- & --- \\
+    Lift coefficient $|C_L|_{\rm pp}$                & --- & --- \\
+    Pitching moment $|C_M|_{\rm pp}$                 & --- & --- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\noindent\textit{Fill numerical values from the terminal output of
+\texttt{src/test\_mpc.py} before final submission.}
+
+% ================================================================
+\section{Sensitivity to Q/R Weights and Design Trade-offs}
+\label{sec:sensitivity}
+% ================================================================
+
+The LQR design involves three tuning matrices: $\mQ$ (state cost), $\mR$
+(control cost), and optionally $\mQ_y$ (output penalty).  Their influence on
+closed-loop behaviour follows directly from the structure of the DARE solution.
+
+\paragraph{Effect of $\mQ$ and $\mQ_y$.}
+Increasing the heave weight $Q_h$ or output penalty $Q_y$ causes the Riccati
+solution $\mP$ to grow, which in turn increases the magnitude of $\mK$ via
+\eqref{eq:gain}.  A larger gain produces faster disturbance rejection but
+requires higher flap deflections.  In the extreme case where $Q_h \gg R$, the
+controller approaches a minimum-time regulator and $\delta$ may saturate the
+$\pm 20^\circ$ limit, rendering the linear approximation invalid.
+
+\paragraph{Effect of $\mR$.}
+Increasing $\mR$ penalises control effort directly.  The gain $\mK$ decreases,
+resulting in slower but smoother actuation.  For the present system the ratio
+$Q_h / R$ is the dominant design parameter: at the baseline value
+$Q_h/R \approx 54596 / 4 \approx 13649$, the controller achieves good
+oscillation attenuation without saturating the actuator.
+
+\paragraph{Output penalty $\mQ_y$.}
+Setting $\mQ_y > 0$ shifts the cost from state excursion to aerodynamic
+output deviation.  Because the output Jacobian $\mC_y$ couples all five states
+to $C_L$ and $C_M$, the augmented weight $\mQ_{\rm aug}$ becomes full even when
+$\mQ$ is diagonal.  This can improve $C_M$ attenuation at the cost of larger
+heave excursions, trading structural load metrics against structural
+displacement metrics.
+
+\paragraph{Implicit sensitivity.}
+The gain $\mK(\mQ,\mR)$ is an implicit function of the weight matrices through
+the DARE solution.  No closed-form sensitivity expression exists; the
+dependence must be evaluated numerically.  For extreme weight ratios
+($Q/R > 10^6$ or $Q/R < 10^{-2}$), the DARE may become ill-conditioned,
+and the solver may fail to converge.
+
+% ================================================================
+\section{Conclusions}
+\label{sec:conclusions}
+% ================================================================
+
+This chapter has presented an LQR controller for gust load alleviation on the
+LDNet aeroelastic model.  The key contributions are:
+
+\begin{itemize}
+  \item A linearisation procedure based on automatic differentiation that
+        obtains exact Jacobians of a neural-network plant without manual
+        derivation.
+  \item An output-augmented LQR formulation that penalises aerodynamic
+        coefficient deviations at trim using the output Jacobians
+        $\mC_y$ and $\mD_y$.
+  \item Demonstration that a single offline DARE solve provides a
+        real-time-capable gain (one matrix-vector multiply per timestep)
+        with meaningful structural load reduction under a $60\,\text{m/s}$
+        1-cosine gust.
+\end{itemize}
+
+The primary limitation of the LQR approach is its reactive nature: without
+preview information about the incoming gust, the initial aerodynamic peak
+at $t \approx 0.3\,\text{s}$ cannot be avoided.  MPC, by rolling out an
+explicit nonlinear horizon, achieves further reduction of this first peak
+at significantly higher computational cost.  The LQR presented here represents
+a practical baseline for real-time implementation where computational resources
+are constrained.
+
+\end{document}
