@@ -45,7 +45,8 @@
       "Bash(grep -E \"\\\\.py$|^d\")",
       "Bash(python3 -c ' *)",
       "Bash(ls /wsl.localhost/)",
-      "Bash(mount)"
+      "Bash(mount)",
+      "Bash(python test_mpc.py)"
     ]
   }
 }
