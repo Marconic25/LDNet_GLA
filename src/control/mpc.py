@@ -161,22 +161,34 @@ def _estimate_W_from_CL(aero_model, z_hat, x_hat, delta, C_L_meas, U_INF, DT,
 
 
 def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
-                       use_ekf=True, gust_profile=None, use_aoa_sensor=False):
+                       use_ekf=True, gust_profile=None, use_aoa_sensor=False,
+                       observer='heuristic', kalman_filter=None):
     """
-    Closed-loop MPC simulation.
+    Closed-loop MPC/LQR simulation with selectable observer.
 
-    Observer (use_ekf=True):
-      - Structural state [h, hd, a, ad]: leaky kinematic integrator (tau=5s) from accelerometers.
-        If use_aoa_sensor=True, α and α̇ are replaced with true measurements.
-      - W_hat: C_L-inversion bisection each step.
-      - z_hat: advanced with W_hat.
-      - W_gust_seq for MPC: linear extrapolation of W_hat over horizon.
+    Parameters
+    ----------
+    observer : {'heuristic', 'ekf', 'true_state'}
+        - 'heuristic'  : leaky kinematic integrator + C_L bisection.
+        - 'ekf'        : Extended Kalman Filter; requires kalman_filter arg.
+        - 'true_state' : oracle — true state and gust (upper bound).
+    kalman_filter : ExtendedKalmanFilter or None
+        Required when observer='ekf'.
 
-    Oracle (use_ekf=False): uses true state and true gust (upper bound).
+    Returns
+    -------
+    dict with keys: t, h, hd, a, ad, delta, C_L, C_M, h_ddot, a_ddot,
+                    W_hat, W_gust, h_hat, hd_hat, a_hat, ad_hat, z_hat.
     """
     from aerodynamics.model import LDNetModel
     from structural.smd import structural_rhs, M_WING, M_FLAP, I_WING, I_FLAP_EA, \
                                 D_H, D_ALPHA, K_H, K_ALPHA, _D_X
+
+    if observer not in ('heuristic', 'ekf', 'true_state'):
+        raise ValueError(
+            f"observer must be 'heuristic', 'ekf', or 'true_state'; got {observer!r}")
+    if observer == 'ekf' and kalman_filter is None:
+        raise ValueError("observer='ekf' requires a kalman_filter instance")
 
     q_dyn    = 0.5 * 1.225 * U_INF**2 * 0.05
     M_hh     = M_WING + M_FLAP
@@ -205,6 +217,11 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
     x_hat = np.zeros(4)
     z_hat = _z_trim.copy()
 
+    # Reset EKF if provided (absolute coords: start at trim, W=0)
+    if observer == 'ekf':
+        xi0 = np.concatenate([x_hat, _z_trim, [0.0]])
+        kalman_filter.reset(xi0)
+
     h_hist      = np.zeros(N)
     hd_hist     = np.zeros(N)
     a_hist      = np.zeros(N)
@@ -215,6 +232,14 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
     h_ddot_hist = np.zeros(N)
     a_ddot_hist = np.zeros(N)
     W_hat_hist  = np.zeros(N)
+    # Estimate trajectories (for diagnostics)
+    h_hat_hist  = np.zeros(N)
+    hd_hat_hist = np.zeros(N)
+    a_hat_hist  = np.zeros(N)
+    ad_hat_hist = np.zeros(N)
+    z_hat_hist  = np.zeros(N)
+
+    delta_prev = 0.0   # used as Kalman input u_{k-1}
 
     for i, t in enumerate(t_win):
         h_hist[i] = x[0]; hd_hist[i] = x[1]
@@ -224,7 +249,7 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
         if mpc_controller is not None:
             if hasattr(mpc_controller, 'solve_tf'):
                 # MPC: build W_gust_seq over horizon, then optimise
-                if use_ekf:
+                if observer != 'true_state':
                     W_now  = W_hat_hist[i]
                     W_prev = W_hat_hist[i - 1] if i > 0 else W_now
                     dW_dt  = (W_now - W_prev) / DT
@@ -266,7 +291,7 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
         a_ddot_hist[i] = a_ddot
 
         # ── Observer ─────────────────────────────────────────────────
-        if use_ekf:
+        if observer == 'heuristic':
             leak   = 1.0 - DT / tau_leak
             hd_hat = leak * x_hat[1] + h_ddot * DT
             ad_hat = leak * x_hat[3] + a_ddot * DT
@@ -285,22 +310,55 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
 
             if i + 1 < N:
                 W_hat_hist[i + 1] = W_hat
-        else:
+
+        elif observer == 'ekf':
+            # EKF: nonlinear prediction + structural update;
+            # W estimated by C_L bisection (same as heuristic observer)
+            y_meas = np.array([h_ddot, x[2], x[3]])
+            W_bisect = _estimate_W_from_CL(
+                aero_model, kalman_filter.xi_hat[4:5],
+                kalman_filter.xi_hat[:4], delta,
+                C_L_hist[i], U_INF, DT)
+            xi_hat = kalman_filter.step(u=delta_prev, y=y_meas,
+                                        W_bisect=W_bisect)
+            x_hat  = xi_hat[:4]
+            z_hat  = xi_hat[4:5]
+            W_hat  = float(xi_hat[5])
+            if i + 1 < N:
+                W_hat_hist[i + 1] = W_hat
+
+        else:  # 'true_state'
             x_hat = x.copy()
             z_hat = z.copy()
             W_hat_hist[i] = W_gust_arr[i]
+            W_hat = W_gust_arr[i]
+
+        # Store estimates
+        h_hat_hist[i]  = x_hat[0]
+        hd_hat_hist[i] = x_hat[1]
+        a_hat_hist[i]  = x_hat[2]
+        ad_hat_hist[i] = x_hat[3]
+        z_hat_hist[i]  = float(z_hat[0]) if hasattr(z_hat, '__len__') else float(z_hat)
+
+        delta_prev = delta
 
     return {
-        't':      t_win,
-        'h':      h_hist,
-        'hd':     hd_hist,
-        'a':      a_hist,
-        'ad':     ad_hist,
-        'delta':  delta_hist,
-        'C_L':    C_L_hist,
-        'C_M':    C_M_hist,
-        'h_ddot': h_ddot_hist,
-        'a_ddot': a_ddot_hist,
-        'W_hat':  W_hat_hist,
-        'W_gust': W_gust_arr,
+        't':        t_win,
+        'h':        h_hist,
+        'hd':       hd_hist,
+        'a':        a_hist,
+        'ad':       ad_hist,
+        'delta':    delta_hist,
+        'C_L':      C_L_hist,
+        'C_M':      C_M_hist,
+        'h_ddot':   h_ddot_hist,
+        'a_ddot':   a_ddot_hist,
+        'W_hat':    W_hat_hist,
+        'W_gust':   W_gust_arr,
+        # Observer estimates (for diagnostics)
+        'h_hat':    h_hat_hist,
+        'hd_hat':   hd_hat_hist,
+        'a_hat':    a_hat_hist,
+        'ad_hat':   ad_hat_hist,
+        'z_hat':    z_hat_hist,
     }
