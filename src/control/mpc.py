@@ -220,23 +220,27 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
         h_hist[i] = x[0]; hd_hist[i] = x[1]
         a_hist[i] = x[2]; ad_hist[i] = x[3]
 
-        # ── MPC control ───────────────────────────────────────────────
+        # ── Control ──────────────────────────────────────────────────
         if mpc_controller is not None:
-            if use_ekf:
-                W_now  = W_hat_hist[i]
-                W_prev = W_hat_hist[i - 1] if i > 0 else W_now
-                dW_dt  = (W_now - W_prev) / DT
-                steps  = np.arange(mpc_controller.N, dtype=np.float64)
-                W_gust_seq = np.clip(W_now + dW_dt * steps * DT, 0.0, 80.0)
+            if hasattr(mpc_controller, 'solve_tf'):
+                # MPC: build W_gust_seq over horizon, then optimise
+                if use_ekf:
+                    W_now  = W_hat_hist[i]
+                    W_prev = W_hat_hist[i - 1] if i > 0 else W_now
+                    dW_dt  = (W_now - W_prev) / DT
+                    steps  = np.arange(mpc_controller.N, dtype=np.float64)
+                    W_gust_seq = np.clip(W_now + dW_dt * steps * DT, 0.0, 80.0)
+                else:
+                    horizon_idx = np.arange(i, min(i + mpc_controller.N, N))
+                    W_gust_seq  = W_gust_arr[horizon_idx]
+                    if len(W_gust_seq) < mpc_controller.N:
+                        W_gust_seq = np.pad(W_gust_seq,
+                                            (0, mpc_controller.N - len(W_gust_seq)))
+                delta, _ = mpc_controller.solve_tf(x_hat, z_hat, W_gust_seq,
+                                                   CL_meas=float(C_L_hist[i]))
             else:
-                horizon_idx = np.arange(i, min(i + mpc_controller.N, N))
-                W_gust_seq  = W_gust_arr[horizon_idx]
-                if len(W_gust_seq) < mpc_controller.N:
-                    W_gust_seq = np.pad(W_gust_seq,
-                                        (0, mpc_controller.N - len(W_gust_seq)))
-
-            delta, _ = mpc_controller.solve_tf(x_hat, z_hat, W_gust_seq,
-                                               CL_meas=float(C_L_hist[i]))
+                # LQR: state-feedback + W_hat feed-forward
+                delta = mpc_controller.solve(x_hat, z_hat, W_hat=W_hat_hist[i])
         else:
             delta = 0.0
         delta_hist[i] = delta
