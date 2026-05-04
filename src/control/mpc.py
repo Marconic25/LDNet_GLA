@@ -15,7 +15,7 @@ class MPCController:
                  Q_CL=0.0, Q_CM=0.0, Q_h=0.0, Q_a=0.0,
                  R=1.0, R_du=0.0, N=10, delta_max=20.0,
                  CL_trim=0.0, CM_trim=0.0, Q_dCL=0.0,
-                 use_tf_solver=False):
+                 use_tf_solver=False, ddelta_max=None):
         self.aero_model = aero_model
         self.U_INF      = U_INF
         self.DT         = DT
@@ -35,6 +35,8 @@ class MPCController:
         self.k_prev        = 0.0
         self.u_prev        = np.zeros(N)
         self.delta_applied = 0.0
+        # Hard rate limit: max flap speed [deg/s]. None = no hard limit.
+        self.ddelta_max    = float(ddelta_max) if ddelta_max is not None else None
 
         if use_tf_solver:
             self._tf_u_var     = tf.Variable(np.zeros(N, dtype=np.float64), trainable=True)
@@ -44,9 +46,14 @@ class MPCController:
     def _build_tf_step(self):
         dtype  = tf.float64
         dm     = tf.constant(self.delta_max, dtype=dtype)
+        # ddm: max |Δu| per step = ddelta_max * DT. If None, use 2*dm (no effective limit).
+        _ddm_val = (self.ddelta_max * self.DT) if self.ddelta_max is not None else 2.0 * self.delta_max
+        ddm    = tf.constant(_ddm_val, dtype=dtype)
         U_INF  = tf.constant(self.U_INF, dtype=dtype)
         DT     = tf.constant(self.DT, dtype=dtype)
         q_dyn  = tf.constant(0.5 * 1.225 * self.U_INF**2 * 0.05, dtype=dtype)
+        CL_tr  = tf.constant(float(self.CL_trim), dtype=dtype)
+        CM_tr  = tf.constant(float(self.CM_trim), dtype=dtype)
 
         M_hh = tf.constant(float(M_WING + M_FLAP), dtype=dtype)
         M_aa = tf.constant(float(I_WING + I_FLAP_EA), dtype=dtype)
@@ -84,13 +91,14 @@ class MPCController:
                 u_p = u0_prev
                 CL_p = CL_prev
                 for i in tf.range(N):
-                    u_i = u_cl[i]
+                    # Hard rate clip: u_i ∈ [u_p - ddm, u_p + ddm]
+                    u_i = tf.clip_by_value(u_cl[i], u_p - ddm, u_p + ddm)
                     z, C_L, C_M = aero.step_tf(
                         z, x[0], x[1], x[2], x[3],
                         u_i, W_s[i], U_INF, DT)
                     x   = rk4(x, q_dyn*C_L, q_dyn*C_M)
                     dCL = C_L - CL_p
-                    J   = J + (Q_CL*C_L**2 + Q_CM*C_M**2
+                    J   = J + (Q_CL*C_L**2 + Q_CM*(C_M - CM_tr)**2
                                + Q_h*x[0]**2 + Q_a*x[2]**2
                                + Q_dCL*dCL**2
                                + R*u_i**2 + R_du*(u_i - u_p)**2)
@@ -127,6 +135,12 @@ class MPCController:
                                Q_CL, Q_CM, Q_h, Q_a, Q_dCL, R, R_du)
 
         u_opt = np.clip(self._tf_u_var.numpy(), -dm, dm)
+        # Apply hard rate limit to first element (the one actually sent to plant)
+        if self.ddelta_max is not None:
+            max_step = self.ddelta_max * self.DT
+            u_opt[0] = float(np.clip(u_opt[0],
+                                     self.delta_applied - max_step,
+                                     self.delta_applied + max_step))
         self.u_prev        = u_opt
         self.delta_applied = float(u_opt[0])
         self.k_prev        = float(u_opt[0]) / dm if dm > 0 else 0.0
@@ -184,11 +198,14 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
     from structural.smd import structural_rhs, M_WING, M_FLAP, I_WING, I_FLAP_EA, \
                                 D_H, D_ALPHA, K_H, K_ALPHA, _D_X
 
-    if observer not in ('heuristic', 'ekf', 'true_state'):
+    _VALID_OBSERVERS = ('heuristic', 'ekf', 'ekf_ad', 'ekf_clinv', 'true_state')
+    if observer not in _VALID_OBSERVERS:
         raise ValueError(
-            f"observer must be 'heuristic', 'ekf', or 'true_state'; got {observer!r}")
+            f"observer must be one of {_VALID_OBSERVERS}; got {observer!r}")
     if observer == 'ekf' and kalman_filter is None:
         raise ValueError("observer='ekf' requires a kalman_filter instance")
+    if observer in ('ekf_ad', 'ekf_clinv') and kalman_filter is None:
+        raise ValueError(f"observer={observer!r} requires a kalman_filter (NonlinearEKF) instance")
 
     q_dyn    = 0.5 * 1.225 * U_INF**2 * 0.05
     M_hh     = M_WING + M_FLAP
@@ -221,6 +238,13 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
     if observer == 'ekf':
         xi0 = np.concatenate([x_hat, _z_trim, [0.0]])
         kalman_filter.reset(xi0)
+    elif observer in ('ekf_ad', 'ekf_clinv'):
+        xi0 = np.concatenate([x_hat, _z_trim, [0.0]])
+        kalman_filter.reset(xi0)
+        # CLInversionFusion instance expected in kalman_filter._fusion if present
+        _fusion = getattr(kalman_filter, '_fusion', None)
+        if _fusion is not None:
+            _fusion.reset()
 
     h_hist      = np.zeros(N)
     hd_hist     = np.zeros(N)
@@ -326,6 +350,40 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
             W_hat  = float(xi_hat[5])
             if i + 1 < N:
                 W_hat_hist[i + 1] = W_hat
+
+        elif observer in ('ekf_ad', 'ekf_clinv'):
+            # NonlinearEKF with time-varying AD Jacobians.
+            # Measurements: y = [h_ddot, alpha]  (2-vector, NOT alpha_dot)
+            # h_ddot is the measured vertical acceleration (from the true system
+            # after structural RK4); alpha is read directly from the AoA sensor.
+            y_meas = np.array([h_ddot, x[2]])   # [ḧ_meas, α_meas]
+
+            fusion = getattr(kalman_filter, '_fusion', None)
+            W_inv_arg = None
+            R_W_arg   = None
+
+            if observer == 'ekf_clinv' and fusion is not None:
+                # Provide z_{k} from current EKF estimate (before update) to fusion
+                # so it can use z_{k+1} after update below.
+                z_now = kalman_filter.xi_hat[4:5].copy()
+                # Retrieve inversion result computed at previous step
+                # (fusion.update is called after push_state with previous xi_hat)
+                W_inv_arg, R_W_arg, _valid = fusion.update(z_now)
+                if not _valid:
+                    W_inv_arg = None
+
+            xi_hat = kalman_filter.step(u=delta_prev, y_meas=y_meas,
+                                        W_inv=W_inv_arg, R_W=R_W_arg)
+            x_hat  = xi_hat[:4]
+            z_hat  = xi_hat[4:5]
+            W_hat  = float(xi_hat[5])
+            W_hat_hist[i] = W_hat
+            if i + 1 < N:
+                W_hat_hist[i + 1] = W_hat
+
+            # Register current state for next-step inversion (1-step delay)
+            if observer == 'ekf_clinv' and fusion is not None:
+                fusion.push_state(xi_hat, delta)
 
         else:  # 'true_state'
             x_hat = x.copy()
