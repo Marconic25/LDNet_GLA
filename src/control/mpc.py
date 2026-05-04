@@ -275,10 +275,10 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
                 # MPC: build W_gust_seq over horizon, then optimise
                 if observer != 'true_state':
                     W_now  = W_hat_hist[i]
-                    W_prev = W_hat_hist[i - 1] if i > 0 else W_now
-                    dW_dt  = (W_now - W_prev) / DT
+                    # Exponential decay W_{k+j} = W_now * λ_w^j — consistent
+                    # with the EKF model W_{k+1} = λ_w * W_k used by the observer.
                     steps  = np.arange(mpc_controller.N, dtype=np.float64)
-                    W_gust_seq = np.clip(W_now + dW_dt * steps * DT, 0.0, 80.0)
+                    W_gust_seq = W_now * (0.98 ** steps)
                 else:
                     horizon_idx = np.arange(i, min(i + mpc_controller.N, N))
                     W_gust_seq  = W_gust_arr[horizon_idx]
