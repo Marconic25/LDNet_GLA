@@ -1,0 +1,111 @@
+GUIDA: Eseguire script Python con GPU sul cluster Polimi
+=========================================================
+
+1. CONNESSIONE
+--------------
+- Attiva VPN: gp-dmat-saml.vpn.polimi.it
+- Connettiti: ssh u10677113@10.78.18.100
+- Abilita PBS (prima volta o nuova shell):
+    . /etc/profile.d/pbs.sh
+
+
+2. CONTAINER APPTAINER (invece del venv)
+-----------------------------------------
+Sul cluster NON usare virtualenv per script GPU: le librerie CUDA non vengono
+rilevate. Usa Apptainer con il container TensorFlow già scaricato.
+
+Il container è salvato in:
+    /work/u10677113/tensorflow_gpu.sif
+
+Variabili da settare (aggiungerle a ~/.bashrc per non ripeterle):
+    export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+    export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+
+
+3. JOB NON INTERATTIVO (consigliato per training lungo)
+--------------------------------------------------------
+Crea uno script PBS, ad esempio run_training.pbs:
+
+    #!/bin/bash
+    #PBS -N nome_job
+    #PBS -q gpu
+    #PBS -l select=1:ncpus=4:ngpus=1
+    #PBS -l walltime=08:00:00
+    #PBS -j oe
+    #PBS -o /work/u10677113/output.log
+
+    export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+    export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+
+    apptainer exec --nv --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+        /work/u10677113/tensorflow_gpu.sif \
+        bash -c "pip install matplotlib scipy -q && cd /work/u10677113/cartella/src && python3 script.py"
+
+Sottometti con:
+    qsub run_training.pbs
+
+Monitora:
+    qstat -u u10677113
+    tail -f /work/u10677113/output.log
+
+Cancella un job:
+    qdel <JOBID>
+
+
+4. JOB INTERATTIVO (per test rapidi)
+--------------------------------------
+    qsub -I -q gpu -l select=1:ncpus=2:ngpus=1 -l walltime=01:00:00
+
+Poi dentro il nodo GPU:
+    apptainer exec --nv --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+        /work/u10677113/tensorflow_gpu.sif \
+        bash -c "pip install matplotlib scipy -q && cd /work/u10677113/cartella/src && python3 script.py"
+
+ATTENZIONE: il job interattivo scade. Per training lunghi usa sempre il job batch.
+
+
+5. ATTENZIONI SUL CODICE PYTHON
+---------------------------------
+a) Keras 2.14 vs Keras 3:
+   - Il container usa Keras 2.14.
+   - Se i pesi .h5 sono stati salvati con Keras 3 (formato layers/dense/vars/0)
+     NON sono compatibili. Soluzione: riaddestrare il modello direttamente sul
+     cluster così i pesi vengono salvati nel formato giusto.
+
+b) var.value in TensorFlow:
+   - In Keras 2.14, var.value è un metodo, non una proprietà.
+   - Se il codice usa tape.watch(var.value) o gradient(..., var.value),
+     sostituire con tape.watch(var) e gradient(..., var).
+   - Fix rapida con sed:
+       sed -i 's/tape\.watch(var\.value)/tape.watch(var)/g; \
+               s/var\.value for var in self\.variables/var for var in self.variables/g' \
+               optimization.py
+
+c) Path relativi:
+   - Se lo script usa path relativi (es. ../data/, ../models/), fare sempre
+     il cd nella directory giusta prima di lanciare Python:
+       bash -c "cd /work/u10677113/progetto/src && python3 script.py"
+
+d) Matplotlib / plot:
+   - Sul cluster non c'è display. Usare sempre fig.savefig('output.png')
+     invece di plt.show(). Poi scaricare il file con scp:
+       scp u10677113@10.78.18.100:/work/u10677113/progetto/src/output.png .
+
+
+6. FILESYSTEM
+--------------
+- /home/u10677113   → quota 10GB  — codice, config, piccoli file
+- /work/u10677113   → quota 100GB — dati, modelli, container .sif, risultati
+- /scratch_local    → temporaneo, locale al nodo, veloce — usare per I/O intensivo
+                      (file cancellati dopo 30 giorni, non disponibile su altri nodi)
+- /scratch_global   → temporaneo, condiviso — file cancellati dopo 30 giorni
+
+IMPORTANTE: mettere container .sif e dati sempre in /work, non in /home
+(la quota di /home si esaurisce facilmente con immagini grandi).
+
+
+7. SCARICARE RISULTATI IN LOCALE
+----------------------------------
+Dal tuo PC:
+    scp u10677113@10.78.18.100:/work/u10677113/progetto/src/output.png .
+    scp -r u10677113@10.78.18.100:/work/u10677113/progetto/results/ .

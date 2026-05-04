@@ -106,13 +106,15 @@ def make_lqr(aero_model, z_trim, CL_trim, CM_trim, A_s, B_s):
 
 
 def make_mpc(aero_model, CL_trim, CM_trim):
-    """Build MPC with identical weights to LQR plus smoothing terms."""
+    """Build MPC with identical structural weights to LQR.
+    Q_CL=Q_CM=0: no direct aero penalty, same objective as LQR.
+    The advantage of MPC over LQR comes from the nonlinear model rollout."""
     return MPCController(
         aero_model, U_INF, DT,
         Q_CL=Q_CL, Q_CM=Q_CM,
-        Q_h=Q_H, Q_a=Q_A,       # same structural weights as LQR
+        Q_h=Q_H, Q_a=Q_A,
         Q_dCL=Q_dCL,
-        R=R, R_du=R_du, N=N_HOR,
+        R=R, R_du=R_du, N=80,
         delta_max=20.0, CL_trim=CL_trim, CM_trim=CM_trim,
         use_tf_solver=True, ddelta_max=DDELTA_MAX)
 
