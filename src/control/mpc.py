@@ -15,7 +15,8 @@ class MPCController:
                  Q_CL=0.0, Q_CM=0.0, Q_h=0.0, Q_a=0.0,
                  R=1.0, R_du=0.0, N=10, delta_max=20.0,
                  CL_trim=0.0, CM_trim=0.0, Q_dCL=0.0,
-                 use_tf_solver=False, ddelta_max=None):
+                 use_tf_solver=False, ddelta_max=None,
+                 Q_CL_terminal=0.0, Q_h_terminal=0.0, Q_a_terminal=0.0):
         self.aero_model = aero_model
         self.U_INF      = U_INF
         self.DT         = DT
@@ -26,10 +27,13 @@ class MPCController:
         self.Q_dCL      = Q_dCL
         self.R          = R
         self.R_du       = R_du
-        self.N          = N
-        self.delta_max  = delta_max
-        self.CL_trim    = CL_trim
-        self.CM_trim    = CM_trim
+        self.N              = N
+        self.delta_max      = delta_max
+        self.CL_trim        = CL_trim
+        self.CM_trim        = CM_trim
+        self.Q_CL_terminal  = Q_CL_terminal
+        self.Q_h_terminal   = Q_h_terminal
+        self.Q_a_terminal   = Q_a_terminal
 
         self.use_tf_solver = use_tf_solver
         self.k_prev        = 0.0
@@ -52,8 +56,11 @@ class MPCController:
         U_INF  = tf.constant(self.U_INF, dtype=dtype)
         DT     = tf.constant(self.DT, dtype=dtype)
         q_dyn  = tf.constant(0.5 * 1.225 * self.U_INF**2 * 0.05, dtype=dtype)
-        CL_tr  = tf.constant(float(self.CL_trim), dtype=dtype)
-        CM_tr  = tf.constant(float(self.CM_trim), dtype=dtype)
+        CL_tr  = tf.constant(float(self.CL_trim),       dtype=dtype)
+        CM_tr  = tf.constant(float(self.CM_trim),       dtype=dtype)
+        Q_CLf  = tf.constant(float(self.Q_CL_terminal), dtype=dtype)
+        Q_hf   = tf.constant(float(self.Q_h_terminal),  dtype=dtype)
+        Q_af   = tf.constant(float(self.Q_a_terminal),  dtype=dtype)
 
         M_hh = tf.constant(float(M_WING + M_FLAP), dtype=dtype)
         M_aa = tf.constant(float(I_WING + I_FLAP_EA), dtype=dtype)
@@ -104,12 +111,14 @@ class MPCController:
                                + R*u_i**2 + R_du*(u_i - u_p)**2)
                     u_p  = u_i
                     CL_p = C_L
+                # Terminal cost on final state
+                J = J + Q_CLf*C_L**2 + Q_hf*x[0]**2 + Q_af*x[2]**2
             opt.apply_gradients([(tape.gradient(J, u_var), u_var)])
 
         return adam_step
 
     def solve_tf(self, x_hat, z_hat, W_gust_seq, CL_meas=0.0,
-                 gust_phase=True, n_steps=15):
+                 gust_phase=True, n_steps=30):
         """Adam optimisation on full u-sequence via @tf.function rollout."""
         dtype = tf.float64
         dm    = float(self.delta_max)
