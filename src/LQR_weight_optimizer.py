@@ -63,7 +63,7 @@ EVAL_WINDOW  = GUST_NOM_TG + 0.5   # 1.5 s
 
 # ── CMA-ES settings ───────────────────────────────────────────────────────────
 CMA_SIGMA0   = 0.3
-CMA_MAXITER  = 100
+CMA_MAXITER  = 40
 CMA_POPSIZE  = 8
 CMA_N_WORKERS = 4   # matches ncpus=4 in PBS; set to 1 to disable parallelism
 
@@ -449,7 +449,7 @@ if __name__ == '__main__':
 
     # ── amplitude sweep  (parallelized with ThreadPoolExecutor) ──────────────
     W0_LIST = [20, 40, 60];  T_G_FIX = 1.0
-    TG_LIST = [0.5, 0.75, 1.0, 1.5, 2.0];  W0_FIX = 60.0
+    TG_LIST = [0.5, 0.75];  W0_FIX = 60.0
 
     _KEYS = ['C_L', 'C_M', 'h_ddot', 'a_ddot', 'delta',
              'W_hat', 'W_gust', 'h', 'hd', 'a', 'ad']
