@@ -97,7 +97,8 @@ def run_case(aero_model, z_trim, CL_trim, CM_trim, xi_trim,
         observer='ekf_ad', kalman_filter=ekf)
 
 
-def sensitivity_fig(t, results_list, factors, param_label, res_ol, fname):
+def sensitivity_fig(t, results_list, factors, param_label, res_ol,
+                    CL_trim, CM_trim, fname):
     """C_L(t) and C_M(t) families + open-loop reference."""
     n = len(factors)
     colors = plt.cm.plasma(np.linspace(0.1, 0.85, n))
@@ -107,21 +108,22 @@ def sensitivity_fig(t, results_list, factors, param_label, res_ol, fname):
                  f'$W_0={GUST_W0}$ m/s,  $T_g={GUST_TG}$ s  '
                  f'(dashed = open loop)', fontsize=11)
 
-    # open-loop reference
-    for ax, key in [(axes[0], 'C_L'), (axes[1], 'C_M')]:
-        ax.plot(t, res_ol[key], color='steelblue', lw=1.8, ls='--',
+    # open-loop reference (deviations from trim)
+    for ax, key, trim_val in [(axes[0], 'C_L', CL_trim),
+                               (axes[1], 'C_M', CM_trim)]:
+        ax.plot(t, res_ol[key] - trim_val, color='steelblue', lw=1.8, ls='--',
                 alpha=0.7, label='Open loop', zorder=3)
 
     for i, (res, fac) in enumerate(zip(results_list, factors)):
         mk = _MARKERS[i % len(_MARKERS)]
         kw = dict(color=colors[i], lw=1.3, marker=mk,
                   markevery=_MARKEVERY, label=f'×{fac:g}')
-        axes[0].plot(t, res['C_L'], **kw)
-        axes[1].plot(t, res['C_M'], **kw)
+        axes[0].plot(t, res['C_L'] - CL_trim, **kw)
+        axes[1].plot(t, res['C_M'] - CM_trim, **kw)
 
     for ax, ylabel, title in [
-            (axes[0], '$C_L$', 'Lift coefficient'),
-            (axes[1], '$C_M$', 'Pitching moment coefficient')]:
+            (axes[0], r'$\Delta C_L$  (deviation from trim)', 'Lift coefficient'),
+            (axes[1], r'$\Delta C_M$  (deviation from trim)', 'Pitching moment coefficient')]:
         ax.axhline(0, color='k', ls=':', lw=0.5)
         ax.set_xlabel('t [s]')
         ax.set_ylabel(ylabel)
@@ -171,9 +173,9 @@ if __name__ == '__main__':
         gust_profile=make_gust(GUST_W0, GUST_TG),
         observer='true_state')
     t = res_ol['t']
-    pk_CL_ol = float(np.abs(res_ol['C_L']).max())
-    pk_CM_ol = float(np.abs(res_ol['C_M']).max())
-    print(f"  OL: pk_CL={pk_CL_ol:.4f}  pk_CM={pk_CM_ol:.4f}")
+    pk_CL_ol = float(np.abs(res_ol['C_L'] - CL_trim).max())
+    pk_CM_ol = float(np.abs(res_ol['C_M'] - CM_trim).max())
+    print(f"  OL: pk_ΔCL={pk_CL_ol:.4f}  pk_ΔCM={pk_CM_ol:.4f}")
 
     rows = []
 
@@ -191,11 +193,12 @@ if __name__ == '__main__':
             try:
                 res = run_case(aero_model, z_trim, CL_trim, CM_trim, xi_trim,
                                A_s, B_s, JAC, A_ekf, C_ekf, **w)
-                pk_CL = float(np.abs(res['C_L']).max())
-                pk_CM = float(np.abs(res['C_M']).max())
+                pk_CL = float(np.abs(res['C_L'] - CL_trim).max())
+                pk_CM = float(np.abs(res['C_M'] - CM_trim).max())
                 stable = np.isfinite(res['C_L']).all() and pk_CL < 5.0
-                print(f"pk_CL={pk_CL:.4f}  pk_CM={pk_CM:.4f}"
+                print(f"pk_ΔCL={pk_CL:.4f}  pk_ΔCM={pk_CM:.4f}"
                       + ("  [UNSTABLE]" if not stable else ""))
+
                 results_list.append(res if stable else res_ol)
             except Exception as e:
                 print(f"FAILED ({e})")
@@ -207,6 +210,7 @@ if __name__ == '__main__':
                              peak_CL=pk_CL, peak_CM=pk_CM))
 
         sensitivity_fig(t, results_list, FACTORS, param_label, res_ol,
+                        CL_trim, CM_trim,
                         OUT_DIR / f'fig_sens_{param_name}.png')
 
     # ── save table ────────────────────────────────────────────────────────────
@@ -230,8 +234,8 @@ if __name__ == '__main__':
         axes[1].plot(sub['factor'], sub['peak_CM'], **kw)
 
     for ax, pk_ol, ylabel in [
-            (axes[0], pk_CL_ol, 'peak $|C_L|$'),
-            (axes[1], pk_CM_ol, 'peak $|C_M|$')]:
+            (axes[0], pk_CL_ol, r'peak $|\Delta C_L|$'),
+            (axes[1], pk_CM_ol, r'peak $|\Delta C_M|$')]:
         ax.axhline(pk_ol, color='steelblue', ls='--', lw=1.5,
                    label='Open loop')
         ax.set_xscale('log')
