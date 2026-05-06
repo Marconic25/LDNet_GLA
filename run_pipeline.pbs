@@ -1,0 +1,35 @@
+#!/bin/bash
+#PBS -N LDNet_pipeline
+#PBS -q gpu
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/pipeline.log
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+
+WORKDIR=/work/u10677113/LDNet_GLA
+
+apptainer exec --nv --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "
+        set -e
+        pip install scipy matplotlib cma pandas -q
+
+        echo '========================================'
+        echo 'STEP 1 — Training LDNet (TestCase_OF.py)'
+        echo '========================================'
+        cd ${WORKDIR}/src
+        python3 TestCase_OF.py
+
+        echo ''
+        echo '========================================'
+        echo 'STEP 2 — LQR optimization + sweeps'
+        echo '========================================'
+        cd ${WORKDIR}/src
+        python3 lqr_weight_optimizer.py
+
+        echo ''
+        echo 'Pipeline complete.'
+    "

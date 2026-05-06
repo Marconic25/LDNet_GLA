@@ -163,8 +163,9 @@ def make_gust(W0, T_g):
     return g
 
 
-def build_lqr(theta, aero_model, z_trim, CL_trim, CM_trim):
-    """Build LQRController from log-space parameter vector θ."""
+def build_lqr(theta, aero_model, z_trim, CL_trim, CM_trim, jac=None):
+    """Build LQRController from log-space parameter vector θ.
+    Pass jac=(A_d,B_d,C_y,D_y,B_w) to skip redundant AD call."""
     Q_H, Q_A, Q_CL, Q_CM, R = np.exp(theta)
     Q_lqr = np.diag([Q_H, 0., Q_A, 0., 0.])
     Q_y   = np.diag([Q_CL, Q_CM])
@@ -173,13 +174,15 @@ def build_lqr(theta, aero_model, z_trim, CL_trim, CM_trim):
         x_trim=np.zeros(4), z_trim=z_trim,
         Q_lqr=Q_lqr, R_lqr=np.array([[R]]),
         CL_trim=CL_trim, CM_trim=CM_trim,
-        Q_y=Q_y, Q_w=Q_W_FIXED, lambda_w=LAMBDA_W, delta_max=20.0)
+        Q_y=Q_y, Q_w=Q_W_FIXED, lambda_w=LAMBDA_W, delta_max=20.0,
+        precomputed_jacobians=jac)
     return lqr
 
 
-def build_ekf(aero_model, xi_trim):
-    """Fresh NonlinearEKF instance."""
-    return NonlinearEKF(aero_model, U_INF, DT, xi_trim, lambda_w=LAMBDA_W)
+def build_ekf(aero_model, xi_trim, A_trim=None, C_trim=None):
+    """Fresh NonlinearEKF instance. Pass A_trim/C_trim to skip redundant AD call."""
+    return NonlinearEKF(aero_model, U_INF, DT, xi_trim, lambda_w=LAMBDA_W,
+                        A_trim=A_trim, C_trim=C_trim)
 
 
 def run_sim(controller, aero_model, A_s, B_s, xi_trim, gust_fn, observer):
@@ -215,8 +218,8 @@ def evaluate(theta, aero_model, z_trim, CL_trim, CM_trim, xi_trim, A_s, B_s):
     On divergence returns (10.0, nan, nan, nan).
     """
     try:
-        lqr = build_lqr(theta, aero_model, z_trim, CL_trim, CM_trim)
-        ekf = build_ekf(aero_model, xi_trim)
+        lqr = build_lqr(theta, aero_model, z_trim, CL_trim, CM_trim, jac=_JAC)
+        ekf = build_ekf(aero_model, xi_trim, A_trim=_A_ekf, C_trim=_C_ekf)
         ekf.reset(xi_trim)
         gust_fn = make_gust(GUST_NOM_W0, GUST_NOM_TG)
         res = run_mpc_simulation(
@@ -271,6 +274,15 @@ z_trim, CL_trim, CM_trim, xi_trim = compute_trim(aero_model)
 print(f"  Trim: CL={CL_trim:.5f}  CM={CM_trim:.5f}")
 
 A_s, B_s, _, _ = get_space_state_matrices()
+
+# Pre-compute Jacobians once — reused by every LQR and EKF build during CMA-ES
+from control.lqr           import compute_jacobians
+from control.ekf_augmented import _compute_ekf_jacobians
+print("Pre-computing trim Jacobians (done once, shared across all evaluations)...")
+_JAC = compute_jacobians(aero_model, np.zeros(4), z_trim, U_INF, DT, CL_trim, CM_trim)
+_A_d, _B_d, _C_y, _D_y, _B_w = _JAC
+_A_ekf, _C_ekf = _compute_ekf_jacobians(aero_model, xi_trim, U_INF, DT, LAMBDA_W)
+print("  Done.")
 
 theta0 = np.log([Q_H_BASE, Q_A_BASE, Q_CL_BASE, Q_CM_BASE, R_BASE])
 print(f"\nBaseline weights:")
@@ -386,12 +398,12 @@ def run_sweep_case(label, theta, aero_model, z_trim, CL_trim, CM_trim,
         ctrl     = _ZeroController(z_trim)
         observer = 'true_state'
     else:
-        ctrl     = build_lqr(theta, aero_model, z_trim, CL_trim, CM_trim)
+        ctrl     = build_lqr(theta, aero_model, z_trim, CL_trim, CM_trim, jac=_JAC)
         observer = 'ekf_ad'
 
     ekf = None
     if observer == 'ekf_ad':
-        ekf = build_ekf(aero_model, xi_trim)
+        ekf = build_ekf(aero_model, xi_trim, A_trim=_A_ekf, C_trim=_C_ekf)
         ekf.reset(xi_trim)
 
     return run_mpc_simulation(

@@ -81,14 +81,18 @@ class LQRController:
 
     def __init__(self, aero_model, U_INF, DT, x_trim, z_trim,
                  Q_lqr, R_lqr, CL_trim=0.0, CM_trim=0.0,
-                 Q_y=None, Q_w=0.0, lambda_w=0.98, delta_max=20.0):
+                 Q_y=None, Q_w=0.0, lambda_w=0.98, delta_max=20.0,
+                 precomputed_jacobians=None):
         self.x_trim    = x_trim.copy()
         self.z_trim    = z_trim.copy()
         self.delta_max = delta_max
 
-        print("  Computing Jacobians at trim...")
-        A_d, B_d, C_y, D_y, B_w = compute_jacobians(
-            aero_model, x_trim, z_trim, U_INF, DT, CL_trim, CM_trim)
+        if precomputed_jacobians is not None:
+            A_d, B_d, C_y, D_y, B_w = precomputed_jacobians
+        else:
+            print("  Computing Jacobians at trim...")
+            A_d, B_d, C_y, D_y, B_w = compute_jacobians(
+                aero_model, x_trim, z_trim, U_INF, DT, CL_trim, CM_trim)
 
         # Augment system with W state: ξ_aug = [ξ(5), W(1)]
         # ξ_{k+1} = A_d @ ξ_k + B_d @ u + B_w * W_k
