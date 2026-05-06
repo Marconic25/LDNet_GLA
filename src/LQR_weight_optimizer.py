@@ -281,6 +281,60 @@ def _summary_fig(df, x_col, x_label, fname):
     print(f"[OK] {fname.name}")
 
 
+# Markers cycle for parametric curves (one per W0 or T_g value)
+_MARKERS = ['+', 'o', '*', 's', 'x', 'D', '^', 'v', '>']
+
+
+def _family_fig_amplitude(npz, t, W0_list, fname):
+    """
+    Two-panel figure: left = C_L(t) family by W0 (open loop),
+                      right = C_L(t) family by W0 (LQR opt).
+    Style inspired by gust-sweep literature plots.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    fig.suptitle('$C_L$ time histories — amplitude sweep', fontsize=13)
+
+    for ax, ctrl_key, title in [
+            (axes[0], 'open_loop', 'Open loop'),
+            (axes[1], 'lqr_opt',  'LQR optimized')]:
+        for i, W0 in enumerate(sorted(W0_list)):
+            mk = _MARKERS[i % len(_MARKERS)]
+            cl = npz[f'W{W0}_{ctrl_key}_C_L']
+            ax.plot(t, cl, marker=mk, markevery=30, lw=1.2,
+                    label=f'$W_0={W0}$ m/s')
+        ax.set_xlabel('t [s]'); ax.set_ylabel('$C_L$')
+        ax.set_title(title, fontsize=11)
+        ax.grid(True, alpha=0.25); ax.legend(fontsize=8)
+
+    fig.tight_layout(); fig.savefig(fname, dpi=150); plt.close(fig)
+    print(f"[OK] {fname.name}")
+
+
+def _family_fig_duration(npz, t, Tg_list, W0_fix, fname):
+    """
+    Two-panel figure: left = C_L(t) family by T_g (open loop),
+                      right = C_L(t) family by T_g (LQR opt).
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    fig.suptitle('$C_L$ time histories — duration sweep', fontsize=13)
+
+    for ax, ctrl_key, title in [
+            (axes[0], 'open_loop', 'Open loop'),
+            (axes[1], 'lqr_opt',  'LQR optimized')]:
+        for i, T_g in enumerate(sorted(Tg_list)):
+            mk = _MARKERS[i % len(_MARKERS)]
+            tag = int(round(T_g * 100))
+            cl = npz[f'Tg{tag}_{ctrl_key}_C_L']
+            ax.plot(t, cl, marker=mk, markevery=30, lw=1.2,
+                    label=f'$T_g={T_g}$ s')
+        ax.set_xlabel('t [s]'); ax.set_ylabel('$C_L$')
+        ax.set_title(title, fontsize=11)
+        ax.grid(True, alpha=0.25); ax.legend(fontsize=8)
+
+    fig.tight_layout(); fig.savefig(fname, dpi=150); plt.close(fig)
+    print(f"[OK] {fname.name}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 8 — Set B figures
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -502,6 +556,16 @@ if __name__ == '__main__':
                  'W0', '$W_0$ [m/s]', RESULTS_DIR / 'fig_sweep_amplitude_summary.png')
     _summary_fig(pd.read_csv(RESULTS_DIR / 'sweep_duration.csv'),
                  'T_g', '$T_g$ [s]', RESULTS_DIR / 'fig_sweep_duration_summary.png')
+
+    # ── Set A family curves (C_L time histories, parametric style) ────────────
+    print("Generating C_L family figures...")
+    _t = np.linspace(0.0, T_END, int(T_END / DT) + 1)
+    _family_fig_amplitude(
+        np.load(RESULTS_DIR / 'sweep_amplitude_timeseries.npz'), _t,
+        W0_LIST, RESULTS_DIR / 'fig_sweep_amplitude_CL_family.png')
+    _family_fig_duration(
+        np.load(RESULTS_DIR / 'sweep_duration_timeseries.npz'), _t,
+        TG_LIST, W0_FIX, RESULTS_DIR / 'fig_sweep_duration_CL_family.png')
 
     # ── Set B figures ─────────────────────────────────────────────────────────
     print("\nGenerating Set B time-series figures...")

@@ -31,49 +31,362 @@
 \begin{document}
 \maketitle
 
+% ================================================================
 \subsection{Closed-Loop Results with LQR}
-%Time histories of plunge, pitch and flap deflection under LQR control, comparison with the open-loop baseline, sensitivity to Q/R weights, discussion of trade-off between oscillation reduction and control effort.
+% ================================================================
 
-Gust load alleviation (GLA) aims to reduce the structural response of an
-aeroelastic system to atmospheric disturbances through active flap deflection.
-Model Predictive Control (MPC) provides excellent performance by rolling out
-an explicit nonlinear preview over a receding horizon, but requires solving an
-online optimisation at every timestep.
-Linear Quadratic Regulator (LQR) offers an attractive alternative: the optimal
-feedback gain is computed offline once, at the expense of restricting
-optimality to the neighbourhood of the trim point.
+The primary objective of gust load alleviation (GLA) is to reduce the peak
+lift coefficient $C_L$ that arises when a 1-cosine gust strikes the wing.
+The $C_L$ spike drives aerodynamic loads and, through the structural equations
+of motion, excites heave and pitch oscillations; attenuating it at the source
+therefore suppresses both aerodynamic and structural responses simultaneously.
+The control actuator is a single trailing-edge flap with deflection $\delta$,
+commanded in real time.
 
-The plant considered here is the \emph{LDNet} model---a data-driven aeroelastic
-emulator that couples a two-degree-of-freedom (2-DOF) structural wing with a
-neural-network aerodynamic surrogate.
-Because the aerodynamic model is a trained neural network, closed-form
-Jacobians are unavailable; they are instead obtained through \emph{automatic
-differentiation} (AD) of the full discrete-time propagator.
-The resulting linearised system is then used to solve the Discrete Algebraic
-Riccati Equation (DARE) and extract the optimal gain matrix $\mK$.
+Linear Quadratic Regulator (LQR) is chosen as the control strategy.
+Compared with Model Predictive Control (MPC), which solves a constrained
+nonlinear optimisation at every timestep, LQR computes the optimal feedback
+gain $\mK$ \emph{offline once} by solving a Discrete Algebraic Riccati Equation
+(DARE); the online computational cost is then a single matrix--vector product.
+Optimality is guaranteed in the neighbourhood of the linearisation point (trim),
+which is sufficient for the moderate gust intensities considered here.
+
+The plant is the \emph{LDNet} model---a data-driven aeroelastic emulator that
+couples a two-degree-of-freedom (2-DOF) structural wing with a neural-network
+aerodynamic surrogate.
+Because the aerodynamic model is a trained neural network, closed-form Jacobians
+of the discrete-time propagator are unavailable; they are obtained exactly via
+\emph{automatic differentiation} (AD) of the full propagator, with no finite
+differences and no truncation error.
+These Jacobians feed directly into the DARE to yield the optimal gain and, via
+the dual Riccati equation, the steady-state Kalman gain for the observer.
+
+The rest of this section is organised as follows.
+Section~\ref{sec:model} introduces the plant and trim condition.
+Section~\ref{sec:jacobian} derives the Jacobian linearisation via AD.
+Section~\ref{sec:lqr} formulates the cost function---with $C_L$ as the primary
+target---and solves the DARE for the optimal gain $\mK$.
+Section~\ref{sec:lqr_arch} presents the block diagram and the per-timestep
+online loop that assembles these offline components.
+Section~\ref{sec:ekf} details the Extended Kalman Filter observer.
+Section~\ref{sec:results} presents closed-loop simulation results.
 
 % ================================================================
-\subsubsection{LQR Architecture and Role of the Observer}
+\subsubsection{Aeroelastic Model and Trim Condition}
+\label{sec:model}
+% ================================================================
+
+\paragraph{Structural dynamics.}
+The wing is modelled as a rigid section with two degrees of freedom: heave
+displacement $h$ (positive downward) and pitch angle $\alpha$ (positive
+nose-up).
+Aerodynamic forces are transmitted to the structure via a trailing-edge flap
+with deflection angle $\delta$.
+The equations of motion in coupled form are
+\begin{equation}
+  \begin{bmatrix} M_{hh} & M_{h\alpha} \\ M_{h\alpha} & M_{\alpha\alpha} \end{bmatrix}
+  \begin{bmatrix} \ddot{h} \\ \ddot{\alpha} \end{bmatrix}
+  =
+  \begin{bmatrix} -F_y - D_h\dot{h} - K_h h \\ M_z - D_\alpha\dot{\alpha} - K_\alpha\alpha \end{bmatrix},
+  \label{eq:eom}
+\end{equation}
+where $F_y = q_\infty C_L$ and $M_z = q_\infty C_M$ are the aerodynamic lift
+force and pitching moment, $q_\infty = \tfrac{1}{2}\rho U_\infty^2 S$ is the
+dynamic pressure ($S = 0.05\,\text{m}^2$, $\rho = 1.225\,\text{kg/m}^3$), and
+the inertial coupling arises from the off-centre flap mass.
+
+\paragraph{Neural aerodynamic surrogate (LDNet).}
+The aerodynamic coefficients $C_L$ and $C_M$ are produced by a recurrent
+neural network with a scalar latent state $z \in \mathbb{R}$:
+\begin{align}
+  z_{k+1} &= z_k + \frac{\Delta t}{\Delta t_{\rm ref}}\,
+             f_{\rm dyn}(z_k, h_k, \dot{h}_k, \alpha_k, \dot{\alpha}_k,
+                         \delta_k, W_k;\,\theta_d),
+  \label{eq:zdyn}\\
+  \begin{bmatrix} C_L \\ C_M \end{bmatrix}_k
+             &= f_{\rm rec}(z_k, h_k, \dot{h}_k, \alpha_k, \dot{\alpha}_k,
+                            \delta_k;\,\theta_r),
+  \label{eq:yrec}
+\end{align}
+where $W_k$ is the gust velocity, $f_{\rm dyn}$ is a shallow MLP (7-7-1), and
+$f_{\rm rec}$ is a deeper network (24-24-24-24-2).
+Both networks are kept frozen during control design.
+The full state concatenates structural and latent variables:
+\begin{equation}
+  \vxi_k = \bigl[h_k,\;\dot{h}_k,\;\alpha_k,\;\dot{\alpha}_k,\;z_k\bigr]^\top
+  \in \mathbb{R}^5.
+\end{equation}
+The combined structural integrator and aerodynamic network define the
+discrete-time propagator
+\begin{equation}
+  \vxi_{k+1} = F(\vxi_k,\, u_k),
+  \label{eq:propagator}
+\end{equation}
+where $F$ advances $z$ via $f_{\rm dyn}$ and the structural state via a
+fourth-order Runge--Kutta (RK4) scheme driven by the aerodynamic forces from
+$f_{\rm rec}$.
+
+\paragraph{Trim condition.}
+The trim point is defined at $U_\infty = 75\,\text{m/s}$, zero gust, and zero
+structural displacement: $\vxi_{\rm tr} = [0,0,0,0,z_{\rm tr}]^\top$,
+$\delta_{\rm tr} = 0$.
+The latent state $z_{\rm tr}$ is obtained by running 200 warm-up steps of
+\eqref{eq:zdyn} from $z_0 = 0$ with all inputs zero, yielding
+$z_{\rm tr} \approx -0.46$ and $C_{L,\rm tr} \approx 0.035$,
+$C_{M,\rm tr} \approx 0.031$.
+No exact fixed point exists for this network (the residual of a
+Levenberg--Marquardt solve is $\approx 0.8$), so the warm-up value is used as
+the practical trim; the resulting control bias is $|\Delta\delta| \lesssim 0.6^\circ$
+($3\%$ of the $\pm20^\circ$ actuator range) and has negligible effect on
+closed-loop performance.
+
+% ================================================================
+\subsubsection{Jacobian Linearisation via Automatic Differentiation}
+\label{sec:jacobian}
+% ================================================================
+
+Linearising \eqref{eq:propagator} and the aerodynamic output map around the
+trim point $(\vxi_{\rm tr}, 0)$, and including the sensitivity to the gust
+velocity $W$, yields the discrete-time LTI system
+\begin{equation}
+  \delta\vxi_{k+1} = \mA_d\,\delta\vxi_k + \mB_d\,\delta u_k + \mathbf{b}_w\,W_k,
+  \qquad
+  \delta\vy_k = \mC_y\,\delta\vxi_k + \mD_y\,\delta u_k,
+  \label{eq:lti}
+\end{equation}
+where $\delta\vxi = \vxi - \vxi_{\rm tr}$, $\delta u = u - u_{\rm tr}$, and
+\begin{equation}
+  \mA_d = \frac{\partial F}{\partial \vxi}\bigg|_{\rm tr} \in \mathbb{R}^{5\times5},\quad
+  \mB_d = \frac{\partial F}{\partial u}\bigg|_{\rm tr} \in \mathbb{R}^{5\times1},\quad
+  \mathbf{b}_w = \frac{\partial F}{\partial W}\bigg|_{\rm tr} \in \mathbb{R}^{5},
+  \label{eq:jacobians}
+\end{equation}
+\begin{equation}
+  \mC_y = \frac{\partial g}{\partial \vxi}\bigg|_{\rm tr} \in \mathbb{R}^{2\times5},\quad
+  \mD_y = \frac{\partial g}{\partial u}\bigg|_{\rm tr} \in \mathbb{R}^{2\times1}.
+  \label{eq:jacobians_out}
+\end{equation}
+Because $F$ passes through the LDNet weights, closed-form expressions for these
+partial derivatives are unavailable.
+All five matrices are instead obtained analytically---without finite
+differences---by \emph{reverse-mode automatic differentiation} (AD) applied to
+the full discrete-time map
+\begin{equation}
+  \Phi : (\vxi,\, u,\, W) \;\longmapsto\;
+  \bigl[\,F(\vxi, u, W)^\top,\;\; g(\vxi, u)^\top\,\bigr]^\top
+  \in \mathbb{R}^{7},
+  \label{eq:Phi}
+\end{equation}
+evaluated at the trim point.
+Stacking state and output maps into $\Phi \in \mathbb{R}^7$ allows all five
+Jacobian matrices to be obtained in a single AD call.
+
+Both the RK4 integrator and the two neural-network sub-networks ($f_{\rm dyn}$,
+$f_{\rm rec}$) are finite compositions of differentiable primitives---affine
+layers and element-wise activations---so $\Phi$ can be written as
+\begin{equation}
+  \Phi(\vxi, u, W)
+  = \phi_K \circ \phi_{K-1} \circ \cdots \circ \phi_1(\vxi, u, W).
+  \label{eq:chain}
+\end{equation}
+Each primitive $\phi_k$ has a trivially computable Jacobian: $\mathbf{J}_k =
+\mathbf{W}_k$ for an affine layer, and $\mathbf{J}_k =
+\operatorname{diag}(\sigma'(x_1),\ldots,\sigma'(x_n))$ for an element-wise
+activation.
+The right-hand side $\bm{g}$ of the structural ODE is linear in the structural
+state, so RK4 sub-steps are affine operations in the AD graph and require no
+special treatment.
+To compute the $i$-th row of the full Jacobian, reverse-mode AD performs one
+forward pass to record the computational graph and one backward pass that
+accumulates the adjoint vector via the transpose chain rule:
+\begin{equation}
+  \bar{\mathbf{v}}_{k-1} = \mathbf{J}_k^\top\,\bar{\mathbf{v}}_k,
+  \qquad \bar{\mathbf{v}}_K = \mathbf{e}_i.
+  \label{eq:adjoint}
+\end{equation}
+Repeating for each of the 7 outputs of $\Phi$ yields all five matrices exactly,
+at the cost of 7 backward passes---with no truncation error, unlike finite
+differences.
+The gust-input vector $\mathbf{b}_w$ is obtained by treating $W$ as an
+additional \texttt{tf.Variable} inside the same tape, at no extra cost.
+
+The open-loop eigenvalues $\lambda_i(\mA_d)$ all satisfy $|\lambda_i| < 1$,
+confirming asymptotic stability at trim, albeit with low modal damping
+($|\lambda_i| \approx 0.97$--$0.99$ for the aeroelastic modes).
+
+% ================================================================
+\subsubsection{LQR Design: Cost Function, Augmented State, and DARE}
+\label{sec:lqr}
+% ================================================================
+
+\paragraph{Primary objective: $C_L$ peak reduction.}
+The cost function is designed so that the $C_L$ peak is the primary penalised
+quantity.
+By expressing the aerodynamic deviation from trim as
+$\delta\vy_k \approx \mC_y\,\delta\vxi_k$,
+penalising $\delta\vxi$ with the matrix $\mC_y^\top \mQ_y \mC_y$ is equivalent
+(to first order) to penalising $\Delta C_L^2$ and $\Delta C_M^2$ directly.
+The structural states $h$ and $\alpha$ are penalised separately, so their
+oscillations are suppressed as a secondary objective.
+
+\paragraph{Gust-augmented state and system.}
+To exploit the estimated gust velocity $\hat{W}_k$ as a feed-forward signal,
+the state vector is extended with a gust state governed by a first-order
+exponential decay:
+\begin{equation}
+  W_{k+1} = \lambda_w\, W_k, \qquad \lambda_w = 0.98,
+  \label{eq:gust_model}
+\end{equation}
+giving the augmented state $\tilde{\vxi}_k = [\vxi_k^\top,\, W_k]^\top
+\in \mathbb{R}^6$ and the augmented system
+\begin{equation}
+  \tilde{\vxi}_{k+1}
+  =
+  \underbrace{\begin{bmatrix} \mA_d & \mathbf{b}_w \\ \mathbf{0}^\top & \lambda_w \end{bmatrix}}_{\tilde{\mA} \in \mathbb{R}^{6\times6}}
+  \tilde{\vxi}_k
+  +
+  \underbrace{\begin{bmatrix} \mB_d \\ 0 \end{bmatrix}}_{\tilde{\mB} \in \mathbb{R}^{6\times1}}
+  \delta_k.
+  \label{eq:aug_sys}
+\end{equation}
+The gust-input column $\mathbf{b}_w$ appears in the top-right block of
+$\tilde{\mA}$, so the DARE automatically infers the optimal feed-forward gain
+on the estimated gust without any manual tuning.
+
+\paragraph{Cost function.}
+The infinite-horizon cost over the augmented state is
+\begin{equation}
+  J = \sum_{k=0}^{\infty}
+      \Bigl[\tilde{\vxi}_k^\top \tilde{\mQ}\,\tilde{\vxi}_k
+           + \delta u_k^\top \mR_{\rm aug}\,\delta u_k\Bigr],
+  \label{eq:cost}
+\end{equation}
+where $\tilde{\mQ} \in \mathbb{R}^{6\times6}$ is block-diagonal:
+\begin{equation}
+  \tilde{\mQ} = \begin{bmatrix} \mQ_{\rm aug} & \mathbf{0} \\ \mathbf{0}^\top & Q_w \end{bmatrix},
+  \qquad
+  \mQ_{\rm aug} = \mQ + \mC_{y,6}^\top \mQ_y \mC_{y,6},
+  \quad
+  \mR_{\rm aug} = \mR + \mD_y^\top \mQ_y \mD_y,
+  \label{eq:augmented}
+\end{equation}
+with $\mC_{y,6} = [\mC_y\;\mathbf{0}] \in \mathbb{R}^{2\times6}$ the output
+Jacobian padded with a zero column for the $W$ state.
+Expanding the state cost makes the $C_L$ intent explicit:
+\begin{equation}
+  \tilde{\vxi}_k^\top \mQ_{\rm aug}\, \tilde{\vxi}_k
+  = \tilde{\vxi}_k^\top \mQ\, \tilde{\vxi}_k
+  + \underbrace{(\mC_{y,6}\,\tilde{\vxi}_k)^\top \mQ_y\, (\mC_{y,6}\,\tilde{\vxi}_k)}_{%
+      \approx\; Q_{y,L}\,\Delta C_L^2 + Q_{y,M}\,\Delta C_M^2},
+  \label{eq:cost_expand}
+\end{equation}
+so $\mQ_y$ adds a direct cost on $\Delta C_L$ and $\Delta C_M$ deviations,
+independently of whether they arise from structural motion or from the gust
+acting on a near-stationary wing.
+
+The weight values used in this work are
+\begin{equation}
+  \mQ = \operatorname{diag}\!\left(\frac{1}{0.00428^2},\,0,\,\frac{5}{0.00823^2},\,0,\,0\right),
+  \quad
+  \mR = \left[\frac{1}{0.5^2}\right],
+  \label{eq:weights}
+\end{equation}
+normalised by the expected peak amplitudes of $h$ and $\alpha$ under a
+$60\,\text{m/s}$ gust.
+Setting $\mQ_y = 0$ in the baseline results does \emph{not} mean that $C_L$ is
+ignored: the state penalty $\mQ$ penalises $h$ and $\alpha$, and since
+$C_L \approx C_{L,\rm tr} + \mC_y\delta\vxi$, reducing structural oscillations
+indirectly attenuates the $C_L$ deviation.
+The direct $\mQ_y$ penalty becomes useful when aerodynamic loads matter in their
+own right (e.g.\ certification limits on $C_M$), at the price of larger flap
+effort.
+No gust penalty is applied ($Q_w = 0$): the DARE infers the feed-forward gain
+$K_w$ entirely through $\mathbf{b}_w$ in $\tilde{\mA}$.
+
+\paragraph{Discrete Algebraic Riccati Equation.}
+The unique positive semi-definite solution $\mP$ of the $6\times6$ DARE
+\begin{equation}
+  \mP = \tilde{\mQ}
+        + \tilde{\mA}^\top \mP \tilde{\mA}
+        - \tilde{\mA}^\top \mP \tilde{\mB}
+          \bigl(\mR_{\rm aug} + \tilde{\mB}^\top \mP \tilde{\mB}\bigr)^{-1}
+          \tilde{\mB}^\top \mP \tilde{\mA}
+  \label{eq:dare}
+\end{equation}
+is the \emph{value function} of the LQR problem: $J^* =
+\tilde{\vxi}_0^\top \mP\, \tilde{\vxi}_0$ for any initial condition
+$\tilde{\vxi}_0$.
+A large eigenvalue of $\mP$ along a particular mode means that deviations in
+that direction accumulate high future cost and should be corrected aggressively.
+
+Because \eqref{eq:dare} is a fixed-point equation quadratic in $\mP$, naive
+iteration diverges for lightly-damped systems.
+The standard approach reformulates it as finding the stable invariant subspace
+of the $12\times12$ symplectic pencil
+\begin{equation}
+  \mathbf{H} =
+  \begin{bmatrix}
+    \tilde{\mA} & \tilde{\mB}\mR_{\rm aug}^{-1}\tilde{\mB}^\top \\
+    -\tilde{\mQ} & -\tilde{\mA}^{-\top}
+  \end{bmatrix},
+  \label{eq:symplectic}
+\end{equation}
+whose $2n = 12$ eigenvalues come in reciprocal pairs $(\lambda_i, 1/\lambda_i)$,
+so exactly $n = 6$ lie inside the unit disk.
+The \texttt{scipy.linalg.solve\_discrete\_are} solver computes a Schur
+decomposition $\mathbf{H} = \mathbf{Z}\mathbf{T}\mathbf{Z}^\top$, reorders it
+so the stable eigenvectors appear first, and partitions the leading $n$ columns
+as $[U_1^\top, U_2^\top]^\top$ to give
+\begin{equation}
+  \mP = U_2\, U_1^{-1}.
+  \label{eq:P_schur}
+\end{equation}
+For the $6\times6$ system considered here the solve is instantaneous and
+performed once at design time.
+
+\paragraph{Optimal gain and control law.}
+The gain is extracted from $\mP$ via
+\begin{equation}
+  \mK = \bigl(\mR_{\rm aug} + \tilde{\mB}^\top \mP\, \tilde{\mB}\bigr)^{-1}
+        \tilde{\mB}^\top \mP\, \tilde{\mA},
+  \label{eq:gain_formula}
+\end{equation}
+and partitions naturally into two blocks:
+\begin{equation}
+  \delta_k = -\mK_\xi\,\hat{\vxi}_k - K_w\,\hat{W}_k
+  = -K_{\xi,1}\hat{h}
+    - K_{\xi,2}\hat{\dot{h}}
+    - K_{\xi,3}\hat{\alpha}
+    - K_{\xi,4}\hat{\dot{\alpha}}
+    - K_{\xi,5}\hat{z}
+    - K_w\hat{W}_k.
+  \label{eq:law_expanded}
+\end{equation}
+The feedback block $\mK_\xi \in \mathbb{R}^{1\times5}$ reacts to structural
+deviations that have already developed.
+The feed-forward scalar $K_w$ deflects the flap in response to the estimated
+gust even when all structural states are at trim---providing the closest
+approximation to anticipatory action available to a static linear gain.
+Note that $K_w$ is distinct from $\lambda_w = 0.98$: $\lambda_w$ is a fixed
+modelling assumption about gust decay, whereas $K_w$ is the optimal gain
+computed from the cost matrices.
+
+% ================================================================
+\subsubsection{Closed-Loop Architecture and Online Operation}
 \label{sec:lqr_arch}
 % ================================================================
 
-Figure~\ref{fig:lqr_block} shows the closed-loop architecture.
-At each timestep $k$ the controller receives the estimated augmented state
-$\hat{\tilde{\vxi}}_k = [\hat{\vxi}_k^\top,\hat{W}_k]^\top$ from the
-\emph{observer} and computes the flap command via the linear law
-\eqref{eq:law}.
-The plant (LDNet + structural dynamics) then evolves under that command and
-produces the next measurable outputs ($\ddot{h}$, $\alpha$, $\dot{\alpha}$, $C_L$),
-which feed back into the observer.
+With $\mK$ and the observer gain $\mathbf{L}$ computed offline, the full
+closed-loop system operates as shown in Figure~\ref{fig:lqr_block}.
 
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[>=Latex, node distance=1.6cm and 2.4cm,
-    block/.style   = {draw, rectangle, minimum height=1.0cm, minimum width=2.8cm,
-                      align=center, font=\small},
-    offblock/.style= {draw, rectangle, dashed, minimum height=1.0cm, minimum width=2.8cm,
-                      align=center, font=\small, text=gray},
-    lbl/.style     = {font=\scriptsize}]
+\begin{tikzpicture}[>=Latex, node distance=0.9cm and 1.4cm,
+    block/.style   = {draw, rectangle, minimum height=0.85cm, minimum width=2.2cm,
+                      align=center, font=\scriptsize},
+    offblock/.style= {draw, rectangle, dashed, minimum height=0.85cm, minimum width=2.2cm,
+                      align=center, font=\scriptsize, text=gray},
+    lbl/.style     = {font=\tiny}]
 
   %% ── Main online blocks (left to right) ─────────────────────────────────
   \node[block] (bisect)  {$C_L$ bisection\\$\hat{W}_k$};
@@ -82,41 +395,33 @@ which feed back into the observer.
   \node[block, right=of gain]    (plant)  {Plant\\(LDNet $+$ struct.)};
 
   %% ── Offline design blocks (above, dashed) ───────────────────────────────
-  \node[offblock, above=1.4cm of ekf]  (dare_obs) {Observer DARE\\($\mathbf{L}$ fixed, offline)};
-  \node[offblock, above=1.4cm of gain] (dare_ctrl){Controller DARE\\($\mathbf{K}$ fixed, offline)};
+  \node[offblock, above=1.1cm of ekf]  (dare_obs) {Observer DARE\\($\mathbf{L}$ fixed, offline)};
+  \node[offblock, above=1.1cm of gain] (dare_ctrl){Controller DARE\\($\mathbf{K}$ fixed, offline)};
 
   %% ── Online signal flow ──────────────────────────────────────────────────
-  % bisection -> EKF  (W_hat)
   \draw[->] (bisect.east) -- node[above, lbl]{$\hat{W}_k$} (ekf.west);
-
-  % EKF -> gain  (xi_hat)
   \draw[->] (ekf.east) -- node[above, lbl]
     {$\hat{\tilde{\boldsymbol{\xi}}}_k$} (gain.west);
-
-  % gain -> plant  (delta_k)
   \draw[->] (gain.east) -- node[above, lbl]{$\delta_k$} (plant.west);
 
-  % plant -> south feedback rail -> bisection and EKF
-  \draw[->] (plant.south) -- ++(0,-1.1) coordinate (rail_e)
+  \draw[->] (plant.south) -- ++(0,-0.9) coordinate (rail_e)
             -- node[below, lbl]
                {$\mathbf{y}_k = [\ddot{h},\,\alpha]^\top$}
             (rail_e -| ekf.south) -- (ekf.south);
 
-  \draw[->] (plant.south) -- ++(0,-1.1)
+  \draw[->] (plant.south) -- ++(0,-0.9)
             -- (rail_e -| bisect.south) -- (bisect.south);
 
-  % C_L label on bisection branch
-  \node[lbl, below=0.5cm of bisect.south] {$C_{L,k}^{\rm meas}$};
+  \node[lbl, below=0.4cm of bisect.south] {$C_{L,k}^{\rm meas}$};
 
-  % delta_{k-1} feedback to EKF (dashed, via arc above)
-  \draw[->, dashed] (gain.north) -- ++(0,0.55)
+  \draw[->, dashed] (gain.north) -- ++(0,0.45)
         -| node[above, lbl, pos=0.25]{$\delta_{k-1}$} (ekf.north);
 
   %% ── Offline design arrows ────────────────────────────────────────────────
   \draw[->, dashed, gray] (dare_obs.south)  --
-        node[right, lbl, text=gray]{\footnotesize $\mathbf{L}$} (ekf.north);
+        node[right, lbl, text=gray]{$\mathbf{L}$} (ekf.north);
   \draw[->, dashed, gray] (dare_ctrl.south) --
-        node[right, lbl, text=gray]{\footnotesize $\mathbf{K}$} (gain.north);
+        node[right, lbl, text=gray]{$\mathbf{K}$} (gain.north);
 
 \end{tikzpicture}
 \caption{LQR closed-loop architecture.
@@ -129,16 +434,16 @@ which feed back into the observer.
          producing the updated estimate $\hat{\tilde{\boldsymbol{\xi}}}_k$.
          The LQR gain block maps this estimate to the flap command $\delta_k$,
          which drives the plant.
-         \textbf{Offline design (dashed):} the controller DARE is solved once to
-         fix $\mathbf{K}$; the observer DARE (dual problem) is solved once to fix
-         the steady-state Kalman gain $\mathbf{L}$.}
+         \textbf{Offline design (dashed):} the controller DARE (Section~\ref{sec:lqr})
+         is solved once to fix $\mathbf{K}$; the observer DARE
+         (Section~\ref{sec:ekf}) is solved once to fix the steady-state Kalman
+         gain $\mathbf{L}$.}
 \label{fig:lqr_block}
 \end{figure}
 
-The control law $\delta_k = -\mK\hat{\tilde{\vxi}}_k$ requires all six components
-of $\hat{\tilde{\vxi}}_k = [\hat{h},\hat{\dot{h}},\hat{\alpha},\hat{\dot{\alpha}},\hat{z},\hat{W}]^\top$
-at every timestep.
-The two signals available from physical sensors are
+The control law requires all six components of
+$\hat{\tilde{\vxi}}_k = [\hat{h},\hat{\dot{h}},\hat{\alpha},\hat{\dot{\alpha}},\hat{z},\hat{W}]^\top$.
+The physical sensor outputs are
 \begin{equation}
   \mathbf{y}_k = \bigl[\ddot{h}_k,\;\alpha_k\bigr]^\top \in \mathbb{R}^2,
   \label{eq:meas_vec}
@@ -147,12 +452,11 @@ where $\ddot{h}_k$ comes from an onboard accelerometer and $\alpha_k$ from an
 angle-of-attack (AoA) sensor.
 The lift coefficient $C_{L,k}$ is measured separately (pressure tap or force
 balance) and enters the observer through the $C_L$\nobreakdash-inversion
-branch, not through the Kalman update.
-The remaining states $\hat{z}$ and $\hat{W}$ are unobserved and must be
-reconstructed by the EKF, as described in Section~\ref{sec:ekf}.
+branch.
+The remaining states $\hat{z}$ and $\hat{W}$ are unobserved and reconstructed
+by the EKF (Section~\ref{sec:ekf}).
 
 \paragraph{Operation sequence at each timestep $k$.}
-The online loop executes the following steps in order:
 \begin{enumerate}
   \item \textbf{$C_L$ bisection.}
         Given the previous state estimate $\hat{\tilde{\vxi}}_{k-1}$,
@@ -160,14 +464,11 @@ The online loop executes the following steps in order:
         $C_{L,k}^{\rm meas}$, find $\hat{W}_k$ such that
         \begin{equation}
           f_{\rm rec}\!\left(\hat{z}_{k-1},\,\hat{\vxi}_{k-1},\,\delta_{k-1};\,
-          \hat{W}_k\right) = C_{L,k}^{\rm meas},
+          \hat{W}_k\right) = C_{L,k}^{\rm meas}.
           \label{eq:cl_inversion}
         \end{equation}
-        where $f_{\rm rec}$ is evaluated with $W = \hat{W}_k$ propagated through
-        $f_{\rm dyn}$.
-        Because $C_L$ is monotonically increasing in $W$ for the operating range
-        $W \in [0,\,80]\,\text{m/s}$, equation \eqref{eq:cl_inversion} has a
-        unique solution found by bisection:
+        Because $C_L$ is monotonically increasing in $W$ over
+        $[0,\,80]\,\text{m/s}$, the solution is unique and found by bisection:
         \begin{equation}
           W^{\rm mid} = \frac{W^- + W^+}{2}, \quad
           \varepsilon = f_{\rm rec}(\hat{z}_{k-1}, \hat{\vxi}_{k-1}, \delta_{k-1};\,
@@ -175,39 +476,32 @@ The online loop executes the following steps in order:
           \label{eq:bisection_step}
         \end{equation}
         setting $W^- \leftarrow W^{\rm mid}$ if $\varepsilon < 0$, else
-        $W^+ \leftarrow W^{\rm mid}$, until $W^+ - W^- < \varepsilon_{\rm tol} = 0.5\,\text{m/s}$.
+        $W^+ \leftarrow W^{\rm mid}$, until $W^+ - W^- < 0.5\,\text{m/s}$.
         The bracket halves at each iteration, requiring at most
         $\lceil \log_2(80/0.5) \rceil = 8$ LDNet evaluations.
-        The result $\hat{W}_k$ is injected into the EKF as a pseudo-measurement
-        (see Section~\ref{sec:ekf}).
+        The result $\hat{W}_k$ is injected into the EKF as a pseudo-measurement.
 
   \item \textbf{EKF predict.}
         The full nonlinear propagator $F_{\rm nl}$ advances the state estimate:
         \begin{equation}
-          \hat{\tilde{\vxi}}_{k|k-1} = F_{\rm nl}(\hat{\tilde{\vxi}}_{k-1|k-1},\,\delta_{k-1}),
+          \hat{\tilde{\vxi}}_{k|k-1} = F_{\rm nl}(\hat{\tilde{\vxi}}_{k-1|k-1},\,\delta_{k-1}).
           \label{eq:ekf_pred_arch}
         \end{equation}
-        using $\delta_{k-1}$ because the control command $\delta_k$ has not yet
-        been computed at this point in the loop.
         The error covariance is propagated linearly using the Jacobian
-        $\tilde{\mA}$ recomputed at the current operating point.
+        $\tilde{\mA}_k$ recomputed at the current operating point.
 
   \item \textbf{EKF update.}
-        The innovation $\mathbf{y}_k - \mathbf{C}_{\rm obs}\,\hat{\tilde{\vxi}}_{k|k-1}$
-        (augmented with the $\hat{W}_k$ pseudo-measurement from step~1) corrects
-        the prediction via the Kalman gain $\mathbf{L}$, yielding the updated
-        estimate $\hat{\tilde{\vxi}}_{k|k}$.
+        The innovation $\mathbf{y}_k -
+        \mathbf{C}_{\rm obs}\,\hat{\tilde{\vxi}}_{k|k-1}$ (augmented with the
+        $\hat{W}_k$ pseudo-measurement) corrects the prediction via the Kalman
+        gain $\mathbf{L}$, yielding $\hat{\tilde{\vxi}}_{k|k}$.
         Full details are given in Section~\ref{sec:ekf}.
 
   \item \textbf{LQR control law.}
-        The flap command is computed from the updated estimate:
         \begin{equation}
-          \delta_k = -\mK_\xi\,\hat{\vxi}_k - K_w\,\hat{W}_k,
+          \delta_k = -\mK_\xi\,\hat{\vxi}_k - K_w\,\hat{W}_k.
           \label{eq:law}
         \end{equation}
-        where $\mK_\xi \in \mathbb{R}^{1\times5}$ acts on the structural and
-        latent states and $K_w \in \mathbb{R}$ is the feed-forward gain on
-        the estimated gust (see Section~\ref{sec:lqr}).
 
   \item \textbf{Plant step.}
         The true system advances under $\delta_k$ and the unknown true gust
@@ -215,26 +509,14 @@ The online loop executes the following steps in order:
         $C_{L,k+1}^{\rm meas}$.
 \end{enumerate}
 
-The gain $\mK$ is not chosen by trial and error but is the \emph{unique}
-solution to an optimisation problem: minimise the infinite-horizon quadratic
-cost $J$ in \eqref{eq:cost} subject to the linear dynamics \eqref{eq:aug_sys}.
-The necessary condition for optimality is the DARE \eqref{eq:dare}, whose
-solution $\mP$ is the \emph{value function} of the problem---the matrix such
-that $J^* = \tilde{\vxi}_0^\top \mP\, \tilde{\vxi}_0$ for any initial condition
-$\tilde{\vxi}_0$.
-Once $\mP$ is known, the optimal gain follows algebraically from \eqref{eq:gain}.
-Intuitively, $\mP$ encodes how costly it is to be in each direction of state
-space: a large eigenvalue of $\mP$ along a particular mode means that
-deviations in that direction accumulate high future cost and should be corrected
-aggressively.
-
 % ================================================================
 \subsubsection{Extended Kalman Filter Observer}
 \label{sec:ekf}
 % ================================================================
 
-The EKF propagates the full nonlinear model in the prediction step and applies
-an optimal linear correction in the update step, providing principled noise
+The EKF implements steps~2--3 of the online loop; we now detail its equations.
+It propagates the full nonlinear model in the prediction step and applies an
+optimal linear correction in the update step, providing principled noise
 rejection and drift correction for the heave states.
 
 \paragraph{State and measurements.}
@@ -242,36 +524,29 @@ The EKF operates on the augmented state
 $\tilde{\vxi} = [h,\dot{h},\alpha,\dot{\alpha},z,W]^\top \in \mathbb{R}^6$.
 Two signals feed into the observer at each timestep through distinct channels:
 \begin{itemize}
-  \item The measurement vector $\mathbf{y} = [\ddot{h},\,\alpha]^\top \in \mathbb{R}^2$
-        enters the Kalman update step directly and corrects the state estimate
-        via the innovation $\mathbf{y}_k - \mathbf{C}_{\rm obs}\,\hat{\tilde{\vxi}}_{k|k-1}$.
-  \item The lift coefficient $C_L$ is used \emph{outside} the filter, in the
-        $C_L$ bisection procedure \eqref{eq:cl_inversion}--\eqref{eq:bisection_step},
-        to produce the gust estimate $\hat{W}_k$.
-        This estimate is injected into the filter as a pseudo-measurement
-        $W^{\rm inv}$ with its own noise variance $R_W$, appended to $\mathbf{y}$
-        for the update step:
+  \item The measurement vector $\mathbf{y} = [\ddot{h},\,\alpha]^\top$
+        enters the Kalman update step and corrects the state estimate via the
+        innovation $\mathbf{y}_k - \mathbf{C}_{\rm obs}\,\hat{\tilde{\vxi}}_{k|k-1}$.
+  \item The lift coefficient $C_L$ is used outside the filter, in the $C_L$
+        bisection \eqref{eq:cl_inversion}--\eqref{eq:bisection_step}, to
+        produce $\hat{W}_k$, which is then injected as a pseudo-measurement:
         \begin{equation}
           \mathbf{y}^{\rm aug}_k
-          = \bigl[\ddot{h}_k,\;\alpha_k,\;W^{\rm inv}_k\bigr]^\top \in \mathbb{R}^3,
+          = \bigl[\ddot{h}_k,\;\alpha_k,\;\hat{W}_k\bigr]^\top \in \mathbb{R}^3,
           \qquad
           \mathbf{C}^{\rm aug} =
           \begin{bmatrix} \mathbf{C}_{\rm obs} \\ \mathbf{e}_6^\top \end{bmatrix}
           \in \mathbb{R}^{3\times6},
           \label{eq:aug_meas}
         \end{equation}
-        where $\mathbf{e}_6^\top = [0,0,0,0,0,1]$ selects $W$ from $\tilde{\vxi}$.
-        This formulation lets the Kalman gain weight the bisection result against
-        the filter's prediction with $R_W$ as the tuning parameter for inversion accuracy.
+        where $\mathbf{e}_6^\top = [0,0,0,0,0,1]$ selects $W$ from
+        $\tilde{\vxi}$.
+        This lets the Kalman gain weight the bisection result against the
+        filter's prediction with $R_W$ as the accuracy tuning parameter.
 \end{itemize}
 
-The output matrix $\mathbf{C}_{\rm obs}$ maps the state $\tilde{\vxi}$ into
-the measurement space, allowing the filter to compute the \emph{predicted
-measurement} $\mathbf{C}_{\rm obs}\,\hat{\tilde{\vxi}}_{k|k-1}$ --- that is,
-what the sensors \emph{should} read if the current state estimate were correct.
-The difference with the actual measurement $\mathbf{y}_k$ is the innovation,
-which drives the state correction.
-Its structure is:
+The output matrix $\mathbf{C}_{\rm obs}$ maps $\tilde{\vxi}$ to the measurement
+space:
 \begin{equation}
   \mathbf{C}_{\rm obs} =
   \begin{bmatrix}
@@ -281,16 +556,10 @@ Its structure is:
   \in \mathbb{R}^{2\times6},
   \label{eq:C_obs}
 \end{equation}
-where $\mathbf{e}_3^\top = [0,0,1,0,0,0]$ selects $\alpha$ directly from
-$\tilde{\vxi}$ (since $\alpha$ is measured by the AoA sensor, its predicted
-measurement is trivially the corresponding state component).
-
-The first row $\mathbf{c}_{\ddot{h}}^\top$ is more subtle.
-Although $\ddot{h}$ is measured directly by an accelerometer, it is
-\emph{not} a state component---it is an output that depends on the full state
-via the structural equations \eqref{eq:rhs}.
-Linearising those equations at trim gives the explicit dependence of $\ddot{h}$
-on $\tilde{\vxi}$:
+where $\mathbf{e}_3^\top = [0,0,1,0,0,0]$ selects $\alpha$ directly.
+The first row $\mathbf{c}_{\ddot{h}}^\top$ is the linearised sensitivity of
+$\ddot{h}$ to $\tilde{\vxi}$ at trim, obtained by differentiating
+\eqref{eq:eom}:
 \begin{equation}
   \mathbf{c}_{\ddot{h}}^\top =
   \frac{1}{\det\mathbf{M}}\Bigl[
@@ -299,42 +568,30 @@ on $\tilde{\vxi}$:
   \Bigr]^\top,
   \label{eq:c_hddot}
 \end{equation}
-with $\mathbf{c}_L = \mC_y[0,:]$ and $\mathbf{c}_M = \mC_y[1,:]$ the first and
-second rows of the aerodynamic output Jacobian \eqref{eq:jacobians_out}.
-This row is needed so that the DARE solver can compute the optimal Kalman gain
-$\mathbf{L}$ accounting for the full measurement set including $\ddot{h}$.
-However, because \eqref{eq:c_hddot} relies on $\mC_y$ evaluated at trim, it
-becomes inaccurate when $z$ deviates significantly from trim during a strong
-gust.
-For this reason $\mathbf{c}_{\ddot{h}}$ is used \emph{only} in the offline
-DARE solve; the online update step uses the full $\mathbf{C}^{\rm aug}$
-\eqref{eq:aug_meas}, as detailed below.
+with $\mathbf{c}_L = \mC_y[0,:]$ and $\mathbf{c}_M = \mC_y[1,:]$ the rows of
+the aerodynamic output Jacobian \eqref{eq:jacobians_out}.
+This row is used only in the offline DARE solve; the online update uses the
+full $\mathbf{C}^{\rm aug}$ \eqref{eq:aug_meas}.
 
-
-
-At each timestep the predicted state is obtained by running the full nonlinear
-propagator---LDNet plus the structural RK4 integrator---on the current estimate:
+\paragraph{Prediction.}
+The full nonlinear propagator advances the state estimate:
 \begin{equation}
   \hat{\tilde{\vxi}}_{k|k-1} = F_{\rm nl}(\hat{\tilde{\vxi}}_{k-1|k-1},\,\delta_{k-1}),
   \label{eq:ekf_pred}
 \end{equation}
-where $F_{\rm nl}$ is identical to the plant propagator \eqref{eq:propagator}
-augmented with the gust decay $W_{k+1} = \lambda_w W_k$.
-Using the nonlinear predictor avoids the linearisation error that would arise
-from applying $\tilde{\mA}$ when $z$ deviates far from trim during a strong gust.
+where $F_{\rm nl}$ is the plant propagator \eqref{eq:propagator} augmented with
+the gust decay $W_{k+1} = \lambda_w W_k$.
+Using the nonlinear predictor avoids linearisation error when $z$ deviates far
+from trim during a strong gust.
 The covariance is propagated linearly:
 \begin{equation}
   \mathbf{P}_{k|k-1} = \tilde{\mA}_k\,\mathbf{P}_{k-1|k-1}\,\tilde{\mA}_k^\top + \mathbf{Q}_{\rm kf},
   \label{eq:ekf_cov_pred}
 \end{equation}
-where $\tilde{\mA}_k$ is the Jacobian of $F_{\rm nl}$ with respect to
-$\tilde{\vxi}$, recomputed at the current operating point
-$\hat{\tilde{\vxi}}_{k-1|k-1}$ by automatic differentiation at every step
-(\texttt{EKF\_RELINEARIZE\_EVERY}$\,=1$), so no linearisation error accumulates
-even during large gust excursions.
+where $\tilde{\mA}_k$ is recomputed at $\hat{\tilde{\vxi}}_{k-1|k-1}$ by
+automatic differentiation at every step, so no linearisation error accumulates.
 
-
-The update uses the augmented measurement \eqref{eq:aug_meas}.
+\paragraph{Update.}
 The Kalman gain is
 \begin{equation}
   \mathbf{K}_{\rm EKF}
@@ -362,545 +619,14 @@ and the covariance is updated in \emph{Joseph form} for numerical stability:
   = \bigl(\mathbf{I} - \mathbf{K}_{\rm EKF}\mathbf{C}^{\rm aug}\bigr)\,
     \mathbf{P}_{k|k-1}\,
     \bigl(\mathbf{I} - \mathbf{K}_{\rm EKF}\mathbf{C}^{\rm aug}\bigr)^\top
-  + \mathbf{K}_{\rm EKF}\,\mathbf{R}^{\rm aug}\,\mathbf{K}_{\rm EKF}^\top.
+  + \mathbf{K}_{\rm EKF}\,\mathbf{R}^{\rm aug}\,\mathbf{K}_{\rm EKF}^\top,
   \label{eq:joseph}
 \end{equation}
-Joseph form guarantees positive semi-definiteness of $\mathbf{P}_{k|k}$ even
-under round-off, unlike the standard form
-$(\mathbf{I}-\mathbf{K}\mathbf{C})\mathbf{P}$ which can lose symmetry for
-poorly conditioned $\mathbf{K}$.
-The steady-state Kalman gain $\mathbf{L}$ used in \eqref{eq:ekf_update_arch} is
-computed offline by solving the observer DARE \eqref{eq:dare_obs}; details are
-given in Section~\ref{sec:lqr}.
+which guarantees positive semi-definiteness under finite-precision arithmetic.
 
-
-
-
-
-% ================================================================
-\subsubsection{Aeroelastic Model and Trim Condition SOLO PER SPIEGAZIONE, DA TOGLIERE}
-\label{sec:model}
-% ================================================================
-
-\subsubsection{Structural Dynamics}
-
-The wing is modelled as a rigid section with two degrees of freedom: heave
-displacement $h$ (positive downward) and pitch angle $\alpha$ (positive
-nose-up).  Aerodynamic forces are transmitted to the structure via a trailing-edge
-flap with deflection angle $\delta$.
-
-The equations of motion in coupled form are
-\begin{equation}
-  \begin{bmatrix} M_{hh} & M_{h\alpha} \\ M_{h\alpha} & M_{\alpha\alpha} \end{bmatrix}
-  \begin{bmatrix} \ddot{h} \\ \ddot{\alpha} \end{bmatrix}
-  =
-  \begin{bmatrix} -F_y - D_h\dot{h} - K_h h \\ M_z - D_\alpha\dot{\alpha} - K_\alpha\alpha \end{bmatrix},
-  \label{eq:eom}
-\end{equation}
-where $F_y = q_\infty C_L$ and $M_z = q_\infty C_M$ are the aerodynamic lift
-force and pitching moment, $q_\infty = \tfrac{1}{2}\rho U_\infty^2 S$ is the
-dynamic pressure ($S = 0.05\,\text{m}^2$, $\rho = 1.225\,\text{kg/m}^3$), and
-the inertial coupling arises from the off-centre flap mass.
-
-\subsubsection{Neural Aerodynamic Surrogate (LDNet)}
-
-The aerodynamic coefficients $C_L$ and $C_M$ are produced by a recurrent
-neural network with a scalar latent state $z \in \mathbb{R}$:
-\begin{align}
-  z_{k+1} &= z_k + \frac{\Delta t}{\Delta t_{\rm ref}}\,f_{\rm dyn}(z_k, h_k, \dot{h}_k, \alpha_k, \dot{\alpha}_k, \delta_k, W_k;\,\theta_d),
-  \label{eq:zdyn}\\
-  \begin{bmatrix} C_L \\ C_M \end{bmatrix}_k &= f_{\rm rec}(z_k, h_k, \dot{h}_k, \alpha_k, \dot{\alpha}_k, \delta_k;\,\theta_r),
-  \label{eq:yrec}
-\end{align}
-where $W_k$ is the gust velocity, $f_{\rm dyn}$ is a shallow MLP (7-7-1), and
-$f_{\rm rec}$ is a deeper network (24-24-24-24-2).
-Both networks are kept frozen during control design.
-
-The full state is the concatenation of structural and latent variables:
-\begin{equation}
-  \vxi_k = \begin{bmatrix} h_k & \dot{h}_k & \alpha_k & \dot{\alpha}_k & z_k \end{bmatrix}^\top \in \mathbb{R}^5.
-\end{equation}
-The trim condition is defined at free-stream velocity $U_\infty = 75\,\text{m/s}$
-with zero gust ($W = 0$) and zero structural displacement.
-The latent state $z_{\rm tr}$ is obtained by iterating \eqref{eq:zdyn} to
-steady state with $\delta = 0$; at trim $C_{L,\rm tr} \approx 0.031$ and
-$C_{M,\rm tr} \approx 0$.
-The trim point is therefore
-\begin{equation}
-  \vxi_{\rm tr} = \begin{bmatrix} 0 & 0 & 0 & 0 & z_{\rm tr} \end{bmatrix}^\top, \quad
-  u_{\rm tr} = \delta_{\rm tr} = 0.
-\end{equation}
-
-% ================================================================
-\section{Jacobian Linearisation via Automatic Differentiation}
-\label{sec:jacobian}
-% ================================================================
-
-\subsubsection{Discrete-Time Propagator}
-
-The combined structural integrator and aerodynamic network define a
-discrete-time propagator
-\begin{equation}
-  \vxi_{k+1} = F(\vxi_k, u_k),
-  \label{eq:propagator}
-\end{equation}
-where $F: \mathbb{R}^5 \times \mathbb{R} \to \mathbb{R}^5$ is a composite map
-evaluated in two sequential stages:
-\begin{enumerate}
-  \item \textbf{Aerodynamic step (LDNet).}  Given $(\vxi_k, u_k)$, the two
-        sub-networks of LDNet are evaluated in sequence.
-        First, $f_{\rm dyn}$ advances the latent aerodynamic state:
-        \begin{equation*}
-          z_{k+1} = z_k + \frac{\Delta t}{\Delta t_{\rm ref}}\,
-                    f_{\rm dyn}(z_k, h_k, \dot{h}_k, \alpha_k, \dot{\alpha}_k,
-                                u_k, W{=}0;\,\theta_d),
-        \end{equation*}
-        where $\theta_d$ denotes the frozen weights of $f_{\rm dyn}$, and
-        $W = 0$ because the linearisation is performed at trim (no gust).
-        Then $f_{\rm rec}$ reads out the aerodynamic coefficients from the
-        \emph{current} latent state $z_k$ (not yet updated):
-        \begin{equation*}
-          \begin{bmatrix} C_L \\ C_M \end{bmatrix}_k
-          = f_{\rm rec}(z_k, h_k, \dot{h}_k, \alpha_k, \dot{\alpha}_k,
-                        u_k;\,\theta_r),
-        \end{equation*}
-        where $\theta_r$ denotes the frozen weights of $f_{\rm rec}$.
-
-  \item \textbf{Structural step (RK4).}  The aerodynamic forces
-        $F_y = q_\infty C_L$ and $M_z = q_\infty C_M$ computed in step~1 are
-        held fixed and used to drive the structural equations \eqref{eq:eom}
-        over one timestep $\Delta t = 0.01\,\text{s}$ via a fourth-order
-        Runge--Kutta scheme.
-        Defining the structural state $\bm{x} = [h,\dot{h},\alpha,\dot{\alpha}]^\top$,
-        the right-hand side is
-        \begin{align}
-          \dot{\bm{x}} &= \bm{g}(\bm{x}, F_y, M_z), \nonumber\\
-          g_1 &= \dot{h},\quad
-          g_2 = \frac{M_{\alpha\alpha}(-F_y - D_h\dot{h} - K_h h)
-                      - M_{h\alpha}(M_z - D_\alpha\dot{\alpha} - K_\alpha\alpha)}
-                     {M_{hh}M_{\alpha\alpha} - M_{h\alpha}^2},\nonumber\\
-          g_3 &= \dot{\alpha},\quad
-          g_4 = \frac{M_{hh}(M_z - D_\alpha\dot{\alpha} - K_\alpha\alpha)
-                      - M_{h\alpha}(-F_y - D_h\dot{h} - K_h h)}
-                     {M_{hh}M_{\alpha\alpha} - M_{h\alpha}^2},
-          \label{eq:rhs}
-        \end{align}
-        where $\det \mathbf{M} = M_{hh}M_{\alpha\alpha} - M_{h\alpha}^2$.
-        RK4 integrates $\bm{g}$ over $\Delta t$ to produce
-        $[h_{k+1}, \dot{h}_{k+1}, \alpha_{k+1}, \dot{\alpha}_{k+1}]^\top$.
-\end{enumerate}
-
-Combining both steps, the full next state is
-\begin{equation}
-  \vxi_{k+1} = \bigl[\,
-    \underbrace{h_{k+1},\,\dot{h}_{k+1},\,\alpha_{k+1},\,\dot{\alpha}_{k+1}}_{\text{step 2: RK4}},\;
-    \underbrace{z_{k+1}}_{\text{step 1: }f_{\rm dyn}}
-  \,\bigr]^\top.
-  \label{eq:state_assembly}
-\end{equation}
-The aerodynamic coefficients $(C_L, C_M)_k$ are a byproduct of step~1:
-they are computed inside $f_{\rm rec}$ before the structural integration and
-require no additional network evaluation.
-They serve a dual role: as the forcing of the structural integrator in step~2,
-and as the aerodynamic output of the propagator at timestep $k$:
-\begin{equation}
-  \mathbf{c}_k = \begin{bmatrix} C_L \\ C_M \end{bmatrix}_k
-  = f_{\rm rec}(\vxi_k, u_k;\,\theta_r).
-  \label{eq:aero_output}
-\end{equation}
-
-
-
-
-\subsubsection{Five Jacobian Matrices}
-
-Linearising \eqref{eq:propagator} and the output map around the trim point
-$(\vxi_{\rm tr}, 0)$, and including the sensitivity to the gust velocity $W$,
-yields the discrete-time LTI system
-\begin{equation}
-  \delta\vxi_{k+1} = \mA_d\,\delta\vxi_k + \mB_d\,\delta u_k + \mathbf{b}_w\,W_k, \qquad
-  \delta\vy_k = \mC_y\,\delta\vxi_k + \mD_y\,\delta u_k,
-  \label{eq:lti}
-\end{equation}
-where $\delta\vxi = \vxi - \vxi_{\rm tr}$, $\delta u = u - u_{\rm tr}$, and
-\begin{equation}
-  \mA_d = \frac{\partial F}{\partial \vxi}\bigg|_{\rm tr} \in \mathbb{R}^{5\times5},\quad
-  \mB_d = \frac{\partial F}{\partial u}\bigg|_{\rm tr} \in \mathbb{R}^{5\times1},\quad
-  \mathbf{b}_w = \frac{\partial F}{\partial W}\bigg|_{\rm tr} \in \mathbb{R}^{5},
-  \label{eq:jacobians}
-\end{equation}
-\begin{equation}
-
-  \mC_y = \frac{\partial g}{\partial \vxi}\bigg|_{\rm tr} \in \mathbb{R}^{2\times5},\quad
-  \mD_y = \frac{\partial g}{\partial u}\bigg|_{\rm tr} \in \mathbb{R}^{2\times1}.
-  \label{eq:jacobians_out}
-\end{equation}
-The gust-input vector $\mathbf{b}_w$ is obtained by declaring $W$ as an additional
-\texttt{tf.Variable} inside the same tape and calling \texttt{tape.jacobian}
-on $\vxi_{k+1}$ with respect to it, at no extra computational cost.
-
-\paragraph{Trim computation and latent-state initialisation.}
-The structural components of $\vxi_{\rm tr}$ are set to zero by definition.
-The latent state $z_{\rm tr}$ requires more care: in principle it should satisfy
-the fixed-point condition $f_{\rm dyn}(z_{\rm tr}, \mathbf{0}, 0, 0;\,\theta_d) = 0$,
-i.e.\ $\dot{z} = 0$ under zero structural motion and zero gust.
-In practice this fixed point need not exist for a network trained exclusively on
-dynamic trajectories, and numerical experiments confirm that iterating
-\eqref{eq:zdyn} with all inputs set to zero does \emph{not} converge to a
-stationary value: $\|z_{k+1} - z_k\|$ fails to decrease below $\mathcal{O}(10^{-3})$
-even after thousands of steps, and root-finding via Levenberg--Marquardt yields
-a residual $\|f_{\rm dyn}(z^*, \mathbf{0})\| \approx 0.8$, confirming that no
-exact fixed point exists in the reachable region.
-
-In implementation, $z_{\rm tr}$ is therefore obtained by running 200 warm-up steps
-of \eqref{eq:zdyn} from $z_0 = 0$ with all inputs zero, which gives a
-practically stationary transient value $z_{\rm tr} \approx -0.46$.
-The resulting aerodynamic coefficients are $C_{L,\rm tr} \approx 0.035$ and
-$C_{M,\rm tr} \approx 0.031$.
-Two consequences follow from this approximate trim:
-\begin{enumerate}
-  \item \textbf{Jacobian accuracy.} $C_{L,\rm tr}$ and $C_{M,\rm tr}$ enter the
-        linearisation only as additive constants that are subtracted before
-        differentiation; they therefore cancel in the Jacobian and do not affect
-        $\mA_d$, $\mB_d$, $\mC_y$, $\mD_y$, or $\mathbf{b}_w$.
-  \item \textbf{Control bias.} $z_{\rm tr}$ enters the run-time law \eqref{eq:law}
-        as a reference subtracted from the observer estimate $\hat{z}_k$.
-        An error $\Delta z = z_{\rm tr,approx} - z_{\rm tr,true}$ produces a
-        constant deflection bias $\Delta\delta = -K_z\,\Delta z$, where $K_z$
-        is the fifth component of $\mK_\xi$.
-        Numerically, $K_z \approx -1.36$ and $|z_{\rm tr}| \approx 0.46$, giving
-        $|\Delta\delta| \lesssim 0.6^\circ$ out of the $\pm20^\circ$ saturation
-        limit---approximately $3\%$ of the actuator range.
-        Moreover, the EKF propagates $z$ in absolute coordinates and converges
-        rapidly from the warm-up initial guess, so $\hat{z}_k - z_{\rm tr}$ at
-        operating conditions is dominated by the true gust-induced excursion
-        rather than the trim offset, and the bias has negligible effect on
-        closed-loop performance.
-\end{enumerate}
-
-
-
-\subsubsection{Computation via Reverse-Mode Automatic Differentiation}
-
-Because $F$ passes through the LDNet weights, closed-form expressions for the
-partial derivatives in \eqref{eq:jacobians} are not available.
-All five matrices are instead obtained analytically---without finite
-differences---by \emph{reverse-mode automatic differentiation} (AD) applied to
-the full discrete-time map
-\begin{equation}
-  \Phi : (\vxi,\, u,\, W) \;\longmapsto\;
-  \bigl[\,F(\vxi, u, W)^\top,\;\; g(\vxi, u)^\top\,\bigr]^\top
-  \in \mathbb{R}^{7},
-  \label{eq:Phi}
-\end{equation}
-evaluated at the trim point $(\vxi_{\rm tr}, 0, 0)$.
-
-Here $F(\vxi, u, W) \in \mathbb{R}^5$ collects the five state components at
-$k+1$---namely $[h_{k+1}, \dot{h}_{k+1}, \alpha_{k+1}, \dot{\alpha}_{k+1},
-z_{k+1}]^\top$---produced by the two-step propagator \eqref{eq:propagator}.
-The map $g(\vxi, u) = [C_L, C_M]_k^\top \in \mathbb{R}^2$ collects the
-aerodynamic coefficients that are computed as a byproduct of step~1 and used
-to force the structural integrator in step~2.
-Both are computed in the same forward pass; stacking them into $\Phi \in
-\mathbb{R}^7$ allows all five Jacobian matrices $\mA_d, \mB_d, \mathbf{b}_w,
-\mC_y, \mD_y$ to be obtained in a single automatic differentiation call.
-
-
-
-Both the RK4 integrator \eqref{eq:rhs} and the two neural-network layers
-$f_{\rm dyn}$, $f_{\rm rec}$ are finite compositions of differentiable
-primitive operations (affine maps, element-wise activations, additions).
-The full map $\Phi$ can therefore be written as
-\begin{equation}
-  \Phi(\vxi, u, W)
-  = \phi_K \circ \phi_{K-1} \circ \cdots \circ \phi_1(\vxi, u, W),
-  \label{eq:chain}
-\end{equation}
-where each $\phi_k : \mathbb{R}^{n_k} \to \mathbb{R}^{n_{k+1}}$ is one of two
-types of primitive operation whose Jacobian is trivial by construction:
-\begin{itemize}
-  \item \textbf{Affine layer.} $\phi_k(\mathbf{x}) = \mathbf{W}_k\mathbf{x} + \mathbf{b}_k$
-        is linear, so $\mathbf{J}_k = \mathbf{W}_k$ exactly---the weight matrix
-        already stored in memory, evaluated at zero cost.
-  \item \textbf{Element-wise activation.} $\phi_k(\mathbf{x}) = \sigma(\mathbf{x})$
-        applied component-by-component gives a diagonal Jacobian
-        $\mathbf{J}_k = \operatorname{diag}(\sigma'(x_1),\ldots,\sigma'(x_n))$,
-        where $\sigma'$ is the scalar derivative of the activation function
-        (e.g.\ $\sigma'(x) = 1 - \tanh^2(x)$ for a $\tanh$ unit,
-        already computed during the forward pass).
-\end{itemize}
-No global differentiation of $F$ or $g$ is required: the chain rule assembles
-these local primitives automatically.
-
-
-To compute the $i$-th row of the Jacobian $\partial\Phi/\partial\vxi$,
-reverse-mode AD performs a single \emph{forward pass} to record the
-intermediate values $\phi_1, \ldots, \phi_K$, then a single \emph{backward
-pass} that accumulates the adjoint vector
-$\bar{\mathbf{v}} \in \mathbb{R}^{n_k}$ from output to input via the
-transpose chain rule:
-\begin{equation}
-  \bar{\mathbf{v}}_{k-1}
-  = \mathbf{J}_k^\top\,\bar{\mathbf{v}}_k,
-  \qquad
-  \bar{\mathbf{v}}_K = \mathbf{e}_i,
-  \label{eq:adjoint}
-\end{equation}
-where $\mathbf{e}_i$ is the $i$-th standard basis vector.
-After $K$ steps, $\bar{\mathbf{v}}_0 = \partial\Phi_i/\partial\vxi$.
-Repeating for each of the 7 output components of $\Phi$ yields all five
-Jacobian matrices in \eqref{eq:jacobians}--\eqref{eq:jacobians_out} exactly,
-at a cost of 7 backward passes through the same computational graph---far
-cheaper than $5+1+1 = 7$ forward finite-difference perturbations and with
-no truncation error.
-
-These two types cover all operations in both LDNet sub-networks
-($f_{\rm dyn}$ and $f_{\rm rec}$).
-After the aerodynamic step, $\Psi_j$ applies the structural RK4 integrator,
-which computes the four slope estimates
-\begin{equation}
-    \begin{aligned}
-        k_1 &= g(x_j,\, F_y,\, M_z), \quad & k_2 &= g\!\left(x_j + \tfrac{\Delta t}{2}k_1,\, F_y,\, M_z\right), \\
-        k_3 &= g\!\left(x_j + \tfrac{\Delta t}{2}k_2,\, F_y,\, M_z\right), \quad & k_4 &= g(x_j + \Delta t\,k_3,\, F_y,\, M_z),
-    \end{aligned}
-    \label{eq:rk4_slopes}
-\end{equation}
-and then updates the structural state as
-$x_{j+1} = x_j + \tfrac{\Delta t}{6}(k_1 + 2k_2 + 2k_3 + k_4)$.
-The right-hand side $g$ in \eqref{eq:rhs} is \emph{linear} in the structural
-state $x = [h, \dot{h}, \alpha, \dot{\alpha}]^\top$: it consists of linear
-combinations of the state components plus the aerodynamic forces $F_y$ and
-$M_z$, which arrive from LDNet and are held constant during the RK4 sub-steps.
-Each slope $k_i$ is therefore an affine function of $x_j$---exactly the same
-type of primitive as an affine layer in the network.
-From the perspective of automatic differentiation, RK4 requires no special
-treatment: TensorFlow records each sub-step as an additional affine operation
-in the computation graph and differentiates through all four stages
-automatically, in exactly the same way it differentiates through the network
-layers.
-Composing $N$ such steps gives the rollout map
-
-The open-loop eigenvalues $\lambda_i(\mA_d)$ all satisfy $|\lambda_i| < 1$,
-confirming that the trim equilibrium is asymptotically stable in the
-linearised sense, albeit with low modal damping
-($|\lambda_i| \approx 0.97$--$0.99$ for the aeroelastic modes).
-
-% ================================================================
-\subsubsection{LQR Formulation and Discrete Algebraic Riccati Equation}
-\label{sec:lqr}
-% ================================================================
-
-\subsubsection{Gust-Augmented State and Cost Function}
-
-To exploit the estimated gust velocity $\hat{W}_k$ as a feed-forward signal,
-the state vector is extended with a gust state.  A first-order exponential
-decay is assumed as the gust model:
-\begin{equation}
-  W_{k+1} = \lambda_w\, W_k, \qquad \lambda_w = 0.98,
-  \label{eq:gust_model}
-\end{equation}
-giving the augmented state $\tilde{\vxi}_k = [\vxi_k^\top,\, W_k]^\top \in \mathbb{R}^6$
-and the augmented system
-\begin{equation}
-  \tilde{\vxi}_{k+1}
-  =
-  \underbrace{\begin{bmatrix} \mA_d & \mathbf{b}_w \\ \mathbf{0}^\top & \lambda_w \end{bmatrix}}_{\tilde{\mA} \in \mathbb{R}^{6\times6}}
-  \tilde{\vxi}_k
-  +
-  \underbrace{\begin{bmatrix} \mB_d \\ 0 \end{bmatrix}}_{\tilde{\mB} \in \mathbb{R}^{6\times1}}
-  \delta_k.
-  \label{eq:aug_sys}
-\end{equation}
-The gust-input column $\mathbf{b}_w$ (computed in \eqref{eq:jacobians}) appears
-in the top-right block of $\tilde{\mA}$, so the DARE automatically infers the
-optimal feed-forward gain on the estimated gust.
-
-The infinite-horizon cost over the augmented state is
-\begin{equation}
-  J = \sum_{k=0}^{\infty}
-      \Bigl[\tilde{\vxi}_k^\top \tilde{\mQ}\,\tilde{\vxi}_k
-           + \delta u_k^\top \mR_{\rm aug}\,\delta u_k\Bigr],
-  \label{eq:cost}
-\end{equation}
-where $\tilde{\mQ} \in \mathbb{R}^{6\times6}$ is block-diagonal:
-\begin{equation}
-  \tilde{\mQ} = \begin{bmatrix} \mQ_{\rm aug} & \mathbf{0} \\ \mathbf{0}^\top & Q_w \end{bmatrix},
-  \qquad
-  \mQ_{\rm aug} = \mQ + \mC_{y,6}^\top \mQ_y \mC_{y,6},
-  \quad
-  \mR_{\rm aug} = \mR + \mD_y^\top \mQ_y \mD_y,
-  \label{eq:augmented}
-\end{equation}
-with $\mC_{y,6} = [\mC_y\;\mathbf{0}] \in \mathbb{R}^{2\times6}$ (the output
-Jacobian padded with a zero column for the W state, since $W$ does not appear
-directly in $f_{\rm rec}$), and $Q_w \ge 0$ an optional penalty on the gust state.
-
-The role of $\mQ_y$ becomes transparent by expanding the state cost:
-\begin{equation}
-  \tilde{\vxi}_k^\top \mQ_{\rm aug}\, \tilde{\vxi}_k
-  = \tilde{\vxi}_k^\top \mQ\, \tilde{\vxi}_k
-  + \underbrace{(\mC_{y,6}\,\tilde{\vxi}_k)^\top \mQ_y\, (\mC_{y,6}\,\tilde{\vxi}_k)}_{%
-      \approx\,\delta\vy_k^\top \mQ_y\,\delta\vy_k
-      \,=\, Q_{y,L}\,\Delta C_L^2 + Q_{y,M}\,\Delta C_M^2},
-  \label{eq:cost_expand}
-\end{equation}
-where $\delta\vy_k = \mC_{y,6}\,\tilde{\vxi}_k \approx [C_{L,k} - C_{L,\rm tr},\; C_{M,k} - C_{M,\rm tr}]^\top$
-is the linearised aerodynamic deviation from trim.
-Penalising $\tilde{\vxi}$ with $\mC_{y,6}^\top \mQ_y \mC_{y,6}$ is therefore
-equivalent (to first order) to penalising $C_L$ and $C_M$ deviations directly,
-without augmenting the state vector.
-
-The weight values used in this work are
-\begin{equation}
-  \mQ = \operatorname{diag}\!\left(\frac{1}{0.00428^2},\,0,\,\frac{5}{0.00823^2},\,0,\,0\right),
-  \quad
-  \mR = \left[\frac{1}{0.5^2}\right],
-  \label{eq:weights}
-\end{equation}
-normalised by the expected peak amplitudes of $h$ and $\alpha$ under a
-$60\,\text{m/s}$ gust.
-
-Setting $\mQ_y = 0$ does \emph{not} mean that $C_L$ and $C_M$ are ignored.
-The state penalty $\mQ$ already penalises $h$ and $\alpha$, and since
-$C_L \approx C_{L,\rm tr} + \mC_y\delta\vxi$ (from the output Jacobian),
-reducing structural oscillations indirectly attenuates aerodynamic excursions.
-The output penalty $\mQ_y$ adds a \emph{direct} cost on $\Delta C_L$ and
-$\Delta C_M$, independently of whether they are caused by structural motion or
-by the gust acting on a near-stationary wing.
-It becomes useful when the aerodynamic loads matter in their own right
-(e.g., fatigue or certification limits on $C_M$), at the price of a larger
-flap effort; this trade-off is discussed in Section~\ref{sec:sensitivity}.
-No gust penalty ($Q_w = 0$) is applied either, meaning the DARE optimises the
-feed-forward gain $K_w$ purely through the coupling introduced by $\mathbf{b}_w$
-in $\tilde{\mA}$.
-
-\subsubsection{Discrete Algebraic Riccati Equation}
-
-The solution to the infinite-horizon LQR problem for the augmented system
-\eqref{eq:aug_sys} is the unique positive semi-definite solution $\mP$ of the
-$6\times6$ \emph{Discrete Algebraic Riccati Equation} (DARE):
-\begin{equation}
-  \mP = \tilde{\mQ}
-        + \tilde{\mA}^\top \mP \tilde{\mA}
-        - \tilde{\mA}^\top \mP \tilde{\mB}
-          \bigl(\mR_{\rm aug} + \tilde{\mB}^\top \mP \tilde{\mB}\bigr)^{-1}
-          \tilde{\mB}^\top \mP \tilde{\mA},
-  \label{eq:dare}
-\end{equation}
-Because \eqref{eq:dare} is a fixed-point equation quadratic in $\mP$, it cannot
-be solved by direct inversion or simple iteration---naive fixed-point iteration
-$\mP \leftarrow \tilde{\mQ} + \ldots$ diverges for unstable or lightly-damped
-systems.
-The standard approach reformulates the problem as a linear eigenvalue problem
-on a larger matrix, the \emph{symplectic pencil}.
-
-
-The key observation is that the DARE \eqref{eq:dare} is equivalent to finding
-the stable invariant subspace of the $2n \times 2n$ matrix
-\begin{equation}
-  \mathbf{H} =
-  \begin{bmatrix}
-    \tilde{\mA} & \tilde{\mB}\mR_{\rm aug}^{-1}\tilde{\mB}^\top \\
-    -\tilde{\mQ} & -\tilde{\mA}^{-\top}
-  \end{bmatrix}
-  \in \mathbb{R}^{12\times12},
-  \label{eq:symplectic}
-\end{equation}
-called the \emph{symplectic pencil} (or Hamiltonian matrix in the discrete-time
-case).
-Intuitively, $\mathbf{H}$ couples the forward dynamics $\tilde{\mA}$ with the
-backward dynamics $-\tilde{\mA}^{-\top}$: its $2n = 12$ eigenvalues come in
-reciprocal pairs $(\lambda_i,\, 1/\lambda_i)$, so exactly $n = 6$ of them lie
-inside the unit disk and $n = 6$ lie outside.
-The $n$ eigenvalues inside the unit disk correspond to the \emph{stable}
-directions of the closed-loop system, and the associated eigenvectors encode
-the solution $\mP$.
-
-
-The \emph{Schur decomposition} of $\mathbf{H}$ factors it as
-\begin{equation}
-  \mathbf{H} = \mathbf{Z}\,\mathbf{T}\,\mathbf{Z}^\top,
-  \label{eq:schur}
-\end{equation}
-where $\mathbf{Z} \in \mathbb{R}^{12\times12}$ is orthogonal
-($\mathbf{Z}^\top\mathbf{Z} = \mathbf{I}$) and $\mathbf{T}$ is quasi-upper
-triangular with the eigenvalues of $\mathbf{H}$ on its diagonal.
-The Schur decomposition is numerically stable and can be computed in
-$\mathcal{O}(n^3)$ floating-point operations via the QR algorithm, with no
-iteration on $\mP$ itself.
-
-\texttt{scipy.linalg.solve\_discrete\_are} reorders the Schur form so that the
-$n = 6$ columns of $\mathbf{Z}$ associated with eigenvalues \emph{inside} the
-unit disk appear first.
-Partitioning these $n$ columns as $[U_1^\top,\, U_2^\top]^\top$ with
-$U_1, U_2 \in \mathbb{R}^{6\times6}$ gives the unique stabilising solution:
-\begin{equation}
-  \mP = U_2\, U_1^{-1}.
-  \label{eq:P_schur}
-\end{equation}
-Intuitively, $U_1$ and $U_2$ span the stable subspace of $\mathbf{H}$: $U_1$
-describes how the state evolves forward in time, and $U_2$ describes the
-associated cost-to-go, so their ratio $U_2 U_1^{-1}$ is exactly the value
-function matrix $\mP$ that maps any initial state $\tilde{\vxi}_0$ to the
-optimal cost $J^* = \tilde{\vxi}_0^\top \mP\, \tilde{\vxi}_0$.
-For the $6\times6$ system considered here the solve is instantaneous and
-performed once at design time.
-
-
-\subsection{Optimal Gain and Control Law}
-
-The gain $\mK$ partitions naturally into two blocks with distinct physical
-roles.
-The first block $\mK_\xi \in \mathbb{R}^{1\times5}$ contains one scalar gain
-per state component of $\hat{\vxi}_t = [\hat{h}, \hat{\dot{h}}, \hat{\alpha},
-\hat{\dot{\alpha}}, \hat{z}]^\top$: each entry specifies how many degrees of
-flap deflection are commanded per unit deviation of the corresponding state
-from trim.
-
-The gain is extracted from the DARE solution $\mP$ via
-\begin{equation}
-  \mK = \bigl(\mR_{\rm aug} + \tilde{\mB}^\top \mP\, \tilde{\mB}\bigr)^{-1}
-        \tilde{\mB}^\top \mP\, \tilde{\mA},
-  \label{eq:gain_formula}
-\end{equation}
-where the term $\mR_{\rm aug} + \tilde{\mB}^\top \mP\, \tilde{\mB}$ is the
-\emph{effective control cost}: it combines the explicit penalty $\mR_{\rm aug}$
-on deflection with the additional cost $\tilde{\mB}^\top \mP\, \tilde{\mB}$
-incurred by propagating a unit control input through the value function $\mP$.
-Its inverse weights the cross-term $\tilde{\mB}^\top \mP\, \tilde{\mA}$, which
-measures how much each state component, when propagated one step forward by
-$\tilde{\mA}$, projects onto the control-input direction $\tilde{\mB}$ in the
-cost metric defined by $\mP$.
-In the scalar-input case considered here all terms reduce to scalars or
-row/column vectors, so \eqref{eq:gain_formula} requires only one scalar
-division.
-
-Expanding the control law explicitly:
-\begin{equation}
-  \delta_t = -K_{\xi,1}\hat{h}
-             - K_{\xi,2}\hat{\dot{h}}
-             - K_{\xi,3}\hat{\alpha}
-             - K_{\xi,4}\hat{\dot{\alpha}}
-             - K_{\xi,5}\hat{z}
-             - K_w\hat{W}_t.
-  \label{eq:law_expanded}
-\end{equation}
-
-The second block $K_w \in \mathbb{R}$ is a single scalar that acts as a
-\emph{feed-forward} gain on the estimated gust velocity $\hat{W}_t$.
-Unlike the first five terms, which react to structural deviations that have
-already developed, the $K_w\hat{W}_t$ term deflects the flap in response to
-the estimated gust even when all structural states are at trim---providing the
-closest approximation to anticipatory action that a static linear gain can
-achieve.
-Note that $K_w$ is distinct from the gust decay parameter $\lambda_w = 0.98$
-in \eqref{eq:gust_model}: $\lambda_w$ is a fixed modelling assumption about
-how fast the gust decays, whereas $K_w$ is the optimal feed-forward gain
-computed by the DARE from the cost matrices $\tilde{\mQ}$ and $\mR_{\rm aug}$.
-
-
-The gain $\mathbf{L}$ is computed once offline by solving the \emph{dual} of
-the DARE \eqref{eq:dare}---the observer Riccati equation:
+\paragraph{Observer DARE.}
+The steady-state Kalman gain $\mathbf{L}$ is computed once offline by solving
+the dual of the DARE \eqref{eq:dare}---the observer Riccati equation:
 \begin{equation}
   \mathbf{S} = \mathbf{Q}_{\rm kf}
     + \tilde{\mA}\,\mathbf{S}\,\tilde{\mA}^\top
@@ -923,6 +649,24 @@ The steady-state gain is then
 The dual DARE \eqref{eq:dare_obs} is the transpose of \eqref{eq:dare} with
 $(\tilde{\mA}, \tilde{\mB}, \tilde{\mQ})$ replaced by
 $(\tilde{\mA}^\top, \mathbf{C}_{\rm obs}^\top, \mathbf{Q}_{\rm kf})$,
-so the same \texttt{scipy.linalg.solve\_discrete\_are} solver and Schur
-decomposition apply.
-% 
+so the same \texttt{scipy.linalg.solve\_discrete\_are} solver applies.
+
+% ================================================================
+\subsubsection{Simulation Results}
+\label{sec:results}
+% ================================================================
+
+\paragraph{Setup.}
+Open and closed configurations are compared under a single 1-cosine gust
+\begin{equation}
+  W(t) = \frac{W_0}{2}\Bigl(1 - \cos\tfrac{2\pi t}{T_g}\Bigr),
+  \quad 0 \le t \le T_g,
+\end{equation}
+with $W_0 = 60\,\text{m/s}$, $T_g = 1\,\text{s}$, $U_\infty = 75\,\text{m/s}$:
+\begin{enumerate}
+  \item \textbf{Baseline} --- open-loop, no flap actuation.
+  \item \textbf{LQR + EKF} --- Extended Kalman Filter observer
+        (Section~\ref{sec:ekf}).
+\end{enumerate}
+
+\end{document}
