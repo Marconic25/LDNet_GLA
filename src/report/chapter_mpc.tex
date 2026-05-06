@@ -1,68 +1,4 @@
 % ================================================================
-% Chapter: Model Predictive Control for Gust Load Alleviation
-% ================================================================
-% Notation conventions follow chapter_lqr.tex.
-% Macros assumed: \mA, \mB, \mC, \mK, \mP, \mQ, \mR, \vxi, \vy
-% Cross-references: \ref{sec:lqr_arch}, \ref{sec:ekf}, \ref{sec:model},
-%                   \ref{sec:jacobian}, \ref{sec:lqr}
-% ================================================================
-
-\subsection{Closed-Loop Results with MPC}
-
-The LQR controller derived in the previous section solves an
-\emph{infinite-horizon} optimisation problem \emph{once}, offline, on the
-linearised plant.
-The result is a fixed gain matrix $\mK$ that is applied as the static law
-$\delta_k = -\mK\hat{\tilde{\vxi}}_k$ at every timestep: the flap command
-depends only on the \emph{current} state estimate and is otherwise memoryless.
-Two limitations follow directly from this design choice.
-First, $\mK$ is computed on the linearised dynamics, so its optimality
-degrades when the trajectory deviates far from trim.
-Second, and more fundamentally, the LQR gain cannot look ahead: if the current
-state is near zero but a large gust is about to arrive, the LQR issues almost
-no command---it will react only once the state has grown large enough to produce
-a significant term $-\mK\hat{\tilde{\vxi}}_k$.
-
-Model Predictive Control (MPC) addresses both limitations by moving the
-optimisation \emph{online}.
-At each timestep $k$ the controller solves a \emph{finite-horizon} problem over
-a sequence of $N$ future flap commands $[\delta_k, \ldots, \delta_{k+N-1}]$,
-starting from the current state estimate $\hat{\tilde{\vxi}}_k$.
-The key difference from LQR is that the cost is evaluated by rolling out the
-\emph{full nonlinear plant} over the horizon: the optimiser sees not just the
-immediate penalty on $\hat{\tilde{\vxi}}_k$, but the entire predicted trajectory
-$\hat{\tilde{\vxi}}_{k+1}, \ldots, \hat{\tilde{\vxi}}_{k+N}$ as a function of
-the chosen command sequence.
-
-Crucially, the primary benefit of this rollout is \emph{not} knowledge of the
-future gust.
-In the realistic closed-loop setting the future gust velocity is unknown; it is
-approximated crudely by a linear extrapolation of the current estimate
-(Section~\ref{sec:gust_seq}).
-The genuine advantage is instead \emph{multi-step planning on the nonlinear
-aeroelastic response}: the latent state $\hat{z}_k$ carries aerodynamic memory
-of the gust that has already entered the system, and the nonlinear rollout lets
-the optimiser trace how that memory will drive $C_L$, $C_M$, $h$, and $\alpha$
-over the next $N$ steps under any candidate command sequence.
-The LQR gain, being a static linear map, collapses this future trajectory into a
-single linearised cost-to-go and cannot distinguish between a state that will
-decay naturally and one that is about to resonate.
-MPC selects the command sequence that minimises the actual predicted cost over
-the horizon, which automatically accounts for nonlinear aerodynamic saturation,
-structural coupling, and the rate penalty $R_{\Delta u}$ jointly across all $N$
-steps rather than greedily at each instant.
-
-The cost of this improved performance is computational: instead of a single
-$1\times6$ matrix--vector product, MPC requires an iterative optimisation at
-every timestep.
-The key methodological contribution of this chapter is to show how
-\emph{reverse-mode automatic differentiation} (AD)---the same infrastructure
-used to linearise the plant for LQR design in Section~\ref{sec:jacobian}---can
-be applied \emph{online} to differentiate through the full $N$-step rollout and
-drive an Adam gradient-descent solver, reducing the per-step wall-clock time to
-a regime compatible with the $\Delta t = 0.01\,\text{s}$ sample period.
-
-% ================================================================
 \subsubsection{MPC Architecture}
 \label{sec:mpc_arch}
 % ================================================================
@@ -71,9 +7,9 @@ a regime compatible with the $\Delta t = 0.01\,\text{s}$ sample period.
 Figure~\ref{fig:mpc_block} shows the closed-loop architecture.
 At each timestep $k$ the observer produces the estimated augmented state
 $\hat{\tilde{\vxi}}_k = [\hat{\vxi}_k^\top,\hat{W}_k]^\top$
-(identical machinery to Section~\ref{sec:lqr_arch}: leaky kinematic integrators
-on $\ddot{h}$ and $\ddot{\alpha}$ to reconstruct all four structural states,
-$C_L$ bisection for gust estimation, and optional EKF correction).
+(identical machinery to Section~\ref{sec:lqr_arch}: leaky kinematic integrator,
+AoA direct measurement, $C_L$ bisection for gust estimation, and optional EKF
+correction).
 The MPC block uses $\hat{\tilde{\vxi}}_k$ as the initial condition for a
 horizon-$N$ optimisation over the control sequence
 $\mathbf{u} = [\delta_k, \delta_{k+1}, \ldots, \delta_{k+N-1}]^\top$,
@@ -96,7 +32,7 @@ the first element $\delta_k^*$ to the plant (receding-horizon principle).
 
   % plant -> observer (right side, measurements)
   \draw[->] (plant.east) -- ++(1.0,0) coordinate (mr)
-            -- node[right, lbl]{$\ddot{h},\;\ddot{\alpha},\;C_L$}
+            -- node[right, lbl]{$\ddot{h},\;\alpha,\;C_L$}
             (mr |- observer.east) -- (observer.east);
 
   % observer -> mpc (bottom, estimated state)
@@ -175,19 +111,11 @@ $W_{k+1} = \lambda_w W_k$, $\lambda_w = 0.98$.
 Given the current state estimate $\hat{\tilde{\vxi}}_k$, the MPC solves at
 each timestep
 \begin{equation}
-  \min_{\mathbf{u} \in \mathcal{U}^N}
-  J_N(\mathbf{u};\,\hat{\tilde{\vxi}}_k)
-  = \sum_{j=0}^{N-1}
-    \Bigl[
-      Q_{C_L} C_{L,k+j}^2
-      + Q_{C_M} C_{M,k+j}^2
-      + Q_h\, h_{k+j}^2
-      + Q_\alpha\, \alpha_{k+j}^2
-      + Q_{\Delta C_L}(\Delta C_{L,k+j})^2
-      + R\,\delta_{k+j}^2
-      + R_{\Delta u}(\delta_{k+j} - \delta_{k+j-1})^2
-    \Bigr],
-  \label{eq:mpc_cost}
+    \begin{split}
+        \min_{\mathbf{u} \in \mathcal{U}^N} J_N(\mathbf{u};\,\hat{\tilde{\vxi}}_k) = \sum_{j=0}^{N-1} \Bigl[ & Q_{C_L} C_{L,k+j}^2 + Q_{C_M} C_{M,k+j}^2 + Q_h\, h_{k+j}^2 + Q_\alpha\, \alpha_{k+j}^2 \\ 
+        & + Q_{\Delta C_L}(\Delta C_{L,k+j})^2 + R\,\delta_{k+j}^2 + R_{\Delta u}(\delta_{k+j} - \delta_{k+j-1})^2 \Bigr],
+    \end{split}
+    \label{eq:mpc_cost}
 \end{equation}
 where $\Delta C_{L,k+j} = C_{L,k+j} - C_{L,k+j-1}$ is the one-step lift
 increment, and the predicted states are obtained by rolling out
@@ -267,7 +195,7 @@ differentiable operations, applied in sequence:
   \item \textbf{Element-wise activations.}  Each activation layer applies a
         nonlinearity $\sigma$ component by component:
         $\mathbf{a}^{(\ell)} \leftarrow \sigma(\mathbf{a}^{(\ell)})$.
-        Its Jacobian is the diagonal matrix
+        Its Jacobian is the diagonal matrix \\
         $\operatorname{diag}(\sigma'(a^{(\ell)}_1), \ldots, \sigma'(a^{(\ell)}_n))$,
         where $\sigma'$ is the scalar derivative of the activation function
         (e.g.\ $\sigma'(x) = 1 - \tanh^2(x)$ for a $\tanh$ unit).
@@ -277,11 +205,11 @@ These two types cover all operations in both LDNet sub-networks
 After the aerodynamic step, $\Psi_j$ applies the structural RK4 integrator,
 which computes the four slope estimates
 \begin{equation}
-  k_1 = g(x_j,\, F_y,\, M_z), \quad
-  k_2 = g\!\left(x_j + \tfrac{\Delta t}{2}k_1,\, F_y,\, M_z\right), \quad
-  k_3 = g\!\left(x_j + \tfrac{\Delta t}{2}k_2,\, F_y,\, M_z\right), \quad
-  k_4 = g(x_j + \Delta t\,k_3,\, F_y,\, M_z),
-  \label{eq:rk4_slopes}
+    \begin{aligned}
+        k_1 &= g(x_j,\, F_y,\, M_z), \quad & k_2 &= g\!\left(x_j + \tfrac{\Delta t}{2}k_1,\, F_y,\, M_z\right), \\
+        k_3 &= g\!\left(x_j + \tfrac{\Delta t}{2}k_2,\, F_y,\, M_z\right), \quad & k_4 &= g(x_j + \Delta t\,k_3,\, F_y,\, M_z),
+    \end{aligned}
+    \label{eq:rk4_slopes}
 \end{equation}
 and then updates the structural state as
 $x_{j+1} = x_j + \tfrac{\Delta t}{6}(k_1 + 2k_2 + 2k_3 + k_4)$.
@@ -296,7 +224,6 @@ treatment: TensorFlow records each sub-step as an additional affine operation
 in the computation graph and differentiates through all four stages
 automatically, in exactly the same way it differentiates through the network
 layers.
-
 Composing $N$ such steps gives the rollout map
 \begin{equation}
   \mathcal{R}(\mathbf{u};\,\hat{\tilde{\vxi}}_k)
@@ -340,7 +267,6 @@ these depend on $\delta_m$ explicitly and do not pass through any state
 variable, so they are not captured by the sum over $\partial\ell_j/\partial\vxi_j$.
 The sensitivity $\partial \vxi_j / \partial \delta_m$ in the indirect term
 propagates forward through the composition $\Psi_{j-1} \circ \cdots \circ \Psi_m$.
-
 \emph{Forward-mode} differentiation computes this sensitivity by seeding a
 unit perturbation $\dot{\delta}_m = 1$ at the input and propagating it forward
 through the chain step by step, accumulating $\partial \vxi_j / \partial \delta_m$
@@ -360,7 +286,7 @@ The general rule is: forward mode is efficient when there are few inputs and
 many outputs; reverse mode is efficient when there are many inputs and few
 outputs---exactly the case here ($N$ control inputs, one scalar cost).
 Reverse-mode AD reduces the total cost to a \emph{single} forward pass to
-record activations, followed by a \emph{single} backward pass, regardless of $N$.
+record activations, followed by a \emph{single} backward pass, regardless of $N$.6
 Define the adjoint (co-state) vector at step $j$ as
 \begin{equation}
   \boldsymbol{\lambda}_j = \frac{\partial J_N}{\partial \vxi_j}
@@ -396,6 +322,47 @@ In practice TensorFlow's \texttt{GradientTape} records the forward computation
 automatically during the rollout and evaluates \eqref{eq:adjoint_rec}--\eqref{eq:grad_u}
 in a single \texttt{tape.gradient(J, u\_var)} call.
 
+
+%%%%%%%%%%%%%%%%%%%%
+Ok, proviamo con un esempio piccolo: $N = 3$ passi, quindi $\mathbf{u} = [\delta_0, \delta_1, \delta_2]$.
+
+Il problema: vuoi $\partial J_N / \partial \delta_0$, $\partial J_N / \partial \delta_1$, $\partial J_N / \partial \delta_2$.
+
+La catena causale è:
+
+
+δ₀ → ξ₁ → ξ₂ → ξ₃
+δ₁ →      ξ₂ → ξ₃
+δ₂ →           ξ₃
+Ogni $\ell_j$ dipende da $\vxi_j$ e da $\delta_j$ direttamente.
+
+L'idea dell'adjoint: invece di chiedersi "quanto cambia $J_N$ se perturbo $\delta_m$?" (forward, $N$ calcoli), ti chiedi "quanto vale $J_N$, e poi distribuisco la responsabilità all'indietro".
+
+Parti dalla fine. Nessun costo terminale, quindi:
+$$\boldsymbol{\lambda}_3 = \mathbf{0}$$
+
+Ora vai indietro di un passo. $\vxi_3$ ha contribuito a $\ell_2$ (l'unico costo che dipende da $\vxi_3$... aspetta, $\ell_j$ dipende da $\vxi_j$ non $\vxi_{j+1}$). Più precisamente:
+
+$$\boldsymbol{\lambda}_2 = \left(\frac{\partial \Psi_2}{\partial \vxi_2}\right)^\top \boldsymbol{\lambda}_3 + \left(\frac{\partial \ell_2}{\partial \vxi_2}\right)^\top = \mathbf{0} + \left(\frac{\partial \ell_2}{\partial \vxi_2}\right)^\top$$
+
+$$\boldsymbol{\lambda}_1 = \left(\frac{\partial \Psi_1}{\partial \vxi_1}\right)^\top \boldsymbol{\lambda}_2 + \left(\frac{\partial \ell_1}{\partial \vxi_1}\right)^\top$$
+
+$$\boldsymbol{\lambda}_0 = \left(\frac{\partial \Psi_0}{\partial \vxi_0}\right)^\top \boldsymbol{\lambda}_1 + \left(\frac{\partial \ell_0}{\partial \vxi_0}\right)^\top$$
+
+Cos'è fisicamente $\boldsymbol{\lambda}_j$? È "se cambio $\vxi_j$ di un po', di quanto cambia il costo totale futuro $J_N$?". È la sensibilità del costo totale rispetto allo stato al passo $j$ — una sorta di "prezzo" dello stato in quel momento.
+
+Perché questo è efficiente? Una volta calcolati $\boldsymbol{\lambda}_0, \ldots, \boldsymbol{\lambda}_3$ con una sola passata all'indietro, i gradienti rispetto a tutti i controlli vengono fuori gratis:
+
+$$\frac{\partial J_N}{\partial \delta_2} = \left(\frac{\partial \Psi_2}{\partial \delta_2}\right)^\top \boldsymbol{\lambda}_3 + \frac{\partial \ell_2}{\partial \delta_2}$$
+
+$$\frac{\partial J_N}{\partial \delta_1} = \left(\frac{\partial \Psi_1}{\partial \delta_1}\right)^\top \boldsymbol{\lambda}_2 + \frac{\partial \ell_1}{\partial \delta_1}$$
+
+$$\frac{\partial J_N}{\partial \delta_0} = \left(\frac{\partial \Psi_0}{\partial \delta_0}\right)^\top \boldsymbol{\lambda}_1 + \frac{\partial \ell_0}{\partial \delta_0}$$
+
+Ogni gradiente è un solo prodotto matrice-vettore, perché $\boldsymbol{\lambda}_{j+1}$ ha già accumulato tutta la sensibilità futura.
+
+Il nome "adjoint" viene dall'analisi funzionale: $(\cdot)^\top$ è l'operatore aggiunto (adjoint) della Jacobiana. In italiano si dice anche "co-stato" perché in meccanica classica questo vettore gioca il ruolo delle variabili coniugate (i momenti) nello spazio delle fasi — evolve all'indietro nel tempo con la dinamica trasposta, proprio come il momento coniugato evolve con l'Hamiltoniana trasposta.
+%%%%%%%%%%%%%%%%%%%%%%%%%%
 \paragraph{Propagation through RK4.}
 A subtlety shared with the linearisation in Section~\ref{sec:jacobian} is that
 each step $\Psi_j$ is itself a four-stage composition (the RK4 sub-steps
@@ -498,35 +465,11 @@ with $W_0 = 60\,\text{m/s}$, $T_g = 1\,\text{s}$, $U_\infty = 75\,\text{m/s}$.
 \end{enumerate}
 Both controllers use the same observer (EKF, Section~\ref{sec:ekf}) to isolate
 the effect of the control law on closed-loop performance.
-For reference, the open-loop baseline and the MPC oracle (true state + exact
-gust preview) are also shown.
 
 \paragraph{Closed-loop performance.}
 Figure~\ref{fig:mpc_performance} shows heave acceleration $\ddot{h}$, pitch
 angle $\alpha$, flap deflection $\delta$, and flap rate $\dot{\delta}$ for all
 four configurations.
-
-The MPC+EKF controller achieves a larger reduction in the first $C_L$ peak
-(at $t \approx 0.3\,\text{s}$) compared to LQR+EKF.
-This improvement stems directly from the forward gust estimate \eqref{eq:W_extrap}
-fed into the horizon: the optimizer can begin deflecting the flap
-\emph{before} the gust disturbance fully loads the aerodynamics, trading
-the cost of early actuation against the cost of the subsequent structural
-oscillation.
-The LQR, lacking any preview mechanism, responds only after the aerodynamic
-excitation has occurred and therefore cannot attenuate this initial transient.
-
-In the post-gust oscillation phase ($t > 1\,\text{s}$) both controllers perform
-similarly: the structural modes are nearly linear in this regime and the LQR
-gain is already optimised for quadratic damping, so the advantage of the
-nonlinear MPC rollout is marginal.
-
-The MPC flap trajectory is smoother than that of the LQR in the initial phase
-because the $R_{\Delta u}$ penalty \eqref{eq:mpc_cost} directly limits
-actuation rate within the optimisation, whereas the LQR gain has no explicit
-rate-limiting mechanism.
-The control input remains within the $\pm 20^\circ$ saturation limit in all
-cases.
 
 \begin{figure}[htbp]
   \centering
@@ -540,20 +483,7 @@ cases.
 \end{figure}
 
 \paragraph{Aerodynamic coefficients.}
-Figure~\ref{fig:mpc_aero} shows $C_L(t)$ and $C_M(t)$.
-The first $C_L$ peak is partially attenuated by MPC+EKF but not eliminated:
-the linear extrapolation \eqref{eq:W_extrap} underestimates the true gust
-amplitude during the ramp-up phase, so the optimizer's gust preview is
-imperfect.
-The MPC oracle, which has exact knowledge of $W(t)$ over the horizon, achieves
-a further reduction of this peak, confirming that the remaining gap between
-MPC+EKF and the oracle is attributable to gust estimation error, not to any
-limitation of the gradient-based solver.
-The $C_M$ reduction is a by-product of flap actuation: since
-$\partial C_M/\partial \delta < 0$ at trim, the $C_M$ penalty term in
-\eqref{eq:mpc_cost} ($Q_{C_M} = 1$) causes the optimizer to partially trade
-heave load against pitching moment in a way the LQR cannot without explicit
-output augmentation.
+
 
 \begin{figure}[htbp]
   \centering
@@ -565,17 +495,6 @@ output augmentation.
 \end{figure}
 
 \paragraph{Computational cost.}
-Figure~\ref{fig:mpc_solve_time} shows the per-timestep solve time for MPC+EKF
-over the simulation.
-The first call is slower due to \texttt{@tf.function} compilation (JIT tracing
-of the computation graph); subsequent steps are fully compiled and run in
-approximately $[X]\,\text{ms}$ on a standard CPU, well within the
-$\Delta t = 10\,\text{ms}$ budget.
-By comparison, the LQR requires a single $1\times6$ matrix--vector product:
-sub-microsecond, negligible.
-The MPC computational overhead is thus roughly three orders of magnitude larger
-than LQR, a trade-off that must be weighed against the improved first-peak
-attenuation in any real-time implementation decision.
 
 \begin{figure}[htbp]
   \centering
@@ -596,17 +515,7 @@ $n_{\rm iter}$.
 Their effects on GLA performance and computational cost are summarised below.
 
 \paragraph{Horizon $N$.}
-A longer horizon allows the optimizer to plan further ahead, at the cost of a
-larger computation graph and more backward-pass operations per solve.
-Figure~\ref{fig:mpc_horizon} shows the peak $|\ddot{h}|$ and peak $|C_L|$
-reduction (relative to open loop) as a function of $N$ for $N \in \{5, 10, 15, 20\}$.
-Performance improves with $N$ up to approximately $N = 10$--$15$ and then
-saturates: the $1$-cosine gust is essentially over within $T_g/\Delta t = 100$
-steps, so a horizon longer than the gust duration provides no additional
-preview benefit.
-The solve time scales approximately linearly with $N$ (each additional step
-adds one forward and one backward pass through $\Psi_j$), so $N = 10$
-represents a good compromise.
+
 
 \begin{figure}[htbp]
   \centering
@@ -617,17 +526,7 @@ represents a good compromise.
 \end{figure}
 
 \paragraph{Learning rate $\eta$ and iteration count $n_{\rm iter}$.}
-Too small a learning rate requires more iterations to converge; too large a
-rate causes oscillations in the Adam trajectory and may overshoot the
-(locally) optimal sequence.
-For the warm-started problem the cost function is locally smooth near the
-previous solution, so moderate rates ($\eta = 0.3$--$1.0$) converge reliably
-within 10--20 iterations.
-Figure~\ref{fig:mpc_adam} shows cost-vs-iteration curves for several $(\eta, n_{\rm iter})$
-combinations: the baseline $(\eta=0.5, n_{\rm iter}=15)$ achieves $>90\%$ of
-the converged cost reduction within the budget.
-Increasing $n_{\rm iter}$ beyond 20 yields diminishing returns because the
-warm-started cost is already in a near-flat region of the landscape.
+
 
 \begin{figure}[htbp]
   \centering
@@ -639,18 +538,7 @@ warm-started cost is already in a near-flat region of the landscape.
 \end{figure}
 
 \paragraph{Cost weights.}
-The $Q_{C_L}$ and $Q_{\Delta C_L}$ weights in \eqref{eq:mpc_cost} have no LQR
-counterpart and deserve brief discussion.
-Increasing $Q_{C_L}$ shifts the optimizer's priority towards aerodynamic load
-attenuation independently of structural motion: when the gust loads the wing at
-near-zero structural displacement (as at $t \approx 0.3\,\text{s}$), the LQR
-state cost sees no penalty but the MPC $Q_{C_L}$ term does.
-The $Q_{\Delta C_L}$ term penalises lift rate directly, encouraging smooth
-aerodynamic loading that reduces fatigue cycles without necessarily reducing
-peak displacement.
-For the structural weight choices this chapter inherits the same
-$Q_h / Q_\alpha / R$ normalisations as \eqref{eq:weights}; their trade-off
-analysis applies identically (see Section~\ref{sec:sensitivity}).
+
 
 % ================================================================
 \subsubsection{Conclusions}
