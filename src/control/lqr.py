@@ -26,9 +26,9 @@ def compute_jacobians(aero_model, x_trim, z_trim, U_INF, DT, CL_trim=0.0, CM_tri
     dH   = float(D_H); kH = float(K_H)
     dA   = float(D_ALPHA); kA = float(K_ALPHA)
 
-    def rk4_tf(x, dFy, dMz):
+    def rk4_tf(x, dFy, dMz): #RK4 in tensorflow to get gradients of next state w.r.t. current state and input
         DT_tf = tf.constant(DT, dtype=tf.float64)
-        def rhs(s):
+        def rhs(s): #accelerations given current state and input
             RHS_h = -dFy - dH*s[1] - kH*s[0]
             RHS_a =  dMz - dA*s[3] - kA*s[2]
             return tf.stack([s[1],
@@ -39,6 +39,7 @@ def compute_jacobians(aero_model, x_trim, z_trim, U_INF, DT, CL_trim=0.0, CM_tri
         k3 = rhs(x + 0.5*DT_tf*k2); k4 = rhs(x + DT_tf*k3)
         return x + (DT_tf/6.0)*(k1 + 2*k2 + 2*k3 + k4)
 
+#Define TF variables for state, input, and gust disturbance (W)
     xi_var = tf.Variable(
         np.concatenate([x_trim, z_trim]).astype(np.float64), dtype=tf.float64)
     u_var  = tf.Variable([0.0], dtype=tf.float64)
@@ -50,16 +51,19 @@ def compute_jacobians(aero_model, x_trim, z_trim, U_INF, DT, CL_trim=0.0, CM_tri
         z = xi_var[4:5]
         delta = u_var[0]
 
+        #single forward pass starting from the trim point
         z_new, C_L, C_M = aero_model.step_tf(
             z, h, hd, a, ad, delta, W_var,
             tf.constant(U_INF, dtype=tf.float64), DT)
 
+        #incremental forces w.r.t. trim (for output y)
         dFy    = tf.constant(q_dyn, dtype=tf.float64) * (C_L - CL_tr)
         dMz    = tf.constant(q_dyn, dtype=tf.float64) * (C_M - CM_tr)
-        x_new  = rk4_tf(xi_var[:4], dFy, dMz)
-        xi_new = tf.concat([x_new, z_new], axis=0)
-        y_out  = tf.stack([C_L - CL_tr, C_M - CM_tr])
+        x_new  = rk4_tf(xi_var[:4], dFy, dMz) #next state of the structural system given current state and input (without z dynamics))
+        xi_new = tf.concat([x_new, z_new], axis=0) #Full next state of the augmented system (including z dynamics)
+        y_out  = tf.stack([C_L - CL_tr, C_M - CM_tr]) #Output is the deviation of CL and CM from their trim values, which are the quantities we want to regulate to zero with LQR
 
+    #tape recorded all the operations in the forward pass. now backprop to get the Jacobians of next state and output w.r.t. current state, input, and gust disturbance
     A_d = tape.jacobian(xi_new, xi_var).numpy()   # (5, 5)
     B_d = tape.jacobian(xi_new, u_var).numpy()    # (5, 1)
     C_y = tape.jacobian(y_out,  xi_var).numpy()   # (2, 5)
@@ -128,9 +132,11 @@ class LQRController:
         print(f"  LQR gain K = {self.K.round(4)}")
         print(f"  K[5] (W feed-forward) = {self.K[0,5]:.4f}")
 
+    # Controller called at each time step with current state estimates and gust estimate W_hat
     def solve(self, x_hat, z_hat, W_hat=0.0):
+        # Form augmented state ξ = [x_hat - x_trim; z_hat - z_trim; W_hat]
         xi = np.concatenate([x_hat - self.x_trim,
                              z_hat  - self.z_trim,
                              [W_hat]])             # (6,)
-        delta = float(-(self.K @ xi)[0])
+        delta = float(-(self.K @ xi)[0]) #The gain operates on the deviation of the current state from trim, and on the gust estimate W_hat, to compute the control input delta. The LQR gain K is designed to minimize deviations in both state and output, while also accounting for the effect of gusts through W_hat.
         return np.clip(delta, -self.delta_max, self.delta_max)

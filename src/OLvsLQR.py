@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from structural.smd import get_space_state_matrices
 from control.mpc import run_mpc_simulation
 from control.lqr import LQRController
+from control.ekf_augmented import NonlinearEKF
 from aerodynamics.model import LDNetModel as AeroModel
 import matplotlib.pyplot as plt
 
@@ -54,6 +55,10 @@ lqr = LQRController(aero_model, U_INF, DT,
                     CL_trim=float(_CL_trim), CM_trim=float(_CM_trim),
                     Q_w=1.0 / 10.0**2, lambda_w=0.98, delta_max=20.0)
 
+print("Initializing EKF...")
+xi_trim = np.concatenate([np.zeros(4), _z_trim, [0.0]])
+ekf = NonlinearEKF(aero_model, U_INF, DT, xi_trim=xi_trim, lambda_w=0.98)
+
 # ─────────────────────────────────────────────────────────────
 # GUST PROFILE — single 1-cosine gust at t=0
 # ─────────────────────────────────────────────────────────────
@@ -70,12 +75,12 @@ def single_gust(t):
 # ─────────────────────────────────────────────────────────────
 print(f"\nRunning BASELINE (no control)...")
 res_b = run_mpc_simulation(U_INF, T_END, DT, aero_model, None, A_s, B_s,
-                           use_ekf=False, gust_profile=single_gust)
+                           observer='heuristic', gust_profile=single_gust)
 
-print(f"Running LQR (C_L observer + AoA sensor)...")
+print(f"Running LQR (EKF observer)...")
 res_lqr = run_mpc_simulation(U_INF, T_END, DT, aero_model, lqr, A_s, B_s,
-                             use_ekf=True, gust_profile=single_gust,
-                             use_aoa_sensor=True)
+                             observer='ekf_clinv', kalman_filter=ekf,
+                             gust_profile=single_gust)
 
 # ─────────────────────────────────────────────────────────────
 # METRICS — gust window [0, 1.5s]

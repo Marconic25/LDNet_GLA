@@ -161,28 +161,32 @@ def _second_peak(CL_abs, t_arr, pk1_t):
     return float(CL_abs[mask2].max()) if mask2.any() else 0.0
 
 
+# Module-level variable: holds the aero model once loaded per worker process
+_worker_aero = None
+
+def _worker_init(models_dir):
+    """Called once per worker process at pool startup — loads TF + model."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from aerodynamics.model import LDNetModel
+    global _worker_aero
+    _worker_aero = LDNetModel(str(models_dir))
+
+
 def _eval_worker(args):
-    """
-    Top-level (picklable) worker for ProcessPoolExecutor.
-    Re-imports TF-dependent modules inside the child process (spawn safety).
-    """
+    """Worker called once per CMA-ES candidate. Model already loaded."""
+    import numpy as np
+    from control.mpc import run_mpc_simulation
+
     (theta, z_trim, CL_trim, CM_trim, xi_trim,
      JAC, A_ekf, C_ekf, A_s, B_s) = args
 
-    import sys, os
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import numpy as np
-    from aerodynamics.model import LDNetModel
-    from control.mpc        import run_mpc_simulation
-    from pathlib import Path
-
     try:
-        _models = Path(__file__).parent.parent / 'models'
-        aero    = LDNetModel(str(_models))
-        lqr     = build_lqr(theta, aero, z_trim, CL_trim, CM_trim, jac=JAC)
-        ekf     = build_ekf(aero, xi_trim, A_trim=A_ekf, C_trim=C_ekf)
+        aero = _worker_aero
+        lqr  = build_lqr(theta, aero, z_trim, CL_trim, CM_trim, jac=JAC)
+        ekf  = build_ekf(aero, xi_trim, A_trim=A_ekf, C_trim=C_ekf)
         ekf.reset(xi_trim)
-        res = run_mpc_simulation(
+        res  = run_mpc_simulation(
             U_INF, T_END, DT, aero, lqr, A_s, B_s,
             gust_profile=make_gust(GUST_NOM_W0, GUST_NOM_TG),
             observer='ekf_ad', kalman_filter=ekf)
@@ -401,7 +405,9 @@ if __name__ == '__main__':
 
     _ctx = multiprocessing.get_context('spawn')
     with concurrent.futures.ProcessPoolExecutor(
-            max_workers=CMA_N_WORKERS, mp_context=_ctx) as pool:
+            max_workers=CMA_N_WORKERS, mp_context=_ctx,
+            initializer=_worker_init,
+            initargs=(_MODELS_DIR,)) as pool:
 
         while not es.stop():
             solutions = es.ask()
