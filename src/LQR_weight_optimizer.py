@@ -63,7 +63,7 @@ EVAL_WINDOW  = GUST_NOM_TG + 0.5   # 1.5 s
 
 # ── CMA-ES settings ───────────────────────────────────────────────────────────
 CMA_SIGMA0   = 0.3
-CMA_MAXITER  = 300
+CMA_MAXITER  = 100
 CMA_POPSIZE  = 8
 CMA_N_WORKERS = 4   # matches ncpus=4 in PBS; set to 1 to disable parallelism
 

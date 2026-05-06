@@ -41,11 +41,12 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 sys.path.insert(0, str(SRC_DIR))
 
-from aerodynamics.model    import LDNetModel
-from control.lqr           import LQRController, compute_jacobians
-from control.mpc           import MPCController, run_mpc_simulation
-from control.ekf_augmented import NonlinearEKF
-from structural.smd        import get_space_state_matrices
+from aerodynamics.model        import LDNetModel
+from control.lqr               import LQRController, compute_jacobians
+from control.mpc               import MPCController
+from control.run_controller    import run_simulation
+from control.ekf_augmented     import NonlinearEKF
+from structural.smd            import get_space_state_matrices
 
 # ── shared weights ────────────────────────────────────────────────────────────
 # LQR optimal weights (found manually — Q_CL small so DARE is dominated by
@@ -129,7 +130,7 @@ def run_case(label, aero_model, controller, A_s, B_s, ekf, xi_trim,
     if ekf is not None:
         ekf.reset(xi_trim)
     print(f"  {label}...")
-    return run_mpc_simulation(
+    return run_simulation(
         U_INF, T_END, DT, aero_model, controller, A_s, B_s,
         gust_profile=gust,
         observer=observer_mode,

@@ -99,10 +99,13 @@ def _compute_ekf_jacobians(aero_model, xi_op, U_INF, DT, lambda_w=0.98, u_op=0.0
     # This avoids tape.jacobian which internally uses pfor and causes retracing.
     # Cost: 8 forward passes (6 for A rows via vjp, 2 for C rows) — acceptable.
 
+    #complete step of the augmented system 
     def _forward(xi_c):
+        #assemble augmented state
         h  = xi_c[0]; hd = xi_c[1]
         a  = xi_c[2]; ad = xi_c[3]
         z  = xi_c[4:5]; W = xi_c[5]
+        #forward pass through aero step and structural RK4 to get next state, and compute measurement y = [ḧ, α] at the next state
         z_new, C_L, C_M = aero_model.step_tf(
             z, h, hd, a, ad, u_tf, W, U_tf, float(DT))
         Fy = q_dyn * C_L; Mz = q_dyn * C_M
@@ -115,6 +118,7 @@ def _compute_ekf_jacobians(aero_model, xi_op, U_INF, DT, lambda_w=0.98, u_op=0.0
         y_out  = tf.stack([h_ddot, a])
         return xi_new, y_out
 
+    #declared costant so the tape does not retrace the graph across repeated calls to _compute_ekf_jacobians in EKF.predict()
     xi_c = tf.constant(np.asarray(xi_op, dtype=np.float64), dtype=dtype)
 
     # A rows: ∂xi_new[i]/∂xi_c  for i=0..5  (use gradient of each scalar output)
@@ -276,8 +280,8 @@ class NonlinearEKF:
             self._A, self._C = _compute_ekf_jacobians(
                 self.aero, self.xi_hat, self.U_INF, self.DT,
                 lambda_w=self.lw, u_op=float(u))
-        xi_pred = self._f_nonlinear(self.xi_hat, u)
-        P_pred  = self._A @ self.P @ self._A.T + self.Q
+        xi_pred = self._f_nonlinear(self.xi_hat, u) #predicted state
+        P_pred  = self._A @ self.P @ self._A.T + self.Q #predicted covariance 
         return xi_pred, P_pred
 
     def update(self, xi_pred, P_pred, y_meas, u,
@@ -314,6 +318,7 @@ class NonlinearEKF:
         if W_inv is not None and R_W is not None:
             y_pred = np.append(y_pred, float(xi_pred[5]))
 
+        #standard EKF update with innovation, Kalman gain, and Joseph form covariance update for numerical stability
         innov  = y_meas_full - y_pred
         S      = C_k @ P_pred @ C_k.T + R_k
         K_gain = P_pred @ C_k.T @ np.linalg.inv(S)   # (6, n_meas)

@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from structural.smd import get_space_state_matrices
-from control.mpc import run_mpc_simulation
+from control.run_controller import run_simulation
 from control.lqr import LQRController
 from control.ekf_augmented import NonlinearEKF
 from aerodynamics.model import LDNetModel as AeroModel
@@ -74,13 +74,13 @@ def single_gust(t):
 # SIMULATIONS
 # ─────────────────────────────────────────────────────────────
 print(f"\nRunning BASELINE (no control)...")
-res_b = run_mpc_simulation(U_INF, T_END, DT, aero_model, None, A_s, B_s,
-                           observer='heuristic', gust_profile=single_gust)
+res_b = run_simulation(U_INF, T_END, DT, aero_model, None, A_s, B_s,
+                       observer='heuristic', gust_profile=single_gust)
 
 print(f"Running LQR (EKF observer)...")
-res_lqr = run_mpc_simulation(U_INF, T_END, DT, aero_model, lqr, A_s, B_s,
-                             observer='ekf_clinv', kalman_filter=ekf,
-                             gust_profile=single_gust)
+res_lqr = run_simulation(U_INF, T_END, DT, aero_model, lqr, A_s, B_s,
+                         observer='ekf_clinv', kalman_filter=ekf,
+                         gust_profile=single_gust)
 
 # ─────────────────────────────────────────────────────────────
 # METRICS — gust window [0, 1.5s]
