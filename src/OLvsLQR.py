@@ -26,6 +26,8 @@ DT     = 0.01
 # Q_a=10 minimizes C_L peak (0.0793 vs 0.0936 baseline)
 Q_h   = 1.0  / 0.00428**2
 Q_a   = 10.0 / 0.00823**2
+Q_CL  = 1.0  / 0.0484**2
+Q_CM  = 1.0  / 0.04**2
 R_lqr = np.array([[1.0 / 2.0**2]])
 
 # ─────────────────────────────────────────────────────────────
@@ -49,15 +51,17 @@ print(f"  C_L_trim = {float(_CL_trim):.5f},  C_M_trim = {float(_CM_trim):.5f}")
 
 print("Initializing LQR...")
 Q_lqr = np.diag([Q_h, 0.0, Q_a, 0.0, 0.0])
+Q_y   = np.diag([Q_CL, Q_CM])
 lqr = LQRController(aero_model, U_INF, DT,
                     x_trim=np.zeros(4), z_trim=_z_trim,
                     Q_lqr=Q_lqr, R_lqr=R_lqr,
                     CL_trim=float(_CL_trim), CM_trim=float(_CM_trim),
-                    Q_w=1.0 / 10.0**2, lambda_w=0.98, delta_max=20.0)
+                    Q_y=Q_y, Q_w=1.0 / 10.0**2, lambda_w=0.98, delta_max=20.0)
 
 print("Initializing EKF...")
 xi_trim = np.concatenate([np.zeros(4), _z_trim, [0.0]])
-ekf = NonlinearEKF(aero_model, U_INF, DT, xi_trim=xi_trim, lambda_w=0.98)
+ekf = NonlinearEKF(aero_model, U_INF, DT, xi_trim=xi_trim, lambda_w=0.98,
+                   use_cl_inversion=False)
 
 # ─────────────────────────────────────────────────────────────
 # GUST PROFILE — single 1-cosine gust at t=0
@@ -137,8 +141,8 @@ fmt(axes[1,0], 'α [°]', 'Pitch angle')
 axes[1,1].plot(t_b, np.rad2deg(res_b['ad']), **BL)
 axes[1,1].plot(t_lqr, np.rad2deg(res_lqr['ad']), **LQR)
 fmt(axes[1,1], 'α̇ [°/s]', 'Pitch rate')
-fig1.tight_layout(); fig1.savefig('mpc_fig1_state.png', dpi=150)
-print("[OK] mpc_fig1_state.png")
+fig1.tight_layout(); fig1.savefig('OLvsLQR_fig1_state.png', dpi=150)
+print("[OK] OLvsLQR_fig1_state.png")
 
 # Figure 2 — Accelerations
 fig2, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True)
@@ -148,8 +152,8 @@ fmt(axes[0], 'ḧ [m/s²]', 'Heave acceleration')
 axes[1].plot(t_b, np.rad2deg(res_b['a_ddot']), **BL)
 axes[1].plot(t_lqr, np.rad2deg(res_lqr['a_ddot']), **LQR)
 fmt(axes[1], 'α̈ [°/s²]', 'Pitch acceleration')
-fig2.tight_layout(); fig2.savefig('mpc_fig2_accels.png', dpi=150)
-print("[OK] mpc_fig2_accels.png")
+fig2.tight_layout(); fig2.savefig('OLvsLQR_fig2_accels.png', dpi=150)
+print("[OK] OLvsLQR_fig2_accels.png")
 
 # Figure 3 — Control input
 # Note: LDNet convention is delta<0 = flap down = CL increases.
@@ -163,8 +167,8 @@ axes[0].axhline(-20, color='k', ls=':', lw=0.8)
 fmt(axes[0], 'δ [°]  (+ = flap down)', 'Flap deflection')
 axes[1].plot(t_lqr, np.gradient(delta_plot, t_lqr), **LQR)
 fmt(axes[1], 'δ̇ [°/s]', 'Flap rate')
-fig3.tight_layout(); fig3.savefig('mpc_fig3_control.png', dpi=150)
-print("[OK] mpc_fig3_control.png")
+fig3.tight_layout(); fig3.savefig('OLvsLQR_fig3_control.png', dpi=150)
+print("[OK] OLvsLQR_fig3_control.png")
 
 # Figure 4 — Aerodynamic coefficients
 fig4, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True)
@@ -173,5 +177,5 @@ axes[0].plot(t_b, res_b['C_L'], **BL); axes[0].plot(t_lqr, res_lqr['C_L'], **LQR
 fmt(axes[0], '$C_L$', 'Lift coefficient')
 axes[1].plot(t_b, res_b['C_M'], **BL); axes[1].plot(t_lqr, res_lqr['C_M'], **LQR)
 fmt(axes[1], '$C_M$', 'Pitching moment coefficient')
-fig4.tight_layout(); fig4.savefig('mpc_fig4_aero.png', dpi=150)
-print("[OK] mpc_fig4_aero.png")
+fig4.tight_layout(); fig4.savefig('OLvsLQR_fig4_aero.png', dpi=150)
+print("[OK] OLvsLQR_fig4_aero.png")

@@ -468,12 +468,11 @@ if __name__ == '__main__':
                                   ('lqr_base',  theta0),
                                   ('lqr_opt',   best_theta)]]
     rows_amp = [];  ts_amp = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as tex:
-        for label, _, W0, T_g, res in tex.map(_do_sweep, amp_tasks):
-            print(f"  [done] W0={W0}  {label}", flush=True)
-            rows_amp.append(extract_metrics(res, W0, T_g, label))
-            for k in _KEYS:
-                ts_amp[f'W{W0}_{label}_{k}'] = res[k]
+    for label, _, W0, T_g, res in map(_do_sweep, amp_tasks):
+        print(f"  [done] W0={W0}  {label}", flush=True)
+        rows_amp.append(extract_metrics(res, W0, T_g, label))
+        for k in _KEYS:
+            ts_amp[f'W{W0}_{label}_{k}'] = res[k]
     pd.DataFrame(rows_amp).to_csv(RESULTS_DIR / 'sweep_amplitude.csv', index=False)
     np.savez(RESULTS_DIR / 'sweep_amplitude_timeseries.npz', **ts_amp)
     print(f"[OK] sweep_amplitude.csv  ({len(rows_amp)} rows)")
@@ -487,13 +486,12 @@ if __name__ == '__main__':
                                   ('lqr_base',  theta0),
                                   ('lqr_opt',   best_theta)]]
     rows_dur = [];  ts_dur = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as tex:
-        for label, _, W0, T_g, res in tex.map(_do_sweep, dur_tasks):
-            Tg_tag = int(round(T_g * 100))
-            print(f"  [done] T_g={T_g}  {label}", flush=True)
-            rows_dur.append(extract_metrics(res, W0, T_g, label))
-            for k in _KEYS:
-                ts_dur[f'Tg{Tg_tag}_{label}_{k}'] = res[k]
+    for label, _, W0, T_g, res in map(_do_sweep, dur_tasks):
+        Tg_tag = int(round(T_g * 100))
+        print(f"  [done] T_g={T_g}  {label}", flush=True)
+        rows_dur.append(extract_metrics(res, W0, T_g, label))
+        for k in _KEYS:
+            ts_dur[f'Tg{Tg_tag}_{label}_{k}'] = res[k]
     pd.DataFrame(rows_dur).to_csv(RESULTS_DIR / 'sweep_duration.csv', index=False)
     np.savez(RESULTS_DIR / 'sweep_duration_timeseries.npz', **ts_dur)
     print(f"[OK] sweep_duration.csv  ({len(rows_dur)} rows)")

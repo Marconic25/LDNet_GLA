@@ -7,6 +7,8 @@
 \usepackage{subcaption}
 \usepackage{booktabs}
 \usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta}
 \usepackage[margin=2.5cm]{geometry}
 
 \newcommand{\vxi}{\bm{\xi}}
@@ -66,112 +68,152 @@ which feed back into the observer.
 
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[>=latex,
-    block/.style={draw, rectangle, minimum height=1.0cm, minimum width=2.6cm,
-                  align=center, font=\small},
-    offblock/.style={draw, rectangle, dashed, minimum height=1.0cm, minimum width=2.6cm,
-                  align=center, font=\small, text=gray},
-    lbl/.style={font=\small}]
+\begin{tikzpicture}[>=Latex, node distance=1.6cm and 2.4cm,
+    block/.style   = {draw, rectangle, minimum height=1.0cm, minimum width=2.8cm,
+                      align=center, font=\small},
+    offblock/.style= {draw, rectangle, dashed, minimum height=1.0cm, minimum width=2.8cm,
+                      align=center, font=\small, text=gray},
+    lbl/.style     = {font=\scriptsize}]
 
-  % Nodi principali
-  \node[block] (plant) {Plant\\(LDNet + struct.)};
-  \node[block, below=2.0cm of plant] (observer) {Observer\\(EKF)};
-  \node[block, left=3.2cm of plant] (gain) {$\delta_k = -\mathbf{K}\,\hat{\tilde{\boldsymbol{\xi}}}_k$};
-  \node[offblock, left=1.2cm of gain] (dare) {DARE solver\\(offline: $\mathbf{K}$ fixed)};
+  %% ── Main online blocks (left to right) ─────────────────────────────────
+  \node[block] (bisect)  {$C_L$ bisection\\$\hat{W}_k$};
+  \node[block, right=of bisect]  (ekf)    {EKF\\predict $+$ update};
+  \node[block, right=of ekf]     (gain)   {LQR\\$\delta_k = -\mathbf{K}\hat{\tilde{\boldsymbol{\xi}}}_k$};
+  \node[block, right=of gain]    (plant)  {Plant\\(LDNet $+$ struct.)};
 
-  % 1. Uscita Plant -> Entrata Observer
-  \draw[->] (plant.east) -- ++(1.0,0) coordinate (mr)
-            -- node[right, lbl]{$\mathbf{y} = [\ddot{h},\;\alpha,\;\dot{\alpha},\;C_L]^\top$}
-            (mr |- observer.east) -- (observer.east);
+  %% ── Offline design blocks (above, dashed) ───────────────────────────────
+  \node[offblock, above=1.4cm of ekf]  (dare_obs) {Observer DARE\\($\mathbf{L}$ fixed, offline)};
+  \node[offblock, above=1.4cm of gain] (dare_ctrl){Controller DARE\\($\mathbf{K}$ fixed, offline)};
 
-  % 2. Uscita Observer -> Entrata Verticale in Gain
-  \draw[->] (observer.west) -| (gain.south)
-            node[pos=0.25, below, lbl]{$\hat{\tilde{\boldsymbol{\xi}}}_k = [\hat{h},\hat{\dot{h}},\hat{\alpha},\hat{\dot{\alpha}},\hat{z},\hat{W}]^\top$};
+  %% ── Online signal flow ──────────────────────────────────────────────────
+  % bisection -> EKF  (W_hat)
+  \draw[->] (bisect.east) -- node[above, lbl]{$\hat{W}_k$} (ekf.west);
 
-  % 3. Gain -> Plant
+  % EKF -> gain  (xi_hat)
+  \draw[->] (ekf.east) -- node[above, lbl]
+    {$\hat{\tilde{\boldsymbol{\xi}}}_k$} (gain.west);
+
+  % gain -> plant  (delta_k)
   \draw[->] (gain.east) -- node[above, lbl]{$\delta_k$} (plant.west);
 
-  % 4. DARE -> Gain (Dashed)
-  \draw[->, dashed, gray] (dare.east) --
-      node[above, lbl, text=gray]{\footnotesize $\mathbf{K}$ (once)}
-      (gain.west);
+  % plant -> south feedback rail -> bisection and EKF
+  \draw[->] (plant.south) -- ++(0,-1.1) coordinate (rail_e)
+            -- node[below, lbl]
+               {$\mathbf{y}_k = [\ddot{h},\,\alpha]^\top$}
+            (rail_e -| ekf.south) -- (ekf.south);
+
+  \draw[->] (plant.south) -- ++(0,-1.1)
+            -- (rail_e -| bisect.south) -- (bisect.south);
+
+  % C_L label on bisection branch
+  \node[lbl, below=0.5cm of bisect.south] {$C_{L,k}^{\rm meas}$};
+
+  % delta_{k-1} feedback to EKF (dashed, via arc above)
+  \draw[->, dashed] (gain.north) -- ++(0,0.55)
+        -| node[above, lbl, pos=0.25]{$\delta_{k-1}$} (ekf.north);
+
+  %% ── Offline design arrows ────────────────────────────────────────────────
+  \draw[->, dashed, gray] (dare_obs.south)  --
+        node[right, lbl, text=gray]{\footnotesize $\mathbf{L}$} (ekf.north);
+  \draw[->, dashed, gray] (dare_ctrl.south) --
+        node[right, lbl, text=gray]{\footnotesize $\mathbf{K}$} (gain.north);
 
 \end{tikzpicture}
-\caption{LQR closed-loop architecture. Solid arrows: online signals at each
-         timestep $k$. The dashed path shows the offline design step: the DARE
-         is solved once at design time to produce the fixed gain matrix $\mK$,
-         which is then embedded in the controller.}
+\caption{LQR closed-loop architecture.
+         \textbf{Online loop (solid arrows):}
+         At each timestep $k$, $C_{L,k}^{\rm meas}$ and the previous state
+         estimate are fed to the $C_L$ bisection block, which inverts the
+         aerodynamic model to produce $\hat{W}_k$.
+         The EKF then runs one predict--update cycle using the previous control
+         command $\delta_{k-1}$ and measurements $\mathbf{y}_k=[\ddot{h},\alpha]^\top$,
+         producing the updated estimate $\hat{\tilde{\boldsymbol{\xi}}}_k$.
+         The LQR gain block maps this estimate to the flap command $\delta_k$,
+         which drives the plant.
+         \textbf{Offline design (dashed):} the controller DARE is solved once to
+         fix $\mathbf{K}$; the observer DARE (dual problem) is solved once to fix
+         the steady-state Kalman gain $\mathbf{L}$.}
 \label{fig:lqr_block}
 \end{figure}
 
-The gain law $\delta_k = -\mK\hat{\tilde{\vxi}}_k$ requires all six components
+The control law $\delta_k = -\mK\hat{\tilde{\vxi}}_k$ requires all six components
 of $\hat{\tilde{\vxi}}_k = [\hat{h},\hat{\dot{h}},\hat{\alpha},\hat{\dot{\alpha}},\hat{z},\hat{W}]^\top$
-at each timestep.
-The measurement vector available to the observer is
-$\mathbf{y} = [\ddot{h},\,\alpha,\,\dot{\alpha},\,C_L]^\top$: the heave
-acceleration $\ddot{h}$ from an onboard accelerometer, the pitch angle $\alpha$
-and pitch rate $\dot{\alpha}$ from an AoA sensor, and the lift coefficient $C_L$
-from a pressure tap or force balance.
-The states $\hat{z}$ and $\hat{W}$ are not measured and must be reconstructed,
-as described below.
-
-
-The pitch states $\alpha_k$ and $\dot{\alpha}_k$ are taken directly from the
-AoA sensor.
-The heave velocity and displacement are unobserved and reconstructed by a
-\emph{leaky kinematic integrator} applied to the measured acceleration:
-\begin{align}
-  \hat{\dot{h}}_{k+1} &= \ell\,\hat{\dot{h}}_k + \ddot{h}_k\,\Delta t, \label{eq:leak_hd}\\
-  \hat{h}_{k+1}       &= \ell\,\hat{h}_k       + \hat{\dot{h}}_{k+1}\,\Delta t, \label{eq:leak_h}
-\end{align}
-where $\ell = 1 - \Delta t/\tau$, $\tau = 5\,\text{s}$, is the leak factor.
-The multiplicative leak prevents unbounded growth due to accelerometer bias or
-numerical drift, at the cost of a slow low-frequency attenuation (corner
-frequency $f_c = 1/(2\pi\tau) \approx 0.03\,\text{Hz}$, well below the
-aeroelastic modes at $\sim\!3\,\text{Hz}$).
-
-
-The gust velocity $\hat{W}_k$ is not measured directly but inferred by
-\emph{inverting the aerodynamic model}: given the current state estimate
-$\hat{\vxi}_k$, flap angle $\delta_k$, and measured lift $C_{L,k}^{\rm meas}$,
-find $\hat{W}$ such that
+at every timestep.
+The two signals available from physical sensors are
 \begin{equation}
-  f_{\rm rec}\!\left(z_k, \hat{h}, \hat{\dot{h}}, \hat{\alpha},
-                \hat{\dot{\alpha}}, \delta_k;\,\theta_r\right) = C_{L,k}^{\rm meas},
-  \label{eq:cl_inversion}
+  \mathbf{y}_k = \bigl[\ddot{h}_k,\;\alpha_k\bigr]^\top \in \mathbb{R}^2,
+  \label{eq:meas_vec}
 \end{equation}
-where $f_{\rm rec}$ is evaluated with $W = \hat{W}$ propagated through $f_{\rm dyn}$.
-Because $C_L$ is monotonically increasing in $W$ for the operating range
-$W \in [0,\,80]\,\text{m/s}$ (a property verified on the LDNet training data),
-equation \eqref{eq:cl_inversion} has a unique solution, found by the following
-\emph{bisection} procedure.
-Initialise the bracket $[W^-, W^+] = [0, 80]\,\text{m/s}$ and iterate:
-\begin{equation}
-  W^{\rm mid} = \frac{W^- + W^+}{2}, \qquad
-  \varepsilon = f_{\rm rec}(z_k, \hat{\vxi}_k, \delta_k;\,W^{\rm mid},\theta_r) - C_{L,k}^{\rm meas},
-  \label{eq:bisection_step}
-\end{equation}
-setting $W^- \leftarrow W^{\rm mid}$ if $\varepsilon < 0$, else
-$W^+ \leftarrow W^{\rm mid}$, until $W^+ - W^- < \varepsilon_{\rm tol} = 0.5\,\text{m/s}$.
-The bracket halves at each iteration, so convergence requires at most
-$\lceil \log_2(80/0.5) \rceil = 8$ LDNet evaluations per timestep---negligible
-compared to the observer and control computations.
+where $\ddot{h}_k$ comes from an onboard accelerometer and $\alpha_k$ from an
+angle-of-attack (AoA) sensor.
+The lift coefficient $C_{L,k}$ is measured separately (pressure tap or force
+balance) and enters the observer through the $C_L$\nobreakdash-inversion
+branch, not through the Kalman update.
+The remaining states $\hat{z}$ and $\hat{W}$ are unobserved and must be
+reconstructed by the EKF, as described in Section~\ref{sec:ekf}.
 
+\paragraph{Operation sequence at each timestep $k$.}
+The online loop executes the following steps in order:
+\begin{enumerate}
+  \item \textbf{$C_L$ bisection.}
+        Given the previous state estimate $\hat{\tilde{\vxi}}_{k-1}$,
+        the previous control command $\delta_{k-1}$, and the measured lift
+        $C_{L,k}^{\rm meas}$, find $\hat{W}_k$ such that
+        \begin{equation}
+          f_{\rm rec}\!\left(\hat{z}_{k-1},\,\hat{\vxi}_{k-1},\,\delta_{k-1};\,
+          \hat{W}_k\right) = C_{L,k}^{\rm meas},
+          \label{eq:cl_inversion}
+        \end{equation}
+        where $f_{\rm rec}$ is evaluated with $W = \hat{W}_k$ propagated through
+        $f_{\rm dyn}$.
+        Because $C_L$ is monotonically increasing in $W$ for the operating range
+        $W \in [0,\,80]\,\text{m/s}$, equation \eqref{eq:cl_inversion} has a
+        unique solution found by bisection:
+        \begin{equation}
+          W^{\rm mid} = \frac{W^- + W^+}{2}, \quad
+          \varepsilon = f_{\rm rec}(\hat{z}_{k-1}, \hat{\vxi}_{k-1}, \delta_{k-1};\,
+                        W^{\rm mid}) - C_{L,k}^{\rm meas},
+          \label{eq:bisection_step}
+        \end{equation}
+        setting $W^- \leftarrow W^{\rm mid}$ if $\varepsilon < 0$, else
+        $W^+ \leftarrow W^{\rm mid}$, until $W^+ - W^- < \varepsilon_{\rm tol} = 0.5\,\text{m/s}$.
+        The bracket halves at each iteration, requiring at most
+        $\lceil \log_2(80/0.5) \rceil = 8$ LDNet evaluations.
+        The result $\hat{W}_k$ is injected into the EKF as a pseudo-measurement
+        (see Section~\ref{sec:ekf}).
 
-%Once $\hat{W}_k$ is available, the latent state is advanced by one step of the
-%aerodynamic model:
-%\begin{equation}
-  %\hat{z}_{k+1} = \hat{z}_k
-   % + \frac{\Delta t}{\Delta t_{\rm ref}}\,
-     % f_{\rm dyn}(\hat{z}_k, \hat{h}_k, \hat{\dot{h}}_k,
-       %           \hat{\alpha}_k, \hat{\dot{\alpha}}_k,
-        %          \delta_k, \hat{W}_k;\,\theta_d).
-  %\label{eq:z_propagation}
-%\end{equation}
-%This is identical to the plant update \eqref{eq:zdyn} but driven by estimated
-%rather than true states, so the latent estimate tracks the true $z_k$ as long
-%as the structural state estimate is accurate. FORSE SERVE DOPO NELLA PARTE DELL?OBSERVER
+  \item \textbf{EKF predict.}
+        The full nonlinear propagator $F_{\rm nl}$ advances the state estimate:
+        \begin{equation}
+          \hat{\tilde{\vxi}}_{k|k-1} = F_{\rm nl}(\hat{\tilde{\vxi}}_{k-1|k-1},\,\delta_{k-1}),
+          \label{eq:ekf_pred_arch}
+        \end{equation}
+        using $\delta_{k-1}$ because the control command $\delta_k$ has not yet
+        been computed at this point in the loop.
+        The error covariance is propagated linearly using the Jacobian
+        $\tilde{\mA}$ recomputed at the current operating point.
 
+  \item \textbf{EKF update.}
+        The innovation $\mathbf{y}_k - \mathbf{C}_{\rm obs}\,\hat{\tilde{\vxi}}_{k|k-1}$
+        (augmented with the $\hat{W}_k$ pseudo-measurement from step~1) corrects
+        the prediction via the Kalman gain $\mathbf{L}$, yielding the updated
+        estimate $\hat{\tilde{\vxi}}_{k|k}$.
+        Full details are given in Section~\ref{sec:ekf}.
+
+  \item \textbf{LQR control law.}
+        The flap command is computed from the updated estimate:
+        \begin{equation}
+          \delta_k = -\mK_\xi\,\hat{\vxi}_k - K_w\,\hat{W}_k,
+          \label{eq:law}
+        \end{equation}
+        where $\mK_\xi \in \mathbb{R}^{1\times5}$ acts on the structural and
+        latent states and $K_w \in \mathbb{R}$ is the feed-forward gain on
+        the estimated gust (see Section~\ref{sec:lqr}).
+
+  \item \textbf{Plant step.}
+        The true system advances under $\delta_k$ and the unknown true gust
+        $W_k$, producing the next sensor readings $\mathbf{y}_{k+1}$ and
+        $C_{L,k+1}^{\rm meas}$.
+\end{enumerate}
 
 The gain $\mK$ is not chosen by trial and error but is the \emph{unique}
 solution to an optimisation problem: minimise the infinite-horizon quadratic
@@ -180,8 +222,7 @@ The necessary condition for optimality is the DARE \eqref{eq:dare}, whose
 solution $\mP$ is the \emph{value function} of the problem---the matrix such
 that $J^* = \tilde{\vxi}_0^\top \mP\, \tilde{\vxi}_0$ for any initial condition
 $\tilde{\vxi}_0$.
-Once $\mP$ is known, the optimal gain follows algebraically from
-\eqref{eq:gain}.
+Once $\mP$ is known, the optimal gain follows algebraically from \eqref{eq:gain}.
 Intuitively, $\mP$ encodes how costly it is to be in each direction of state
 space: a large eigenvalue of $\mP$ along a particular mode means that
 deviations in that direction accumulate high future cost and should be corrected
@@ -199,16 +240,29 @@ rejection and drift correction for the heave states.
 \paragraph{State and measurements.}
 The EKF operates on the augmented state
 $\tilde{\vxi} = [h,\dot{h},\alpha,\dot{\alpha},z,W]^\top \in \mathbb{R}^6$.
-Two signals feed into the observer at each timestep, through distinct channels:
+Two signals feed into the observer at each timestep through distinct channels:
 \begin{itemize}
-  \item The measurement vector $\mathbf{y} = [\ddot{h},\,\alpha,\,\dot{\alpha}]^\top$
+  \item The measurement vector $\mathbf{y} = [\ddot{h},\,\alpha]^\top \in \mathbb{R}^2$
         enters the Kalman update step directly and corrects the state estimate
         via the innovation $\mathbf{y}_k - \mathbf{C}_{\rm obs}\,\hat{\tilde{\vxi}}_{k|k-1}$.
   \item The lift coefficient $C_L$ is used \emph{outside} the filter, in the
         $C_L$ bisection procedure \eqref{eq:cl_inversion}--\eqref{eq:bisection_step},
         to produce the gust estimate $\hat{W}_k$.
-        This estimate overwrites the $W$ component of the state directly,
-        bypassing the Kalman correction for that component.
+        This estimate is injected into the filter as a pseudo-measurement
+        $W^{\rm inv}$ with its own noise variance $R_W$, appended to $\mathbf{y}$
+        for the update step:
+        \begin{equation}
+          \mathbf{y}^{\rm aug}_k
+          = \bigl[\ddot{h}_k,\;\alpha_k,\;W^{\rm inv}_k\bigr]^\top \in \mathbb{R}^3,
+          \qquad
+          \mathbf{C}^{\rm aug} =
+          \begin{bmatrix} \mathbf{C}_{\rm obs} \\ \mathbf{e}_6^\top \end{bmatrix}
+          \in \mathbb{R}^{3\times6},
+          \label{eq:aug_meas}
+        \end{equation}
+        where $\mathbf{e}_6^\top = [0,0,0,0,0,1]$ selects $W$ from $\tilde{\vxi}$.
+        This formulation lets the Kalman gain weight the bisection result against
+        the filter's prediction with $R_W$ as the tuning parameter for inversion accuracy.
 \end{itemize}
 
 The output matrix $\mathbf{C}_{\rm obs}$ maps the state $\tilde{\vxi}$ into
@@ -222,16 +276,14 @@ Its structure is:
   \mathbf{C}_{\rm obs} =
   \begin{bmatrix}
     \mathbf{c}_{\ddot{h}}^\top \\
-    \mathbf{e}_3^\top \\
-    \mathbf{e}_4^\top
+    \mathbf{e}_3^\top
   \end{bmatrix}
-  \in \mathbb{R}^{3\times6},
+  \in \mathbb{R}^{2\times6},
   \label{eq:C_obs}
 \end{equation}
-where $\mathbf{e}_3, \mathbf{e}_4$ are standard basis vectors that select
-$\alpha$ and $\dot{\alpha}$ directly from $\tilde{\vxi}$ (since these states
-are measured directly by the AoA sensor, their predicted measurement is trivially
-the corresponding state component).
+where $\mathbf{e}_3^\top = [0,0,1,0,0,0]$ selects $\alpha$ directly from
+$\tilde{\vxi}$ (since $\alpha$ is measured by the AoA sensor, its predicted
+measurement is trivially the corresponding state component).
 
 The first row $\mathbf{c}_{\ddot{h}}^\top$ is more subtle.
 Although $\ddot{h}$ is measured directly by an accelerometer, it is
@@ -255,8 +307,8 @@ However, because \eqref{eq:c_hddot} relies on $\mC_y$ evaluated at trim, it
 becomes inaccurate when $z$ deviates significantly from trim during a strong
 gust.
 For this reason $\mathbf{c}_{\ddot{h}}$ is used \emph{only} in the offline
-DARE solve; the online update step uses only the pitch rows
-$[\mathbf{e}_3^\top;\,\mathbf{e}_4^\top]$, as detailed in the next paragraph.
+DARE solve; the online update step uses the full $\mathbf{C}^{\rm aug}$
+\eqref{eq:aug_meas}, as detailed below.
 
 
 
@@ -270,25 +322,56 @@ where $F_{\rm nl}$ is identical to the plant propagator \eqref{eq:propagator}
 augmented with the gust decay $W_{k+1} = \lambda_w W_k$.
 Using the nonlinear predictor avoids the linearisation error that would arise
 from applying $\tilde{\mA}$ when $z$ deviates far from trim during a strong gust.
+The covariance is propagated linearly:
+\begin{equation}
+  \mathbf{P}_{k|k-1} = \tilde{\mA}_k\,\mathbf{P}_{k-1|k-1}\,\tilde{\mA}_k^\top + \mathbf{Q}_{\rm kf},
+  \label{eq:ekf_cov_pred}
+\end{equation}
+where $\tilde{\mA}_k$ is the Jacobian of $F_{\rm nl}$ with respect to
+$\tilde{\vxi}$, recomputed at the current operating point
+$\hat{\tilde{\vxi}}_{k-1|k-1}$ by automatic differentiation at every step
+(\texttt{EKF\_RELINEARIZE\_EVERY}$\,=1$), so no linearisation error accumulates
+even during large gust excursions.
 
 
-The correction uses only the pitch measurements (rows 1--2 of
-$\mathbf{C}_{\rm obs}$), because the heave-acceleration row \eqref{eq:c_hddot}
-depends on $\mC_y$ evaluated at trim and becomes inaccurate for large $z$
-excursions:
+The update uses the augmented measurement \eqref{eq:aug_meas}.
+The Kalman gain is
+\begin{equation}
+  \mathbf{K}_{\rm EKF}
+  = \mathbf{P}_{k|k-1}\,{\mathbf{C}^{\rm aug}}^\top
+    \bigl(\mathbf{C}^{\rm aug}\mathbf{P}_{k|k-1}{\mathbf{C}^{\rm aug}}^\top
+          + \mathbf{R}^{\rm aug}\bigr)^{-1}
+  \in \mathbb{R}^{6\times3},
+  \label{eq:kalman_gain_ekf}
+\end{equation}
+where $\mathbf{R}^{\rm aug} = \operatorname{diag}(R_{\ddot{h}}, R_\alpha, R_W)$
+collects the noise variances for the accelerometer, AoA sensor, and bisection
+inversion.
+The state is corrected as
 \begin{equation}
   \hat{\tilde{\vxi}}_{k|k}
   = \hat{\tilde{\vxi}}_{k|k-1}
-  + \mathbf{L}_{1:2}\,
-    \bigl(\mathbf{y}_{1:2,k} - \mathbf{C}_{\rm obs,1:2}\,\hat{\tilde{\vxi}}_{k|k-1}\bigr),
+  + \mathbf{K}_{\rm EKF}\,
+    \bigl(\mathbf{y}^{\rm aug}_k
+          - \mathbf{C}^{\rm aug}\,\hat{\tilde{\vxi}}_{k|k-1}\bigr),
   \label{eq:ekf_update}
 \end{equation}
-where $\mathbf{y}_{1:2} = [\alpha,\dot{\alpha}]^\top$ and
-$\mathbf{L}_{1:2} \in \mathbb{R}^{6\times2}$ are the corresponding columns of
-the Kalman gain matrix $\mathbf{L}$.
-The $W$ row of $\mathbf{L}$ is zeroed: the gust estimate is always set by
-$C_L$ bisection \eqref{eq:cl_inversion}, which is more reliable than the
-filter's $W$ correction when $C_y$ is evaluated far from trim. Details of the computation of the Kalman gain will be given in Section ???
+and the covariance is updated in \emph{Joseph form} for numerical stability:
+\begin{equation}
+  \mathbf{P}_{k|k}
+  = \bigl(\mathbf{I} - \mathbf{K}_{\rm EKF}\mathbf{C}^{\rm aug}\bigr)\,
+    \mathbf{P}_{k|k-1}\,
+    \bigl(\mathbf{I} - \mathbf{K}_{\rm EKF}\mathbf{C}^{\rm aug}\bigr)^\top
+  + \mathbf{K}_{\rm EKF}\,\mathbf{R}^{\rm aug}\,\mathbf{K}_{\rm EKF}^\top.
+  \label{eq:joseph}
+\end{equation}
+Joseph form guarantees positive semi-definiteness of $\mathbf{P}_{k|k}$ even
+under round-off, unlike the standard form
+$(\mathbf{I}-\mathbf{K}\mathbf{C})\mathbf{P}$ which can lose symmetry for
+poorly conditioned $\mathbf{K}$.
+The steady-state Kalman gain $\mathbf{L}$ used in \eqref{eq:ekf_update_arch} is
+computed offline by solving the observer DARE \eqref{eq:dare_obs}; details are
+given in Section~\ref{sec:lqr}.
 
 
 

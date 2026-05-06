@@ -212,10 +212,16 @@ def run_simulation(U_INF, T_END, DT, aero_model, controller, A_s, B_s,
                 W_hat_hist[i + 1] = W_hat
 
         elif observer in ('ekf_ad', 'ekf_clinv'):
-            y_meas  = np.array([h_ddot, x[2]])
-            C_L_arg = float(C_L_hist[i]) if observer == 'ekf_clinv' else None
-            xi_hat  = kalman_filter.step(u=delta_prev, y_meas=y_meas,
-                                         C_L_meas=C_L_arg)
+            y_meas = np.array([h_ddot, x[2]])
+            # W estimated via C_L bisection — independent of EKF state
+            W_bisect = _estimate_W_from_CL(
+                aero_model, kalman_filter.xi_hat[4:5],
+                kalman_filter.xi_hat[:4], delta_prev,
+                float(C_L_hist[i]), U_INF, DT)
+            W_inv_arg = W_bisect
+            R_W_arg   = 1e-2   # fixed measurement variance for W_bisect
+            xi_hat = kalman_filter.step(u=delta_prev, y_meas=y_meas,
+                                        W_inv=W_inv_arg, R_W=R_W_arg)
             x_hat  = xi_hat[:4]
             z_hat  = xi_hat[4:5]
             W_hat  = float(xi_hat[5])

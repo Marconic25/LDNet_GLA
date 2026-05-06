@@ -51,7 +51,7 @@ Q_EKF_DIAG = np.array([1e-10, 1e-8, 1e-10, 1e-8, 1e-6, 50.0])
 R_EKF_DIAG = np.array([1e-6, 1e-8])
 P0_DIAG    = np.array([1e-6, 1e-6, 1e-6, 1e-6, 1e-4, 1e2])
 
-EKF_RELINEARIZE_EVERY = 1        # relinearize at every step (online, no retracing)
+EKF_RELINEARIZE_EVERY = 999999   # trim Jacobians fixed — W corrected by bisection pseudo-measure
 OBSERVER_MODE         = 'ekf_clinv'
 
 
