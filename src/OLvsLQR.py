@@ -42,7 +42,7 @@ print(f"  LDNet: {aero_model.num_latent_states} latent states")
 
 print("Computing trim...")
 _z_trim = np.zeros(aero_model.num_latent_states)
-for _ in range(200):
+for _ in range(200): #200 iteration to converge to equilibrium of LDNet
     _z_trim, _CL_trim, _CM_trim = aero_model.step(_z_trim, 0., 0., 0., 0., 0., 0., U_INF, DT)
 print(f"  C_L_trim = {float(_CL_trim):.5f},  C_M_trim = {float(_CM_trim):.5f}")
 
