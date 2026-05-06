@@ -367,32 +367,19 @@ def run_mpc_simulation(U_INF, T_END, DT, aero_model, mpc_controller, A_s, B_s,
             # after structural RK4); alpha is read directly from the AoA sensor.
             y_meas = np.array([h_ddot, x[2]])   # [ḧ_meas, α_meas]
 
-            fusion = getattr(kalman_filter, '_fusion', None)
-            W_inv_arg = None
-            R_W_arg   = None
-
-            if observer == 'ekf_clinv' and fusion is not None:
-                # Provide z_{k} from current EKF estimate (before update) to fusion
-                # so it can use z_{k+1} after update below.
-                z_now = kalman_filter.xi_hat[4:5].copy()
-                # Retrieve inversion result computed at previous step
-                # (fusion.update is called after push_state with previous xi_hat)
-                W_inv_arg, R_W_arg, _valid = fusion.update(z_now)
-                if not _valid:
-                    W_inv_arg = None
+            # W estimation via C_L inversion is handled internally by NonlinearEKF
+            # when use_cl_inversion=True (default). Pass C_L_meas and let the EKF
+            # call _estimate_W() internally.
+            C_L_arg = float(C_L_hist[i]) if observer == 'ekf_clinv' else None
 
             xi_hat = kalman_filter.step(u=delta_prev, y_meas=y_meas,
-                                        W_inv=W_inv_arg, R_W=R_W_arg)
+                                        C_L_meas=C_L_arg)
             x_hat  = xi_hat[:4]
             z_hat  = xi_hat[4:5]
             W_hat  = float(xi_hat[5])
             W_hat_hist[i] = W_hat
             if i + 1 < N:
                 W_hat_hist[i + 1] = W_hat
-
-            # Register current state for next-step inversion (1-step delay)
-            if observer == 'ekf_clinv' and fusion is not None:
-                fusion.push_state(xi_hat, delta)
 
         else:  # 'true_state'
             x_hat = x.copy()

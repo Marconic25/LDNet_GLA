@@ -17,6 +17,7 @@ import numpy as np
 import tensorflow as tf
 from structural.smd import (M_WING, M_FLAP, I_WING, I_FLAP_EA,
                              D_H, D_ALPHA, K_H, K_ALPHA, _D_X)
+from control.cl_inversion import CLInversionFusion
 
 # ──────────────────────────────────────────────────────────────────────────────
 # TUNING CONSTANTS
@@ -172,7 +173,8 @@ class NonlinearEKF:
     def __init__(self, aero_model, U_INF, DT, xi_trim,
                  Q=None, R=None, P0=None,
                  lambda_w=0.98, relinearize_every=EKF_RELINEARIZE_EVERY,
-                 A_trim=None, C_trim=None):
+                 A_trim=None, C_trim=None,
+                 use_cl_inversion=True):
         self.aero   = aero_model
         self.U_INF  = float(U_INF)
         self.DT     = float(DT)
@@ -208,6 +210,8 @@ class NonlinearEKF:
         self.xi_hat      = self.xi_trim.copy()
         self.P           = self.P0.copy()
         self._step_count = 0
+
+        self._fusion = CLInversionFusion(aero_model, U_INF, DT) if use_cl_inversion else None
 
     # ── structural helpers ────────────────────────────────────────────────────
 
@@ -323,21 +327,57 @@ class NonlinearEKF:
         self._step_count += 1
         return self.xi_hat.copy()
 
-    def step(self, u, y_meas, W_inv=None, R_W=None):
+    def _estimate_W(self, C_L_meas, delta):
         """
-        One full EKF predict-update cycle.
+        Estimate gust velocity W via C_L inversion (1-step delayed).
+
+        Uses the internal CLInversionFusion instance if available.
+        Returns (W_inv, R_W, valid) — same signature as CLInversionFusion.update().
+        Must be called BEFORE step() so push_state() registers the current estimate.
 
         Parameters
         ----------
-        u      : float  — control applied at previous step
-        y_meas : ndarray (2,)  — [ḧ_meas, α_meas]
-        W_inv  : float or None  — C_L-inversion pseudo-measure for W
-        R_W    : float or None  — variance of W_inv
+        C_L_meas : float  — measured lift coefficient at current step
+        delta    : float  — flap deflection applied at current step
+
+        Returns
+        -------
+        W_inv : float or None
+        R_W   : float
+        valid : bool
+        """
+        if self._fusion is None:
+            return None, None, False
+        z_now = self.xi_hat[4:5].copy()
+        W_inv, R_W, valid = self._fusion.update(z_now)
+        self._fusion.push_state(self.xi_hat, delta)
+        return W_inv, R_W, valid
+
+    def step(self, u, y_meas, C_L_meas=None, W_inv=None, R_W=None):
+        """
+        One full EKF predict-update cycle.
+
+        If the internal CLInversionFusion is active (use_cl_inversion=True)
+        and C_L_meas is provided, W is estimated internally via _estimate_W()
+        and the explicit W_inv/R_W arguments are ignored.
+
+        Parameters
+        ----------
+        u        : float         — control applied at previous step
+        y_meas   : ndarray (2,)  — [ḧ_meas, α_meas]
+        C_L_meas : float or None — measured C_L (used by internal fusion)
+        W_inv    : float or None — external W pseudo-measure (ignored if fusion active)
+        R_W      : float or None — variance of external W_inv
 
         Returns
         -------
         xi_hat : ndarray (6,)
         """
+        if self._fusion is not None and C_L_meas is not None:
+            W_inv, R_W, valid = self._estimate_W(C_L_meas, float(u))
+            if not valid:
+                W_inv = R_W = None
+
         xi_pred, P_pred = self.predict(u)
         return self.update(xi_pred, P_pred, y_meas, u, W_inv=W_inv, R_W=R_W)
 
@@ -347,3 +387,5 @@ class NonlinearEKF:
                             else np.asarray(xi0, dtype=np.float64)).copy()
         self.P           = self.P0.copy()
         self._step_count = 0
+        if self._fusion is not None:
+            self._fusion.reset()

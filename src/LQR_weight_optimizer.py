@@ -208,8 +208,8 @@ def _eval_worker(args):
 
     J = ALPHA_OBJ * pk1 + BETA_OBJ * pk2
     pd_ = float(np.abs(delta[win]).max())
-    if pd_ > 20.0:           J += 5.0
-    if np.abs(np.diff(delta) / DT).max() > 200.0:  J += 2.0
+    if pd_ > 20.0:           J += 0.5
+    if np.abs(np.diff(delta) / DT).max() > 200.0:  J += 0.2
     return J, pk1, pk2, pd_
 
 
