@@ -176,7 +176,7 @@ def _worker_init(models_dir):
 def _eval_worker(args):
     """Worker called once per CMA-ES candidate. Model already loaded."""
     import numpy as np
-    from control.mpc import run_mpc_simulation
+    from control.run_controller import run_simulation
 
     (theta, z_trim, CL_trim, CM_trim, xi_trim,
      JAC, A_ekf, C_ekf, A_s, B_s) = args
@@ -186,7 +186,7 @@ def _eval_worker(args):
         lqr  = build_lqr(theta, aero, z_trim, CL_trim, CM_trim, jac=JAC)
         ekf  = build_ekf(aero, xi_trim, A_trim=A_ekf, C_trim=C_ekf)
         ekf.reset(xi_trim)
-        res  = run_mpc_simulation(
+        res  = run_simulation(
             U_INF, T_END, DT, aero, lqr, A_s, B_s,
             gust_profile=make_gust(GUST_NOM_W0, GUST_NOM_TG),
             observer='ekf_ad', kalman_filter=ekf)
@@ -244,7 +244,7 @@ def extract_metrics(res, W0, T_g, label):
 
 def run_sweep_case(label, theta, aero_model, z_trim, CL_trim, CM_trim,
                    xi_trim, A_s, B_s, W0, T_g, JAC, A_ekf, C_ekf):
-    from control.mpc import run_mpc_simulation
+    from control.run_controller import run_simulation
     gust_fn = make_gust(W0, T_g)
     if label == 'open_loop':
         ctrl, observer, ekf = _ZeroController(z_trim), 'true_state', None
@@ -253,7 +253,7 @@ def run_sweep_case(label, theta, aero_model, z_trim, CL_trim, CM_trim,
         observer = 'ekf_ad'
         ekf      = build_ekf(aero_model, xi_trim, A_trim=A_ekf, C_trim=C_ekf)
         ekf.reset(xi_trim)
-    return run_mpc_simulation(
+    return run_simulation(
         U_INF, T_END, DT, aero_model, ctrl, A_s, B_s,
         gust_profile=gust_fn, observer=observer, kalman_filter=ekf)
 
