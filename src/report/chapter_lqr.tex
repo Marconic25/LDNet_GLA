@@ -154,7 +154,15 @@ velocity $W$, yields the discrete-time LTI system
   \delta\vy_k = \mC_y\,\delta\vxi_k + \mD_y\,\delta u_k,
   \label{eq:lti}
 \end{equation}
-where $\delta\vxi = \vxi - \vxi_{\rm tr}$, $\delta u = u - u_{\rm tr}$, and
+where $\delta\vxi = \vxi - \vxi_{\rm tr}$, $\delta u = u - u_{\rm tr}$,
+and $g(\vxi, u) = [C_L, C_M]^\top$ is the aerodynamic output map \eqref{eq:yrec}
+(a byproduct of the propagator \eqref{eq:propagator}, computed at no extra cost).
+Here $\delta\vy_k = [C_{L,k} - C_{L,\rm tr},\; C_{M,k} - C_{M,\rm tr}]^\top
+\in \mathbb{R}^2$ is a \emph{performance output}---the quantity the LQR cost
+penalises---not a measurement output: it is never fed to the observer, which
+uses the physical sensor vector $\mathbf{y}_k = [\ddot{h}_k, \alpha_k]^\top$
+\eqref{eq:meas_vec} instead.
+The five Jacobian matrices are
 \begin{equation}
   \mA_d = \frac{\partial F}{\partial \vxi}\bigg|_{\rm tr} \in \mathbb{R}^{5\times5},\quad
   \mB_d = \frac{\partial F}{\partial u}\bigg|_{\rm tr} \in \mathbb{R}^{5\times1},\quad
@@ -189,10 +197,18 @@ layers and element-wise activations---so $\Phi$ can be written as
   = \phi_K \circ \phi_{K-1} \circ \cdots \circ \phi_1(\vxi, u, W).
   \label{eq:chain}
 \end{equation}
-Each primitive $\phi_k$ has a trivially computable Jacobian: $\mathbf{J}_k =
-\mathbf{W}_k$ for an affine layer, and $\mathbf{J}_k =
-\operatorname{diag}(\sigma'(x_1),\ldots,\sigma'(x_n))$ for an element-wise
-activation.
+Each primitive $\phi_k$ has a trivially computable Jacobian:
+\begin{itemize}
+  \item \textbf{Affine layer.}
+        $\phi_k(\mathbf{x}) = \mathbf{W}_k\mathbf{x} + \mathbf{b}_k$,\quad
+        $\mathbf{J}_k = \mathbf{W}_k$
+        (the weight matrix already stored in memory, evaluated at zero cost).
+  \item \textbf{Element-wise activation.}
+        $\phi_k(\mathbf{x}) = \sigma(\mathbf{x})$ applied component-by-component,\quad
+        $\mathbf{J}_k = \operatorname{diag}\!\bigl(\sigma'(x_1),\ldots,\sigma'(x_n)\bigr)$
+        (e.g.\ $\sigma'(x)=1-\tanh^2(x)$ for a $\tanh$ unit, already computed
+        during the forward pass).
+\end{itemize}
 The right-hand side $\bm{g}$ of the structural ODE is linear in the structural
 state, so RK4 sub-steps are affine operations in the AD graph and require no
 special treatment.
@@ -252,6 +268,27 @@ giving the augmented state $\tilde{\vxi}_k = [\vxi_k^\top,\, W_k]^\top
 The gust-input column $\mathbf{b}_w$ appears in the top-right block of
 $\tilde{\mA}$, so the DARE automatically infers the optimal feed-forward gain
 on the estimated gust without any manual tuning.
+
+A natural question is why the state is augmented with a gust model
+$W_{k+1} = \lambda_w W_k$ that is known to be inaccurate: during the
+gust ramp-up the true $W$ is rising, not decaying, so $\lambda_w = 0.98$
+is a poor description of reality.
+The purpose of the augmentation is \emph{not} to model the gust accurately.
+It is to expose the causal channel $W \to \tilde{\vxi}$ to the DARE so
+that the Riccati solver can compute the optimal feed-forward gain $K_w$.
+Without augmentation, the term $\mathbf{b}_w W_k$ in \eqref{eq:lti} is an
+exogenous disturbance invisible to the optimiser, and the resulting gain
+$\mK$ reacts only to states that have already grown large.
+By including $W_k$ as a state with dynamics $W_{k+1} = \lambda_w W_k$,
+the DARE treats it as a quantity to be regulated and computes how much flap
+deflection each unit of estimated gust warrants---this is $K_w$.
+The specific value $\lambda_w = 0.98$ is a placeholder that encodes only
+a slow-decay prior; what matters is that $\mathbf{b}_w$ appears in
+$\tilde{\mA}$, making the gust--state coupling visible to the solver.
+The online estimate $\hat{W}_k$ from the EKF is imperfect, especially near
+the gust onset, but $-K_w \hat{W}_k$ still provides a feed-forward
+deflection proportional to the current gust estimate---a significant
+improvement over a purely reactive LQR without augmentation.
 
 \paragraph{Cost function.}
 The infinite-horizon cost over the augmented state is
@@ -488,7 +525,7 @@ by the EKF (Section~\ref{sec:ekf}).
           \label{eq:ekf_pred_arch}
         \end{equation}
         The error covariance is propagated linearly using the Jacobian
-        $\tilde{\mA}_k$ recomputed at the current operating point.
+        $\mathbf{F}_k$ recomputed at the current operating point.
 
   \item \textbf{EKF update.}
         The innovation $\mathbf{y}_k -
@@ -583,20 +620,27 @@ where $F_{\rm nl}$ is the plant propagator \eqref{eq:propagator} augmented with
 the gust decay $W_{k+1} = \lambda_w W_k$.
 Using the nonlinear predictor avoids linearisation error when $z$ deviates far
 from trim during a strong gust.
-The covariance is propagated linearly:
+The \emph{error covariance} $\boldsymbol{\Sigma}_{k|k} \in \mathbb{R}^{6\times6}$ tracks
+the uncertainty of the state estimate: its $(i,j)$ entry is the expected
+cross-correlation of the $i$-th and $j$-th estimation errors.
+It is entirely distinct from the value function $\mathbf{P}$ of the LQR DARE
+(Section~\ref{sec:lqr}), which measures closed-loop cost-to-go.
+The error covariance is propagated linearly:
 \begin{equation}
-  \mathbf{P}_{k|k-1} = \tilde{\mA}_k\,\mathbf{P}_{k-1|k-1}\,\tilde{\mA}_k^\top + \mathbf{Q}_{\rm kf},
+  \boldsymbol{\Sigma}_{k|k-1} = \mathbf{F}_k\,\boldsymbol{\Sigma}_{k-1|k-1}\,\mathbf{F}_k^\top + \mathbf{Q}_{\rm kf},
   \label{eq:ekf_cov_pred}
 \end{equation}
-where $\tilde{\mA}_k$ is recomputed at $\hat{\tilde{\vxi}}_{k-1|k-1}$ by
-automatic differentiation at every step, so no linearisation error accumulates.
+where $\mathbf{F}_k = \partial F_{\rm nl}/\partial\tilde{\vxi}\big|_{\hat{\tilde{\vxi}}_{k-1|k-1}}$
+is the Jacobian of the nonlinear propagator, recomputed at every step by automatic
+differentiation (distinct from the fixed augmented system matrix $\tilde{\mA}$
+used in the LQR DARE).
 
 \paragraph{Update.}
 The Kalman gain is
 \begin{equation}
   \mathbf{K}_{\rm EKF}
-  = \mathbf{P}_{k|k-1}\,{\mathbf{C}^{\rm aug}}^\top
-    \bigl(\mathbf{C}^{\rm aug}\mathbf{P}_{k|k-1}{\mathbf{C}^{\rm aug}}^\top
+  = \boldsymbol{\Sigma}_{k|k-1}\,{\mathbf{C}^{\rm aug}}^\top
+    \bigl(\mathbf{C}^{\rm aug}\boldsymbol{\Sigma}_{k|k-1}{\mathbf{C}^{\rm aug}}^\top
           + \mathbf{R}^{\rm aug}\bigr)^{-1}
   \in \mathbb{R}^{6\times3},
   \label{eq:kalman_gain_ekf}
@@ -613,11 +657,11 @@ The state is corrected as
           - \mathbf{C}^{\rm aug}\,\hat{\tilde{\vxi}}_{k|k-1}\bigr),
   \label{eq:ekf_update}
 \end{equation}
-and the covariance is updated in \emph{Joseph form} for numerical stability:
+and the error covariance is updated in \emph{Joseph form} for numerical stability:
 \begin{equation}
-  \mathbf{P}_{k|k}
+  \boldsymbol{\Sigma}_{k|k}
   = \bigl(\mathbf{I} - \mathbf{K}_{\rm EKF}\mathbf{C}^{\rm aug}\bigr)\,
-    \mathbf{P}_{k|k-1}\,
+    \boldsymbol{\Sigma}_{k|k-1}\,
     \bigl(\mathbf{I} - \mathbf{K}_{\rm EKF}\mathbf{C}^{\rm aug}\bigr)^\top
   + \mathbf{K}_{\rm EKF}\,\mathbf{R}^{\rm aug}\,\mathbf{K}_{\rm EKF}^\top,
   \label{eq:joseph}
@@ -635,8 +679,10 @@ the dual of the DARE \eqref{eq:dare}---the observer Riccati equation:
       \mathbf{C}_{\rm obs}\,\mathbf{S}\,\tilde{\mA}^\top,
   \label{eq:dare_obs}
 \end{equation}
-where $\mathbf{Q}_{\rm kf} = \operatorname{diag}(10^{-6},10^{-6},10^{-6},10^{-6},10^{-8},0.1)$
-is the process noise covariance and
+where $\mathbf{S} \in \mathbb{R}^{6\times6}$ is the steady-state error covariance
+(the observer counterpart of the value function $\mathbf{P}$ in the controller DARE),
+$\mathbf{Q}_{\rm kf} = \operatorname{diag}(10^{-6},10^{-6},10^{-6},10^{-6},10^{-8},0.1)$
+is the process noise covariance, and
 $\mathbf{R}_{\rm kf} = \operatorname{diag}((10^{-2})^2,(10^{-3})^2,(5\times10^{-3})^2)$
 is the measurement noise covariance (accelerometer, AoA encoder, AoA rate).
 The steady-state gain is then

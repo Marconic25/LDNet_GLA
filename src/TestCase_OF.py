@@ -23,12 +23,12 @@ problem = {
     "input_parameters": [{ "name": "U_inf" }],
 
     "input_signals": [
-        { "name": "h" },
-        { "name": "hd" },
-        { "name": "a" },
-        { "name": "ad" },
-        { "name": "delta" },
-        { "name": "W_gust" },
+        #{ "name": "h" },
+        #{ "name": "hd" },
+        #{ "name": "a" },
+        #{ "name": "ad" },
+        #{ "name": "delta" },
+        #{ "name": "W_gust" },
         
     ],
 
@@ -59,12 +59,12 @@ normalization = {
     },
 
     'input_signals': {
-        'h': { 'min': -0.025, 'max': 0.025 },
-        'hd': { 'min': -1, 'max': 1 },
-        'a': { 'min': -0.1, 'max': 0.1 },
-        'ad': { 'min': -1, 'max': 1 },
-        'delta': { 'min': -20, 'max': 20 },
-        'W_gust': { 'min': 0, 'max': 50 }
+        #'h': { 'min': -0.025, 'max': 0.025 },
+        #'hd': { 'min': -1, 'max': 1 },
+        #'a': { 'min': -0.1, 'max': 0.1 },
+        #'ad': { 'min': -1, 'max': 1 },
+        #'delta': { 'min': -20, 'max': 20 },
+        #'W_gust': { 'min': 0, 'max': 50 }
 
     },
 

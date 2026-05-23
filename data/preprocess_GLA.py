@@ -1,283 +1,207 @@
-import csv
-from operator import index
-from operator import index
-from os import name
 import h5py
 import numpy as np
 from pathlib import Path
 from collections import defaultdict
 
-#---------------------------------------------------------------
-#Step 1: Configuration - scanning the directory and defining expected counts
-DATA_DIR = Path("/home/marco/LDNet_OF/data/GLA_data/timeseries")
+# ---------------------------------------------------------------
+# Configuration
+DATASET_DIR   = Path("/work/u10677113/NACA2312/dataset_v5")
+OUT_DIR       = Path(__file__).parent
+KNOWN_FAMILIES = {"A", "B", "Cc"}
+U_INF         = 80.0
 
-#Check the content of the directory
-EXPECTED_COUNTS = {
-    "A":  {"train": 6,  "test": 2},
-    "B1": {"train": 16, "test": 4},
-    "B2": {"train": 12, "test": 3},
-    "B3": {"train": 10, "test": 3},
-    "C":  {"train": 6,  "test": 2},
-    "B1n": {"train": 10, "test": 3},
-    "B2n": {"train": 8,  "test": 2},
-    "B3n": {"train": 6,  "test": 2},
-    "Cn":  {"train": 4,  "test": 1},
-    "D":   {"train": 10, "test": 3},
-}
+# Column indices in structural_trajectory.csv
+# t, h, hd, alpha, ad, Fy, Mz, W_gust, delta
+COL_T     = 0
+COL_H     = 1
+COL_HD    = 2
+COL_A     = 3
+COL_AD    = 4
+COL_FY    = 5
+COL_MZ    = 6
+COL_WGUST = 7
+COL_DELTA = 8
+EXPECTED_COLS = 9
 
-#Scanning and parsing the directory
-def scan_dir(DATA_DIR):
-    """Scans the directory and counts files according to the expected naming convention."""
+# ---------------------------------------------------------------
+# Step 1: Scan dataset directory
 
-    grouped = defaultdict(list) #dictionary to create empty lists for new keys
-    anomalies = [] #list to store anomalies
+def scan_dir(dataset_dir):
+    """Scan for simulation subdirectories matching sim_{family}_{index}_{split}."""
+    grouped = defaultdict(list)
+    anomalies = []
 
-    #find all csv files in the directory
-    csv_files = sorted(DATA_DIR.glob("*.csv"))
+    dirs = sorted(p for p in dataset_dir.iterdir() if p.is_dir())
+    print(f"Cartelle trovate: {len(dirs)}")
 
-    print(f"File CSV trovati: {len(csv_files)}")
-
-    for file in csv_files:
-        name_parts = file.stem.split("_") #split the filename by "_"
-        
-        if len(name_parts) != 4:
-            anomalies.append((file.name, "Filename does not have 4 parts"))
+    for d in dirs:
+        parts = d.name.split("_")
+        if len(parts) != 4:
+            anomalies.append(f"Nome non valido (non 4 parti): {d.name}")
             continue
-        
-        prefix, family, index, split = name_parts
+
+        prefix, family, idx, split = parts
 
         if prefix != "sim":
-            anomalies.append(f"Prefisso inatteso: {file.name} ('{prefix}' invece di 'sim')")
+            anomalies.append(f"Prefisso inatteso: {d.name}")
             continue
-        
-        
-        if family not in EXPECTED_COUNTS:
-            anomalies.append(f"Famiglia sconosciuta: {file.name} ('{family}')")
+
+        if family not in KNOWN_FAMILIES:
+            anomalies.append(f"Famiglia sconosciuta: {d.name} ('{family}')")
             continue
-        
-        # Verifica che lo split sia train o test
-        if split not in ("train", "test"):
-            anomalies.append(f"Split sconosciuto: {file.name} ('{split}')")
+
+        if split not in ("train", "val", "test"):
+            anomalies.append(f"Split sconosciuto: {d.name} ('{split}')")
             continue
-        
-        # Tutto ok: aggiungi al gruppo corrispondente
-        grouped[(family, split)].append(file)
-    
+
+        csv_path = d / "structural_trajectory.csv"
+        if not csv_path.exists():
+            anomalies.append(f"structural_trajectory.csv mancante in {d.name}")
+            continue
+
+        grouped[(family, split)].append(csv_path)
+
     return grouped, anomalies
 
-#Verify that the counts match the expected ones
-grouped, anomalies = scan_dir(DATA_DIR)
+
+grouped, anomalies = scan_dir(DATASET_DIR)
 
 for key, files in sorted(grouped.items()):
-    print(f"{key}: {len(files)} file")
+    print(f"  {key}: {len(files)} simulazioni")
 
 if anomalies:
     print("\nAnomalie:")
     for a in anomalies:
         print(f"  - {a}")
 
-#----------------------------------------------------------------
-#Step 2: Data loading and inspection
-EXPECTED_ROWS = 1500
-EXPECTED_COLS = 11
-INP_COLS = 9
-DT_SAVE = 0.002
+# ---------------------------------------------------------------
+# Step 2: Validate and load CSVs
 
-COLUMNS = ["t", "h", "h_dot", "a", "ad", "delta", "W_gust", "C_L", "C_M"]
-
-def validate_csv(file_path):
-    """Validates the CSV file format and content."""
-   
+def validate_csv(csv_path):
+    """Load and validate a structural_trajectory.csv. Returns (problems, data)."""
     problems = []
 
-    try: #loads the file - skip first row
-        data = np.loadtxt(file_path, delimiter=",", skiprows=1) #skip the header row
-
+    try:
+        data = np.loadtxt(csv_path, delimiter=",", skiprows=1)
     except Exception as e:
-        problems.append(f"Errore di lettura: {e}")
+        return [f"Errore di lettura: {e}"], None
+
+    if data.ndim != 2 or data.shape[1] != EXPECTED_COLS:
+        problems.append(f"Colonne inattese: {data.shape} (atteso Tx{EXPECTED_COLS})")
         return problems, None
 
-    # Check dimensions
-    if data.shape != (EXPECTED_ROWS, EXPECTED_COLS):
-        problems.append(f"Dimensioni inattese: {data.shape} (atteso {EXPECTED_ROWS}x{EXPECTED_COLS})")
-        return problems, None
-
-    # Check NaN values
     nan_count = np.sum(np.isnan(data))
     inf_count = np.sum(np.isinf(data))
     if nan_count > 0:
-        problems.append(f"Valori NaN trovati: {nan_count}")
+        problems.append(f"Valori NaN: {nan_count}")
     if inf_count > 0:
-        problems.append(f"Valori Inf trovati: {inf_count}")
+        problems.append(f"Valori Inf: {inf_count}")
 
-        # --- Controllo colonna tempo ---
-    time_col = data[:, 0]
-    
-    # Il tempo deve essere monotono crescente
-    dt_array = np.diff(time_col)
+    dt_array = np.diff(data[:, COL_T])
     if not np.all(dt_array > 0):
         problems.append("Tempo non monotono crescente")
-    
-    # Il timestep deve essere costante (~0.002)
-    dt_mean = np.mean(dt_array)
-    dt_std = np.std(dt_array)
-    if abs(dt_mean - DT_SAVE) > 1e-6:
-        problems.append(f"Timestep medio inatteso: {dt_mean:.6f} (atteso: {DT_SAVE})")
-    if dt_std > 1e-8:
-        problems.append(f"Timestep non costante: std = {dt_std:.2e}")
-    
-    # --- Controllo range fisici base ---
-    # delta (col 5) deve essere in gradi, range ragionevole
-    delta = data[:, 5]
-    if np.max(np.abs(delta)) > 25:
-        problems.append(f"delta fuori range: max |delta| = {np.max(np.abs(delta)):.2f} deg")
-    
-    # W_g (col 6) deve essere >= 0 per un gust 1-cosine
-    w_gust = data[:, 6]
-    if np.min(w_gust) < -0.01:
-        problems.append(f"W_g negativo: min = {np.min(w_gust):.4f}")
+
+    if np.max(np.abs(data[:, COL_DELTA])) > 25:
+        problems.append(f"delta fuori range: max |delta| = {np.max(np.abs(data[:, COL_DELTA])):.2f} deg")
 
     return problems, data
 
-def validate_all(grouped):
-    """Validates all files in the grouped dictionary."""
+
+def load_all(grouped):
     all_data = {}
     all_problems = {}
-    checked = 0
     for (family, split), files in sorted(grouped.items()):
-        for filepath in sorted(files):
-            checked += 1
-            name = filepath.stem    
-
-            problems, data = validate_csv(filepath)
-
+        for csv_path in sorted(files):
+            sim_name = csv_path.parent.name
+            problems, data = validate_csv(csv_path)
             if problems:
-                all_problems[name] = problems
-
+                all_problems[sim_name] = problems
             if data is not None:
-                index = filepath.stem.split("_")[2]
-                all_data[(family, split, index)] = data
-    return all_problems, all_data
+                idx = sim_name.split("_")[2]
+                all_data[(family, split, idx)] = data
 
-# Validazione contenuto
-#print("Validazione contenuto CSV...")
-all_problems, all_data = validate_all(grouped)
+    if all_problems:
+        print(f"\nProblemi trovati in {len(all_problems)} file:")
+        for name, probs in sorted(all_problems.items()):
+            print(f"  {name}:")
+            for p in probs:
+                print(f"    - {p}")
+    else:
+        print("Tutti i CSV validati correttamente.")
 
-#if all_problems:
- #   print(f"\nProblemi trovati in {len(all_problems)} file:")
-  #  for name, probs in sorted(all_problems.items()):
-   #     print(f"\n  {name}:")
-    #    for p in probs:
-     #       print(f"    - {p}")
-#else:
- #   print("Tutti i CSV validati correttamente.")
+    return all_data
 
- #----------------------------------------------------------------
-#Step 3: Min e max calculation to find value for normalization(in TestCase_OF)
 
-#csv contains 11 columns but we want 9 (no Fy and no Mz)
-all_data = {k: v[:, :INP_COLS] for k, v in all_data.items()}
+all_data = load_all(grouped)
+
+# ---------------------------------------------------------------
+# Step 3: Normalization stats on training set
 
 def compute_normalization(all_data):
+    sig_cols = {"delta": COL_DELTA, "W_gust": COL_WGUST, "Fy": COL_FY, "Mz": COL_MZ}
+    train_data = [v for k, v in all_data.items() if k[1] == "train"]
+    if not train_data:
+        print("Nessun dato di training trovato.")
+        return {}
+    minmax = {}
+    for name, col in sig_cols.items():
+        vmin = min(np.min(d[:, col]) for d in train_data)
+        vmax = max(np.max(d[:, col]) for d in train_data)
+        minmax[name] = (vmin, vmax)
+    print("\nMin/max su training set:")
+    for name, (vmin, vmax) in minmax.items():
+        print(f"  {name}: [{vmin:.4f}, {vmax:.4f}]")
+    return minmax
 
-    train = []
-    minmax_values = {}
-    for key in all_data:
-        if key[1] == "train":
-            train.append(all_data[key])
+compute_normalization(all_data)
 
-    for i in range(0, INP_COLS):
-        min_val = min([np.min(d[:, i]) for d in train])
-        max_val = max([np.max(d[:, i]) for d in train])
-        minmax_values[COLUMNS[i]] = (min_val, max_val) #store also the family for reference
-    return minmax_values
+# ---------------------------------------------------------------
+# Step 4: Write HDF5 files
 
-# Compute and print normalization parameters (based on train data)
-minmax_values = compute_normalization(all_data)
-print(minmax_values)
-
-
-#----------------------------------------------------------------
-#Step4: Packaging the data in h5 format for LDNet training
-#train
-#valid
-#test
-
-
-
-def split_train_valid_test(all_data):
-    """Splits the data into train, valid, and test sets based on the naming convention. Note that
-    the 'valid' set is not explicitly defined in the files, so we will create it by taking a portion of the 'train' data."""
+def split_by_filename(all_data):
     datasets = {"train": {}, "valid": {}, "test": {}}
-    families = sorted(list(set(k[0] for k in all_data.keys()))) #get unique families
-    val_ratio = 0.2 #20% of train data will be used for validation
-
-    # Add test splits immediately
-    for key, data in all_data.items():
-        if key[1] == "test":
-            datasets["test"][(key[0], key[2])] = data
-
-    # Split training data into train/valid per family
-    for fam in families:
-        train_keys = sorted([k for k in all_data.keys() if k[0] == fam and k[1] == "train"], key=lambda x: x[2])
-        if not train_keys:
-            continue
-
-        indices = [k[2] for k in train_keys]
-        np.random.seed(42)
-        np.random.shuffle(indices)
-
-        n_val = max(1, int(len(indices) * val_ratio))
-        val_idx = set(indices[:n_val])
-        train_idx = set(indices[n_val:])
-
-        for idx in val_idx:
-            datasets["valid"][(fam, idx)] = all_data[(fam, "train", idx)]
-        for idx in train_idx:
-            datasets["train"][(fam, idx)] = all_data[(fam, "train", idx)]
-
+    split_map = {"train": "train", "val": "valid", "test": "test"}
+    for (fam, split, idx), data in all_data.items():
+        dest = split_map.get(split)
+        if dest is not None:
+            datasets[dest][(fam, idx)] = data
     return datasets
 
 
-#initialize lists to store the data for each set
-times = []
-input_parameters = [] #N_sim, 1 (80 m/s)
-input_signals = [] #N_sim, N_time, 6 (h, h_dot, a, ad, delta, W_gust)
-output_signals = [] #N_sim, N_time, 1, 2 (C_L, C_M)
-output_fields = [] 
-
-import h5py
-
 def write_h5(data_dict, filename):
-    # 1. Trasformiamo il dizionario in una lista di array NumPy
+    """Write simulations to HDF5.
+
+    input_signals:  (N, T, 2)    — [delta, W_gust]
+    output_signals: (N, T, 1, 2) — [Fy, Mz]
+    """
+    if not data_dict:
+        print(f"Nessuna simulazione per {filename}, file non creato.")
+        return
+
     simulations = list(data_dict.values())
-    num_sims = len(simulations)
+    n_times = simulations[0].shape[0]
 
-    # 2. Prepariamo i pezzi (assumendo 1500 righe e le colonne definite)
-    times = simulations[0][:, 0]
-    
-    # 3. Aggreghiamo gli input signals (N, 1500, 6)
-    input_signals = np.stack([s[:, 1:7] for s in simulations])
-    
-    # 4. Aggreghiamo gli output signals (N, 1500, 1, 2)
-    output_signals = np.expand_dims(np.stack([s[:, 7:9] for s in simulations]), axis=2)
-    input_parameters = np.full((num_sims, 1), 80.0)
-    output_fields = np.zeros((num_sims, 1500, 1, 2)) # Placeholder, no output fields in this dataset
-    # 5. Creiamo il file H5
+    times            = simulations[0][:, COL_T]
+    input_signals    = np.stack([s[:, [COL_DELTA, COL_WGUST]] for s in simulations])
+    output_signals   = np.expand_dims(np.stack([s[:, [COL_FY, COL_MZ]] for s in simulations]), axis=2)
+    input_parameters = np.full((len(simulations), 1), U_INF)
+    output_fields    = np.zeros((len(simulations), n_times, 1, 2))
+
     with h5py.File(filename, 'w') as f:
-        f.create_dataset("points", data=np.array([[0.0, 0.0]]))
-        f.create_dataset("times", data=times)
+        f.create_dataset("points",           data=np.array([[0.0, 0.0]]))
+        f.create_dataset("times",            data=times)
         f.create_dataset("input_parameters", data=input_parameters)
-        f.create_dataset("input_signals", data=input_signals)
-        f.create_dataset("output_signals", data=output_signals)
-        f.create_dataset("output_fields", data=output_fields) # Placeholder, no output fields in this dataset   
+        f.create_dataset("input_signals",    data=input_signals)
+        f.create_dataset("output_signals",   data=output_signals)
+        f.create_dataset("output_fields",    data=output_fields)
 
-        
-    print(f"Dataset salvato correttamente in: {filename}")
+    print(f"Dataset salvato: {filename}  "
+          f"[{len(simulations)} sims, input_signals: {input_signals.shape}, "
+          f"output_signals: {output_signals.shape}]")
 
-    # Esempio di chiamata finale
-datasets = split_train_valid_test(all_data)
 
-write_h5(datasets["train"], "GLA_train.h5")
-write_h5(datasets["valid"], "GLA_valid.h5")
-write_h5(datasets["test"], "GLA_test.h5")
+datasets = split_by_filename(all_data)
+
+write_h5(datasets["train"], OUT_DIR / "GLA_train.h5")
+write_h5(datasets["valid"], OUT_DIR / "GLA_valid.h5")
+write_h5(datasets["test"],  OUT_DIR / "GLA_test.h5")
