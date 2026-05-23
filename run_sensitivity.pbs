@@ -2,7 +2,7 @@
 #PBS -N LDNet_sensitivity
 #PBS -q gpu
 #PBS -l select=1:ncpus=4:ngpus=1
-#PBS -l walltime=24:00:00
+#PBS -l walltime=12:00:00
 #PBS -j oe
 #PBS -o /work/u10677113/sensitivity.log
 
