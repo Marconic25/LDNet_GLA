@@ -1,0 +1,35 @@
+#!/bin/bash
+#PBS -N LDNet_sensitivity
+#PBS -q gpu
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/sensitivity.log
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+
+WORKDIR=/work/u10677113/LDNet_GLA
+
+apptainer exec --nv --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "
+        set -e
+        pip install scipy matplotlib h5py -q
+
+        echo '========================================'
+        echo 'STEP 0 — Preprocessing (add family labels)'
+        echo '========================================'
+        cd ${WORKDIR}/data
+        python3 preprocess_GLA.py
+
+        echo ''
+        echo '========================================'
+        echo 'STEP 1 — Latent-state sensitivity sweep'
+        echo '========================================'
+        cd ${WORKDIR}/src
+        python3 sensitivity_latent.py
+
+        echo ''
+        echo 'Done.'
+    "

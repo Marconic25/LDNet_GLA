@@ -2,6 +2,7 @@
 #%% Import modules
 import numpy as np
 import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import tensorflow as tf
 # We configure TensorFlow to work in double precision 
@@ -11,8 +12,8 @@ import utils
 import optimization
 
 #%% Set some hyperparameters
-dt = 0.2
-dt_base = 5.4
+dt = 0.002
+dt_base = 0.002
 num_latent_states = 1
 
 #%% Define problem
@@ -27,14 +28,14 @@ problem = {
         #{ "name": "hd" },
         #{ "name": "a" },
         #{ "name": "ad" },
-        #{ "name": "delta" },
-        #{ "name": "W_gust" },
+        { "name": "delta" },
+        { "name": "W_gust" },
         
     ],
 
     "output_signals": [
-        { "name": "C_L" },
-        { "name": "C_M" },
+        { "name": "F_y" },
+        { "name": "M_z" },
 
     ],
 
@@ -59,18 +60,13 @@ normalization = {
     },
 
     'input_signals': {
-        #'h': { 'min': -0.025, 'max': 0.025 },
-        #'hd': { 'min': -1, 'max': 1 },
-        #'a': { 'min': -0.1, 'max': 0.1 },
-        #'ad': { 'min': -1, 'max': 1 },
-        #'delta': { 'min': -20, 'max': 20 },
-        #'W_gust': { 'min': 0, 'max': 50 }
-
+        'delta':  { 'min': -14.09, 'max': 14.55 },
+        'W_gust': { 'min':   0.0,  'max': 47.81 },
     },
 
     'output_signals': {
-        'C_L': { 'min': -0.01, 'max': 0.5 },
-        'C_M': { 'min': -0.05, 'max': 0.05 }
+        'F_y': { 'min': -18.65, 'max': 547.29 },
+        'M_z': { 'min': -44.99, 'max':  42.24 },
     },
     
     'output_fields': {
@@ -108,12 +104,6 @@ NNdyn = tf.keras.Sequential([
             tf.keras.layers.Dense(num_latent_states)
         ])
 NNdyn.summary()
-
-v = NNdyn.variables[0]
-print(type(v))
-print(type(v.value))
-print(hasattr(v, '_variable'))
-print(hasattr(v, 'handle'))
 
 # reconstruction network
 input_shape = (None, None, num_latent_states + len(problem['input_signals']) + problem['space']['dimension'])
@@ -233,29 +223,29 @@ time_axis = dataset_tests['times'][:] * dt_base
 
 fig, axs = plt.subplots(3, 1, figsize=(10, 8))
 
-# C_L
-axs[0].plot(time_axis, out_signals_FOM[i_sample, :, 0, 0], 'b-', label='C_L FOM')
-axs[0].plot(time_axis, out_signals_ROM[i_sample, :, 0, 0], 'r--', label='C_L ROM')
-axs[0].set_ylabel('C_L')
+# F_y
+axs[0].plot(time_axis, out_signals_FOM[i_sample, :, 0, 0], 'b-', label='F_y FOM')
+axs[0].plot(time_axis, out_signals_ROM[i_sample, :, 0, 0], 'r--', label='F_y ROM')
+axs[0].set_ylabel('F_y [N]')
 axs[0].legend()
 
-# C_M
-axs[1].plot(time_axis, out_signals_FOM[i_sample, :, 0, 1], 'b-', label='C_M FOM')
-axs[1].plot(time_axis, out_signals_ROM[i_sample, :, 0, 1], 'r--', label='C_M ROM')
-axs[1].set_ylabel('C_M')
+# M_z
+axs[1].plot(time_axis, out_signals_FOM[i_sample, :, 0, 1], 'b-', label='M_z FOM')
+axs[1].plot(time_axis, out_signals_ROM[i_sample, :, 0, 1], 'r--', label='M_z ROM')
+axs[1].set_ylabel('M_z [N·m]')
 axs[1].legend()
 
 # Errore assoluto
-err_CL = np.abs(out_signals_FOM[i_sample, :, 0, 0] - out_signals_ROM[i_sample, :, 0, 0])
-err_CM = np.abs(out_signals_FOM[i_sample, :, 0, 1] - out_signals_ROM[i_sample, :, 0, 1])
-axs[2].plot(time_axis, err_CL, 'b-', label='|err C_L|')
-axs[2].plot(time_axis, err_CM, 'r-', label='|err C_M|')
+err_Fy = np.abs(out_signals_FOM[i_sample, :, 0, 0] - out_signals_ROM[i_sample, :, 0, 0])
+err_Mz = np.abs(out_signals_FOM[i_sample, :, 0, 1] - out_signals_ROM[i_sample, :, 0, 1])
+axs[2].plot(time_axis, err_Fy, 'b-', label='|err F_y|')
+axs[2].plot(time_axis, err_Mz, 'r-', label='|err M_z|')
 axs[2].set_ylabel('Errore assoluto')
 axs[2].set_xlabel('Tempo [s]')
 axs[2].legend()
 
-# NRMSE per C_L e C_M separatamente
-for i, name in enumerate(['C_L', 'C_M']):
+# NRMSE per F_y e M_z separatamente
+for i, name in enumerate(['F_y', 'M_z']):
     fom = out_signals_FOM[:, :, 0, i]
     rom = out_signals_ROM[:, :, 0, i]
     nrmse = np.sqrt(np.mean(np.square(rom - fom))) / (np.max(fom) - np.min(fom))

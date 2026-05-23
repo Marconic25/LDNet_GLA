@@ -228,5 +228,5 @@ def load_gla_h5(path):
             'input_signals': f['input_signals'][:],
             'output_signals': f['output_signals'][:],
             'output_fields': f['output_fields'][:],
-            
+            'sim_families': f['sim_families'][:].astype(str) if 'sim_families' in f else None,
         }

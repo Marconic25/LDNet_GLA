@@ -187,6 +187,8 @@ def write_h5(data_dict, filename):
     input_parameters = np.full((len(simulations), 1), U_INF)
     output_fields    = np.zeros((len(simulations), n_times, 1, 2))
 
+    families_arr = np.array([k[0].encode() for k in data_dict.keys()])
+
     with h5py.File(filename, 'w') as f:
         f.create_dataset("points",           data=np.array([[0.0, 0.0]]))
         f.create_dataset("times",            data=times)
@@ -194,6 +196,7 @@ def write_h5(data_dict, filename):
         f.create_dataset("input_signals",    data=input_signals)
         f.create_dataset("output_signals",   data=output_signals)
         f.create_dataset("output_fields",    data=output_fields)
+        f.create_dataset("sim_families",     data=families_arr)
 
     print(f"Dataset salvato: {filename}  "
           f"[{len(simulations)} sims, input_signals: {input_signals.shape}, "
