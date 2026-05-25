@@ -51,17 +51,14 @@ DT    = 0.01
 GUST_W0  = 60.0   # peak gust [m/s]
 GUST_DUR = 1.0    # gust duration [s]
 
-PID_KP_H = 50.0    # proportional gain on h
-PID_KD_H = 10.0    # derivative gain on ḣ
-PID_KP_A = 30.0    # proportional gain on α
-PID_KD_A = 5.0     # derivative gain on α̇
-
-GREEDY_Q_H = 1.0 / 0.004**2   # weight on h  (normalised by expected peak)
-GREEDY_Q_A = 1.0 / 0.008**2   # weight on α
-GREEDY_R   = 1.0 / 20.0**2    # weight on δ — lower R → more actuation
-
 DELTA_MAX     = 20.0    # [°]
 DELTA_DOT_MAX = 100.0   # [°/s]
+
+# ─────────────────────────────────────────────────────────────
+# OBJECTIVE: minimise peak(|h|) + peak(|α|) in gust window
+# Both terms normalised by the open-loop peak so they contribute equally.
+# ─────────────────────────────────────────────────────────────
+_OPT_T_END = GUST_DUR + 0.5   # evaluate only first 1.5 s
 
 # ─────────────────────────────────────────────────────────────
 # SETUP
@@ -77,21 +74,69 @@ def gust_profile(t):
         return (GUST_W0 / 2.0) * (1.0 - np.cos(2.0 * np.pi * t / GUST_DUR))
     return 0.0
 
-# ─────────────────────────────────────────────────────────────
-# CONTROLLERS
-# ─────────────────────────────────────────────────────────────
-pid = PIDController(
-    Kp_h=PID_KP_H, Kd_h=PID_KD_H,
-    Kp_a=PID_KP_A, Kd_a=PID_KD_A,
-    delta_max=DELTA_MAX, delta_dot_max=DELTA_DOT_MAX, DT=DT
-)
+# Open-loop peaks — used to normalise the objective so h and α contribute equally
+print("Running Open Loop for normalisation...")
+_res_ol_ref = run_simulation(U_INF, _OPT_T_END, DT, aero_model, None, A_s, B_s,
+                             gust_profile=gust_profile, observer='true_state')
+_mask_ref = (_res_ol_ref['t'] >= 0.0) & (_res_ol_ref['t'] <= _OPT_T_END)
+_OL_PEAK_H = max(np.max(np.abs(_res_ol_ref['h'][_mask_ref])), 1e-8)
+_OL_PEAK_A = max(np.max(np.abs(_res_ol_ref['a'][_mask_ref])), 1e-8)
 
-greedy = GreedyN1Controller(
-    aero_predict=linear_predict,
-    U_INF=U_INF, DT=DT,
-    Q_h=GREEDY_Q_H, Q_a=GREEDY_Q_A, R=GREEDY_R,
-    delta_max=DELTA_MAX, delta_dot_max=DELTA_DOT_MAX
-)
+def _objective(res):
+    """Scalar objective: peak(|h|)/OL_peak_h + peak(|α|)/OL_peak_α in gust window."""
+    mask = (res['t'] >= 0.0) & (res['t'] <= _OPT_T_END)
+    peak_h = np.max(np.abs(res['h'][mask]))
+    peak_a = np.max(np.abs(res['a'][mask]))
+    return peak_h / _OL_PEAK_H + peak_a / _OL_PEAK_A
+
+# ─────────────────────────────────────────────────────────────
+# CONTROLLERS — gain-optimised for minimum peak(h) + peak(α)
+# ─────────────────────────────────────────────────────────────
+from scipy.optimize import minimize
+
+_SIM_T = _OPT_T_END   # simulate only up to gust window for speed
+
+def _run_pid(log_gains):
+    # optimise in log-space: all gains stay positive
+    Kp_h, Kd_h, Kp_a, Kd_a = np.exp(log_gains)
+    ctrl = PIDController(Kp_h=Kp_h, Kd_h=Kd_h, Kp_a=Kp_a, Kd_a=Kd_a,
+                         delta_max=DELTA_MAX, delta_dot_max=DELTA_DOT_MAX, DT=DT)
+    res = run_simulation(U_INF, _SIM_T, DT, aero_model, ctrl, A_s, B_s,
+                         gust_profile=gust_profile, observer='true_state')
+    return _objective(res)
+
+def _run_greedy(log_params):
+    # optimise in log-space so params stay positive
+    Q_h, Q_a, R = np.exp(log_params)
+    ctrl = GreedyN1Controller(linear_predict, U_INF=U_INF, DT=DT,
+                              Q_h=Q_h, Q_a=Q_a, R=R,
+                              delta_max=DELTA_MAX, delta_dot_max=DELTA_DOT_MAX)
+    res = run_simulation(U_INF, _SIM_T, DT, aero_model, ctrl, A_s, B_s,
+                         gust_profile=gust_profile, observer='true_state')
+    return _objective(res)
+
+print("\nOptimising PID gains (positive gains only)...")
+pid_opt = minimize(_run_pid, x0=np.log([50.0, 10.0, 30.0, 5.0]),
+                   method='Nelder-Mead',
+                   options={'maxiter': 600, 'xatol': 0.05, 'fatol': 1e-5})
+Kp_h_opt, Kd_h_opt, Kp_a_opt, Kd_a_opt = np.exp(pid_opt.x)
+print(f"  Kp_h={Kp_h_opt:.1f}  Kd_h={Kd_h_opt:.1f}  Kp_a={Kp_a_opt:.1f}  Kd_a={Kd_a_opt:.1f}  obj={pid_opt.fun:.4f}")
+
+print("Optimising Greedy weights...")
+greedy_opt = minimize(_run_greedy,
+                      x0=np.log([1/0.004**2, 1/0.008**2, 1/10.0**2]),
+                      method='Nelder-Mead',
+                      options={'maxiter': 600, 'xatol': 0.05, 'fatol': 1e-5})
+Q_h_opt, Q_a_opt, R_opt = np.exp(greedy_opt.x)
+print(f"  Q_h={Q_h_opt:.1f}  Q_a={Q_a_opt:.1f}  R={R_opt:.5f}  obj={greedy_opt.fun:.4f}")
+
+pid = PIDController(Kp_h=Kp_h_opt, Kd_h=Kd_h_opt,
+                    Kp_a=Kp_a_opt, Kd_a=Kd_a_opt,
+                    delta_max=DELTA_MAX, delta_dot_max=DELTA_DOT_MAX, DT=DT)
+
+greedy = GreedyN1Controller(linear_predict, U_INF=U_INF, DT=DT,
+                             Q_h=Q_h_opt, Q_a=Q_a_opt, R=R_opt,
+                             delta_max=DELTA_MAX, delta_dot_max=DELTA_DOT_MAX)
 
 # ─────────────────────────────────────────────────────────────
 # SIMULATIONS
