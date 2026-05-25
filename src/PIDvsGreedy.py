@@ -2,9 +2,9 @@
 """
 Comparison script: Open Loop / PID / Greedy-N1.
 
-Phase 1: uses linear Theodorsen model inside Greedy controller.
-         True system uses LDNet (or whatever weights are in models/).
-         observer='true_state' (ideal sensors — isolates controller effect).
+Phase 1: uses linear Theodorsen model as both the true system and inside the
+         Greedy controller.  observer='true_state' (ideal sensors).
+         No NN / TensorFlow dependency in this phase.
 """
 import sys
 import numpy as np
@@ -13,12 +13,33 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from aerodynamics.model import LDNetModel as AeroModel
 from structural.smd import get_space_state_matrices
 from control.run_controller import run_simulation
 from control.pid import PIDController
 from control.greedy import GreedyN1Controller
 from control.linear_aero import predict as linear_predict
+
+
+class LinearAeroModel:
+    """
+    Wrapper that exposes the quasi-steady Theodorsen linear aerodynamic model
+    through the same interface as LDNetModel, so it can be used as the 'true
+    system' in run_simulation() without any neural-network dependency.
+
+    The linear model has no latent state (num_latent_states = 0).
+    """
+    num_latent_states = 0
+
+    def step(self, z, h, hd, a, ad, delta, W_gust, U_inf, dt):
+        """
+        Stateless step: ignores z/dt, returns (z_unchanged, C_L, C_M).
+
+        Parameters match LDNetModel.step signature exactly.
+        """
+        x = [h, hd, a, ad]
+        C_L, C_M = linear_predict(x, delta, W_gust, U_inf)
+        return z, float(C_L), float(C_M)
+
 
 # ─────────────────────────────────────────────────────────────
 # PARAMETERS
@@ -45,12 +66,9 @@ DELTA_DOT_MAX = 100.0   # [°/s]
 # ─────────────────────────────────────────────────────────────
 # SETUP
 # ─────────────────────────────────────────────────────────────
-print("Loading aerodynamic model (used as true system)...")
-models_dir = Path(__file__).parent.parent / 'models_cluster'
-if not models_dir.exists():
-    models_dir = Path(__file__).parent.parent / 'models'
-aero_model = AeroModel(str(models_dir))
-print(f"  LDNet: {aero_model.num_latent_states} latent state(s)")
+print("Using linear Theodorsen model as true aerodynamic system (Phase 1).")
+aero_model = LinearAeroModel()
+print(f"  Linear aero: {aero_model.num_latent_states} latent state(s) (stateless)")
 
 A_s, B_s, _, _ = get_space_state_matrices()
 

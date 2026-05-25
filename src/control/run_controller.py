@@ -239,7 +239,10 @@ def run_simulation(U_INF, T_END, DT, aero_model, controller, A_s, B_s,
         hd_hat_hist[i] = x_hat[1]
         a_hat_hist[i]  = x_hat[2]
         ad_hat_hist[i] = x_hat[3]
-        z_hat_hist[i]  = float(z_hat[0]) if hasattr(z_hat, '__len__') else float(z_hat)
+        if hasattr(z_hat, '__len__'):
+            z_hat_hist[i] = float(z_hat[0]) if len(z_hat) > 0 else 0.0
+        else:
+            z_hat_hist[i] = float(z_hat)
 
         delta_prev = delta
 

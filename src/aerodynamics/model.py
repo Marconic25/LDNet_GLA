@@ -114,7 +114,7 @@ class LDNetModel: #create a class cause all the functions share the state
         input_signals_n, input_parameters_n = self.normalize_input(h, hd, a, ad, delta, W_gust, U_inf)
 
         # Compute the latent state
-        state = self.NNdyn(np.reshape(np.concatenate(([z, input_parameters_n, input_signals_n])), (1, len(input_signals_n) + len(input_parameters_n) + 1)))    
+        state = self.NNdyn(np.reshape(np.concatenate([z, input_parameters_n, input_signals_n]), (1, self.num_latent_states + len(input_parameters_n) + len(input_signals_n))))
         #Update z
         dt_ref = self.normalization['time']['time_constant']
         z_new = (z + (dt/dt_ref) * state)
