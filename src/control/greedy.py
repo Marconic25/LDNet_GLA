@@ -16,7 +16,7 @@ Interface: .solve(x_hat, z_hat, W_hat) -> delta [degrees]
 """
 import numpy as np
 from scipy.optimize import minimize_scalar
-from structural.smd import structural_rhs, M_WING, M_FLAP, I_WING, I_FLAP_EA
+from structural.smd import structural_rhs
 
 
 # Aero → force conversion constants (same as run_simulation)
@@ -112,6 +112,8 @@ class GreedyN1Controller:
             args=(x_hat, float(W_hat)),
             options={'xatol': 0.01}
         )
+        if not np.isfinite(result.fun):
+            return float(np.clip(self._delta_prev, -self.delta_max, self.delta_max))
         delta = float(np.clip(result.x, -self.delta_max, self.delta_max))
         self._delta_prev = delta
         return delta
