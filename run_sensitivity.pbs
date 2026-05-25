@@ -11,7 +11,7 @@ export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
 
 WORKDIR=/work/u10677113/LDNet_GLA
 
-apptainer exec --nv --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
     /work/u10677113/tensorflow_gpu.sif \
     bash -c "
         set -e
