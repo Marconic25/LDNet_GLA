@@ -44,6 +44,10 @@ problem = {
     "space": {"dimension": 2},
     "input_parameters": [{"name": "U_inf"}],
     "input_signals": [
+        {"name": "h"},
+        {"name": "hd"},
+        {"name": "a"},
+        {"name": "ad"},
         {"name": "delta"},
         {"name": "W_gust"},
     ],
@@ -64,6 +68,10 @@ normalization = {
         'U_inf': {'min': 0, 'max': 120},
     },
     'input_signals': {
+        'h':      {'min': -0.025, 'max': 0.025},
+        'hd':     {'min': -2.0,   'max': 2.0  },
+        'a':      {'min': -0.1,   'max': 0.1  },
+        'ad':     {'min': -2.0,   'max': 2.0  },
         'delta':  {'min': -14.09, 'max': 14.55},
         'W_gust': {'min':   0.0,  'max': 47.81},
     },

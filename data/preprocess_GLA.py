@@ -138,7 +138,10 @@ all_data = load_all(grouped)
 # Step 3: Normalization stats on training set
 
 def compute_normalization(all_data):
-    sig_cols = {"delta": COL_DELTA, "W_gust": COL_WGUST, "Fy": COL_FY, "Mz": COL_MZ}
+    sig_cols = {
+        "h": COL_H, "hd": COL_HD, "alpha": COL_A, "ad": COL_AD,
+        "delta": COL_DELTA, "W_gust": COL_WGUST, "Fy": COL_FY, "Mz": COL_MZ,
+    }
     train_data = [v for k, v in all_data.items() if k[1] == "train"]
     if not train_data:
         print("Nessun dato di training trovato.")
@@ -171,7 +174,7 @@ def split_by_filename(all_data):
 def write_h5(data_dict, filename):
     """Write simulations to HDF5.
 
-    input_signals:  (N, T, 2)    — [delta, W_gust]
+    input_signals:  (N, T, 6)    — [h, hd, alpha, ad, delta, W_gust]
     output_signals: (N, T, 1, 2) — [Fy, Mz]
     """
     if not data_dict:
@@ -182,7 +185,7 @@ def write_h5(data_dict, filename):
     n_times = simulations[0].shape[0]
 
     times            = simulations[0][:, COL_T]
-    input_signals    = np.stack([s[:, [COL_DELTA, COL_WGUST]] for s in simulations])
+    input_signals    = np.stack([s[:, [COL_H, COL_HD, COL_A, COL_AD, COL_DELTA, COL_WGUST]] for s in simulations])
     output_signals   = np.expand_dims(np.stack([s[:, [COL_FY, COL_MZ]] for s in simulations]), axis=2)
     input_parameters = np.full((len(simulations), 1), U_INF)
     output_fields    = np.zeros((len(simulations), n_times, 1, 2))
