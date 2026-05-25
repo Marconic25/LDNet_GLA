@@ -60,34 +60,16 @@ def denormalize_output(out_fields, problem, normalization_definition):
     
 def process_dataset(dataset, problem, normalization_definition, dt = None, num_points_subsample = None):
     if dt is not None:
-        times = np.arange(dataset['times'][0], dataset['times'][-1] + dt * 1e-10, step = dt)
+        dt_orig = dataset['times'][1] - dataset['times'][0]
+        stride = int(round(dt / dt_orig))
+        if stride < 1:
+            stride = 1
+        idx = np.arange(0, len(dataset['times']), stride)
         if dataset['input_signals'] is not None:
-            sig = dataset['input_signals']
-            time_len = len(dataset['times'])
-
-            # find which axis corresponds to time
-            axis = None
-            for ax, size in enumerate(sig.shape):
-                if size == time_len:
-                    axis = ax
-                    break
-
-            if axis is None:
-                raise ValueError(
-                    f"No axis of input_signals matches times length "
-                    f"{time_len}. Shape={sig.shape}"
-                )
-
-            dataset['input_signals'] = interpolate.interp1d(
-                dataset['times'],
-                sig,
-                axis=axis,
-                bounds_error=False,
-                fill_value="extrapolate"
-            )(times)
-    dataset['output_fields'] = interpolate.interp1d(dataset['times'], dataset['output_fields'], axis = 1)(times)
-    dataset['output_signals'] = interpolate.interp1d(dataset['times'], dataset['output_signals'], axis = 1)(times)
-    dataset['times'] = times
+            dataset['input_signals'] = dataset['input_signals'][:, idx, :]
+        dataset['output_fields']  = dataset['output_fields'][:, idx, :, :]
+        dataset['output_signals'] = dataset['output_signals'][:, idx, :, :]
+        dataset['times']          = dataset['times'][idx]
 
     num_samples = dataset['output_fields'].shape[0]
     num_times = dataset['times'].shape[0]
