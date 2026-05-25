@@ -96,12 +96,16 @@ def process_dataset(dataset, problem, normalization_definition, dt = None, num_p
 
     points_full = np.broadcast_to(dataset['points'][None,None,:,:], [num_samples, num_times, num_points, num_x])
     
-    if num_points_subsample is None:
+    if num_points_subsample is None or num_points_subsample >= num_points:
         dataset['points_full'] = points_full
     else:
-        idxs = np.array([[np.random.choice(num_points, num_points_subsample) for j in range(num_times)] for i in range(num_samples)])
-        dataset['points_full'] = np.array([[points_full          [i,j,idxs[i,j,:],:] for j in range(num_times)] for i in range(num_samples)])
-        dataset['output_fields']  = np.array([[dataset['output_fields'][i,j,idxs[i,j,:],:] for j in range(num_times)] for i in range(num_samples)])
+        idxs = np.random.randint(0, num_points, size=(num_samples, num_times, num_points_subsample))
+        dataset['points_full']   = points_full[np.arange(num_samples)[:, None, None],
+                                               np.arange(num_times)[None, :, None],
+                                               idxs, :]
+        dataset['output_fields'] = dataset['output_fields'][np.arange(num_samples)[:, None, None],
+                                                            np.arange(num_times)[None, :, None],
+                                                            idxs, :]
         
     dataset['num_points'] = dataset['points_full'].shape[2]
     dataset['num_times'] = num_times
