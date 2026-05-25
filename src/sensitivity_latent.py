@@ -27,7 +27,8 @@ import optimization
 
 # ---------------------------------------------------------------
 # Paths
-DATA_DIR    = Path("/work/u10677113/LDNet_GLA/data")
+import os
+DATA_DIR    = Path(os.environ.get("DATA_OVERRIDE", "/work/u10677113/LDNet_GLA/data"))
 RESULTS_DIR = Path("/work/u10677113/LDNet_GLA/results/sensitivity")
 
 # ---------------------------------------------------------------
@@ -296,10 +297,11 @@ def main():
     (RESULTS_DIR / 'summary').mkdir(exist_ok=True)
 
     # Load datasets once (process_dataset modifies in-place, reload each time)
-    print('Loading datasets...')
-    raw_train = utils.load_gla_h5(DATA_DIR / 'GLA_train.h5')
-    raw_valid = utils.load_gla_h5(DATA_DIR / 'GLA_valid.h5')
-    raw_tests = utils.load_gla_h5(DATA_DIR / 'GLA_test.h5')
+    import time
+    print('Loading datasets...', flush=True)
+    t0 = time.time(); raw_train = utils.load_gla_h5(DATA_DIR / 'GLA_train.h5'); print(f'  train loaded {time.time()-t0:.1f}s', flush=True)
+    t0 = time.time(); raw_valid = utils.load_gla_h5(DATA_DIR / 'GLA_valid.h5'); print(f'  valid loaded {time.time()-t0:.1f}s', flush=True)
+    t0 = time.time(); raw_tests = utils.load_gla_h5(DATA_DIR / 'GLA_test.h5');  print(f'  test  loaded {time.time()-t0:.1f}s', flush=True)
 
     # Resolve one test sim index per family
     families = raw_tests['sim_families']
@@ -320,13 +322,21 @@ def main():
         out_dir.mkdir(exist_ok=True)
 
         # Reload raw data each iteration (process_dataset mutates the dict)
-        dataset_train = utils.load_gla_h5(DATA_DIR / 'GLA_train.h5')
-        dataset_valid = utils.load_gla_h5(DATA_DIR / 'GLA_valid.h5')
-        dataset_tests = utils.load_gla_h5(DATA_DIR / 'GLA_test.h5')
+        import time
+        print(f'  loading HDF5...', flush=True)
+        t0 = time.time(); dataset_train = utils.load_gla_h5(DATA_DIR / 'GLA_train.h5'); print(f'  train loaded {time.time()-t0:.1f}s', flush=True)
+        t0 = time.time(); dataset_valid = utils.load_gla_h5(DATA_DIR / 'GLA_valid.h5'); print(f'  valid loaded {time.time()-t0:.1f}s', flush=True)
+        t0 = time.time(); dataset_tests = utils.load_gla_h5(DATA_DIR / 'GLA_test.h5');  print(f'  test  loaded {time.time()-t0:.1f}s', flush=True)
 
+        print(f'  processing train...', flush=True); t0 = time.time()
         utils.process_dataset(dataset_train, problem, normalization, dt=dt, num_points_subsample=1)
+        print(f'  done {time.time()-t0:.1f}s', flush=True)
+        print(f'  processing valid...', flush=True); t0 = time.time()
         utils.process_dataset(dataset_valid, problem, normalization, dt=dt, num_points_subsample=1)
+        print(f'  done {time.time()-t0:.1f}s', flush=True)
+        print(f'  processing test...', flush=True); t0 = time.time()
         utils.process_dataset(dataset_tests, problem, normalization, dt=dt)
+        print(f'  done {time.time()-t0:.1f}s', flush=True)
 
         NNdyn, NNrec, ldnet, opt = train_one(num_latent_states, dataset_train, dataset_valid)
 
