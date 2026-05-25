@@ -51,14 +51,14 @@ DT    = 0.01
 GUST_W0  = 60.0   # peak gust [m/s]
 GUST_DUR = 1.0    # gust duration [s]
 
-PID_KP_H = 500.0   # proportional gain on h
-PID_KD_H = 50.0    # derivative gain on ḣ
-PID_KP_A = 200.0   # proportional gain on α
-PID_KD_A = 20.0    # derivative gain on α̇
+PID_KP_H = 50.0    # proportional gain on h
+PID_KD_H = 10.0    # derivative gain on ḣ
+PID_KP_A = 30.0    # proportional gain on α
+PID_KD_A = 5.0     # derivative gain on α̇
 
 GREEDY_Q_H = 1.0 / 0.004**2   # weight on h  (normalised by expected peak)
 GREEDY_Q_A = 1.0 / 0.008**2   # weight on α
-GREEDY_R   = 1.0 / 5.0**2     # weight on δ
+GREEDY_R   = 1.0 / 20.0**2    # weight on δ — lower R → more actuation
 
 DELTA_MAX     = 20.0    # [°]
 DELTA_DOT_MAX = 100.0   # [°/s]
@@ -156,7 +156,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 OL  = dict(color='steelblue',  lw=1.5, alpha=0.85, label='Open loop')
 PID = dict(color='darkorange',  lw=1.5, alpha=0.85, label='PID')
-GR  = dict(color='seagreen',   lw=1.5, alpha=0.85, label='Greedy-N1')
+GR  = dict(color='crimson',    lw=1.5, alpha=0.85, label='Greedy-N1')
 
 def fmt(ax, ylabel, title=None):
     ax.set_xlabel('t [s]')
