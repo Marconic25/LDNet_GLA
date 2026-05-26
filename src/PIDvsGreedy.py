@@ -55,10 +55,13 @@ DELTA_MAX     = 20.0    # [°]
 DELTA_DOT_MAX = 100.0   # [°/s]
 
 # ─────────────────────────────────────────────────────────────
-# OBJECTIVE: minimise peak(|h|) + peak(|α|) in gust window
-# Both terms normalised by the open-loop peak so they contribute equally.
+# OBJECTIVE (PID only):
+#   Minimise peak(|h|) in gust window [0, GUST_DUR+0.5s]
+#   Subject to:
+#     - peak(|α|) <= OL peak (soft penalty if exceeded)
+#     - No growing oscillations after gust (stability over full T_END)
 # ─────────────────────────────────────────────────────────────
-_OPT_T_END = GUST_DUR + 0.5   # evaluate only first 1.5 s
+_OPT_T_END = GUST_DUR + 0.5   # gust evaluation window
 
 # ─────────────────────────────────────────────────────────────
 # SETUP
@@ -74,52 +77,80 @@ def gust_profile(t):
         return (GUST_W0 / 2.0) * (1.0 - np.cos(2.0 * np.pi * t / GUST_DUR))
     return 0.0
 
-# Open-loop peaks — used to normalise the objective so h and α contribute equally
+# Open-loop reference — computed over full T_END to capture post-gust peaks too
 print("Running Open Loop for normalisation...")
-_res_ol_ref = run_simulation(U_INF, _OPT_T_END, DT, aero_model, None, A_s, B_s,
+_res_ol_ref = run_simulation(U_INF, T_END, DT, aero_model, None, A_s, B_s,
                              gust_profile=gust_profile, observer='true_state')
-_mask_ref = (_res_ol_ref['t'] >= 0.0) & (_res_ol_ref['t'] <= _OPT_T_END)
-_OL_PEAK_H = max(np.max(np.abs(_res_ol_ref['h'][_mask_ref])), 1e-8)
-_OL_PEAK_A = max(np.max(np.abs(_res_ol_ref['a'][_mask_ref])), 1e-8)
+_gust_mask  = (_res_ol_ref['t'] >= 0.0) & (_res_ol_ref['t'] <= _OPT_T_END)
+_post_mask  = (_res_ol_ref['t'] > _OPT_T_END)
+_OL_PEAK_H      = max(np.max(np.abs(_res_ol_ref['h'][_gust_mask])), 1e-8)
+_OL_PEAK_A      = max(np.max(np.abs(_res_ol_ref['a'][_gust_mask])), 1e-8)
+_OL_PEAK_H_POST = max(np.max(np.abs(_res_ol_ref['h'][_post_mask])), 1e-8) if _post_mask.any() else _OL_PEAK_H
+_OL_PEAK_A_POST = max(np.max(np.abs(_res_ol_ref['a'][_post_mask])), 1e-8) if _post_mask.any() else _OL_PEAK_A
 
-def _objective(res):
-    """Scalar objective: peak(|h|)/OL_peak_h + peak(|α|)/OL_peak_α in gust window."""
-    mask = (res['t'] >= 0.0) & (res['t'] <= _OPT_T_END)
-    peak_h = np.max(np.abs(res['h'][mask]))
-    peak_a = np.max(np.abs(res['a'][mask]))
-    return peak_h / _OL_PEAK_H + peak_a / _OL_PEAK_A
+
+def _pid_objective(res):
+    """
+    Minimise peak(|h|) in gust window.
+    Soft penalty:  peak(|α|) exceeds OL during gust      → controller weakened α damping
+    Stability penalty: post-gust h or α exceed OL peaks  → controller excited oscillations
+    """
+    gust_mask = (res['t'] >= 0.0) & (res['t'] <= _OPT_T_END)
+    post_mask = (res['t'] > _OPT_T_END)
+
+    peak_h      = np.max(np.abs(res['h'][gust_mask]))
+    peak_a_gust = np.max(np.abs(res['a'][gust_mask]))
+    peak_h_post = np.max(np.abs(res['h'][post_mask])) if post_mask.any() else 0.0
+    peak_a_post = np.max(np.abs(res['a'][post_mask])) if post_mask.any() else 0.0
+
+    obj = peak_h / _OL_PEAK_H
+
+    if peak_a_gust > _OL_PEAK_A:
+        obj += 10.0 * (peak_a_gust / _OL_PEAK_A - 1.0)
+
+    if peak_h_post > _OL_PEAK_H_POST:
+        obj += 10.0 * (peak_h_post / _OL_PEAK_H_POST - 1.0)
+
+    if peak_a_post > _OL_PEAK_A_POST:
+        obj += 10.0 * (peak_a_post / _OL_PEAK_A_POST - 1.0)
+
+    return obj
 
 # ─────────────────────────────────────────────────────────────
 # CONTROLLERS — gain-optimised for minimum peak(h) + peak(α)
 # ─────────────────────────────────────────────────────────────
 from scipy.optimize import minimize
 
-_SIM_T = _OPT_T_END   # simulate only up to gust window for speed
-
-def _run_pid(log_gains):
-    # optimise in log-space: all gains stay positive
-    Kp_h, Kd_h, Kp_a, Kd_a = np.exp(log_gains)
+def _run_pid(params):
+    # params = [Kp_h, Kd_h, log(Kp_a), log(Kd_a)]
+    # h-gains are free (can be negative — needed by sign convention)
+    # α-gains stay positive (log-space)
+    Kp_h, Kd_h = params[0], params[1]
+    Kp_a, Kd_a = np.exp(params[2]), np.exp(params[3])
     ctrl = PIDController(Kp_h=Kp_h, Kd_h=Kd_h, Kp_a=Kp_a, Kd_a=Kd_a,
                          delta_max=DELTA_MAX, delta_dot_max=DELTA_DOT_MAX, DT=DT)
-    res = run_simulation(U_INF, _SIM_T, DT, aero_model, ctrl, A_s, B_s,
+    res = run_simulation(U_INF, T_END, DT, aero_model, ctrl, A_s, B_s,
                          gust_profile=gust_profile, observer='true_state')
-    return _objective(res)
+    return _pid_objective(res)
 
 def _run_greedy(log_params):
-    # optimise in log-space so params stay positive
     Q_h, Q_a, R = np.exp(log_params)
     ctrl = GreedyN1Controller(linear_predict, U_INF=U_INF, DT=DT,
                               Q_h=Q_h, Q_a=Q_a, R=R,
                               delta_max=DELTA_MAX, delta_dot_max=DELTA_DOT_MAX)
-    res = run_simulation(U_INF, _SIM_T, DT, aero_model, ctrl, A_s, B_s,
+    res = run_simulation(U_INF, T_END, DT, aero_model, ctrl, A_s, B_s,
                          gust_profile=gust_profile, observer='true_state')
-    return _objective(res)
+    return _pid_objective(res)
 
-print("\nOptimising PID gains (positive gains only)...")
-pid_opt = minimize(_run_pid, x0=np.log([50.0, 10.0, 30.0, 5.0]),
+# h-gains free (signed), α-gains in log-space (positive)
+# x0: Kp_h=-50 (negative: h<0→δ>0), Kd_h=-10, log(Kp_a)=log(30), log(Kd_a)=log(5)
+print("\nOptimising PID gains...")
+_x0_pid = np.array([-50.0, -10.0, np.log(30.0), np.log(5.0)])
+pid_opt = minimize(_run_pid, x0=_x0_pid,
                    method='Nelder-Mead',
-                   options={'maxiter': 600, 'xatol': 0.05, 'fatol': 1e-5})
-Kp_h_opt, Kd_h_opt, Kp_a_opt, Kd_a_opt = np.exp(pid_opt.x)
+                   options={'maxiter': 800, 'xatol': 0.05, 'fatol': 1e-5})
+Kp_h_opt, Kd_h_opt = pid_opt.x[0], pid_opt.x[1]
+Kp_a_opt, Kd_a_opt = np.exp(pid_opt.x[2]), np.exp(pid_opt.x[3])
 print(f"  Kp_h={Kp_h_opt:.1f}  Kd_h={Kd_h_opt:.1f}  Kp_a={Kp_a_opt:.1f}  Kd_a={Kd_a_opt:.1f}  obj={pid_opt.fun:.4f}")
 
 print("Optimising Greedy weights...")
