@@ -29,6 +29,10 @@ _args = _parser.parse_args()
 
 # ── Simulation parameters ──────────────────────────────────────────────────────
 
+# Aeroelastic trim state from CFD training data (sim_A_000_train, t=0)
+# LDNet was trained on trajectories starting from this equilibrium, NOT from zero.
+X0_TRIM = np.array([-6.49e-3, 0.0, -8.76e-4, 0.0])
+
 U_INF         = 80.0   # freestream velocity [m/s]
 RHO           = 1.225  # air density [kg/m³]
 S_REF         = 0.05   # reference area [m²]
@@ -108,7 +112,8 @@ def simulate(ctrl=None):
     delta_arr = np.zeros(N)
     W_hat_arr = np.zeros(N)
 
-    x   = np.zeros(4)
+    x0  = X0_TRIM if hasattr(_aero_module, 'reset') else np.zeros(4)
+    x   = x0.copy()
     obs = Observer(dt=DT, U=U_INF, aero_module=_aero_module)
 
     if ctrl is not None:
@@ -117,7 +122,7 @@ def simulate(ctrl=None):
     if hasattr(_aero_module, 'reset'):
         _aero_module.reset(dt=DT)
 
-    x_hat = np.zeros(4)
+    x_hat = x0.copy()
     W_hat = 0.0
 
     for i, t in enumerate(t_arr):
