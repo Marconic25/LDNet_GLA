@@ -66,8 +66,9 @@ class LDNetAero:
         ])
 
         self._load_weights(model_dir)
-        self._z  = np.zeros(self._num_z)
-        self._dt = 0.01  # set by reset(dt) or advance(); default matches run.py DT
+        self._z      = np.zeros(self._num_z)
+        self._dt     = 0.01   # set by reset(dt) or advance(); default matches run.py DT
+        self._dt_sub = self._dt_ref  # sub-step size for latent integration (= training dt)
 
     def _load_weights(self, model_dir):
         try:
@@ -109,14 +110,22 @@ class LDNetAero:
             return 0.5 * float(v_n) * (hi - lo) + 0.5 * (hi + lo)
         return dn(v0_n, keys[0]), dn(v1_n, keys[1])
 
-    def _forward(self, z, sigs_n, U_n, U):
-        """Run NNdyn and NNrec, return (z_new, C_L, C_M). Does not mutate self._z."""
+    def _step_z(self, z, sigs_n, U_n, sub_dt):
+        """Advance z by one sub-step of size sub_dt."""
         dyn_inp = np.reshape(
             np.concatenate([z, [U_n], sigs_n]),
             (1, self._num_z + 1 + len(sigs_n))
         )
         dz = self.NNdyn(dyn_inp, training=False)
-        z_new = z + (self._dt / self._dt_ref) * dz.numpy().flatten()
+        return z + (sub_dt / self._dt_ref) * dz.numpy().flatten()
+
+    def _forward(self, z, sigs_n, U_n, U, dt):
+        """Advance z by dt using sub-steps of size dt_sub, then reconstruct output."""
+        n_sub = max(1, round(dt / self._dt_sub))
+        sub_dt = dt / n_sub
+        z_new = z
+        for _ in range(n_sub):
+            z_new = self._step_z(z_new, sigs_n, U_n, sub_dt)
 
         rec_inp = np.reshape(
             np.concatenate([z_new, sigs_n, [0.0, 0.0]]),
@@ -160,7 +169,7 @@ class LDNetAero:
         h, hd, a, ad = state
         sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
         U_n    = self._normalize_U(U)
-        _, C_L, C_M = self._forward(self._z, sigs_n, U_n, U)
+        _, C_L, C_M = self._forward(self._z, sigs_n, U_n, U, self._dt)
         return float(C_L), float(C_M)
 
     def advance(self, state, delta_deg, W, U, dt):
@@ -168,11 +177,11 @@ class LDNetAero:
         Advance latent state z one step using true (state, delta, W, U, dt).
         Call once per timestep in run.py after true forces are computed.
         """
-        self._dt = float(dt)
+        dt = float(dt)
         h, hd, a, ad = state
         sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
         U_n    = self._normalize_U(U)
-        z_new, _, _ = self._forward(self._z, sigs_n, U_n, U)
+        z_new, _, _ = self._forward(self._z, sigs_n, U_n, U, dt)
         self._z = z_new
 
     def reset(self, dt=None):
