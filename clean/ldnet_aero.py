@@ -40,7 +40,7 @@ class LDNetAero:
 
         n_signals = len(self._problem['input_signals'])      # 6
         n_params  = len(self._problem['input_parameters'])   # 1 (U_inf)
-        n_space   = self._problem['space']['dimension']       # 2
+        n_space   = self._problem['space']['dimension']       # 2 spatial coords (always 0,0 at eval)
 
         dyn_in = self._num_z + n_params + n_signals
         self.NNdyn = tf.keras.Sequential([
@@ -49,6 +49,8 @@ class LDNetAero:
             tf.keras.layers.Dense(self._num_z),
         ])
 
+        # NNrec expects 4-D input (batch, x, y, features) to support spatial fields;
+        # for scalar C_L/C_M we pass a single point at (0, 0).
         rec_in = self._num_z + n_signals + n_space
         self.NNrec = tf.keras.Sequential([
             tf.keras.layers.Dense(24, activation='tanh', input_shape=(None, None, rec_in)),
@@ -70,13 +72,13 @@ class LDNetAero:
             if 'lock' in str(e).lower() or 'Unable to synchronously open' in str(e):
                 print('  [WARNING] h5py lock detected, using tempdir workaround...')
                 with tempfile.TemporaryDirectory() as tmp:
-                    tmp = Path(tmp)
+                    tmp_path = Path(tmp)
                     shutil.copy(model_dir / 'NNdyn_weights.weights.h5',
-                                tmp / 'NNdyn_weights.weights.h5')
+                                tmp_path / 'NNdyn_weights.weights.h5')
                     shutil.copy(model_dir / 'NNrec_weights.weights.h5',
-                                tmp / 'NNrec_weights.weights.h5')
-                    self.NNdyn.load_weights(str(tmp / 'NNdyn_weights.weights.h5'))
-                    self.NNrec.load_weights(str(tmp / 'NNrec_weights.weights.h5'))
+                                tmp_path / 'NNrec_weights.weights.h5')
+                    self.NNdyn.load_weights(str(tmp_path / 'NNdyn_weights.weights.h5'))
+                    self.NNrec.load_weights(str(tmp_path / 'NNrec_weights.weights.h5'))
                     print('  [OK] weights loaded from temp location')
             else:
                 raise
