@@ -1,0 +1,20 @@
+#!/bin/bash
+#PBS -N ldnet_gla_clean
+#PBS -q gpu
+#PBS -l select=1:ncpus=4:ngpus=0
+#PBS -l walltime=02:00:00
+#PBS -o logs/ldnet_clean.out
+#PBS -e logs/ldnet_clean.err
+
+# Path to trained LDNet weights (latent_dim=10)
+WEIGHTS=/work/u10677113/LDNet_GLA/results/sensitivity/latent_10
+
+# Repo root on the cluster
+REPO=/work/u10677113/LDNet_OF
+
+mkdir -p "$REPO/clean/logs"
+
+cd "$REPO/clean"
+module load singularity
+
+singularity exec "$SIF" python run.py --model-dir "$WEIGHTS"
