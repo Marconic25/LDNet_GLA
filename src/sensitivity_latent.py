@@ -29,7 +29,7 @@ import optimization
 # Paths
 import os
 DATA_DIR    = Path(os.environ.get("DATA_OVERRIDE", "/work/u10677113/LDNet_GLA/data"))
-RESULTS_DIR = Path("/work/u10677113/LDNet_GLA/results/sensitivity")
+RESULTS_DIR = Path("/work/u10677113/LDNet_GLA/clean/models")
 
 # ---------------------------------------------------------------
 # Hyperparameters
