@@ -13,13 +13,18 @@ export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
 WEIGHTS=/work/u10677113/LDNet_GLA/results/sensitivity/latent_10
 
 # Repo root on the cluster
-REPO=/work/u10677113/LDNet_OF
+REPO=/work/u10677113/LDNet_GLA
 
-apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+# Warmup CSV: a no-gust, no-control training sequence to pre-load latent state
+WARMUP_CSV=/work/u10677113/NACA2312/dataset_v5/sim_A_000_train/structural_trajectory.csv
+
+apptainer exec --writable-tmpfs \
+    --env PYTHONPATH=$REPO/clean \
+    --bind /work/u10677113:/work/u10677113 \
     /work/u10677113/tensorflow_gpu.sif \
     bash -c "
         set -e
         pip install scipy matplotlib -q
         cd $REPO/clean
-        python run.py --model-dir $WEIGHTS
+        python run.py --model-dir $WEIGHTS --warmup-csv $WARMUP_CSV
     "

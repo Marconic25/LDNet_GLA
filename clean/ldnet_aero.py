@@ -184,13 +184,28 @@ class LDNetAero:
         z_new, _, _ = self._forward(self._z, sigs_n, U_n, U, dt)
         self._z = z_new
 
-    def reset(self, dt=None, warmup_steps=200):
-        """Reset and warm up latent state with zero inputs at training dt."""
+    def reset(self, dt=None, warmup_csv=None):
+        """Reset latent state. If warmup_csv is given, drive z through that trajectory."""
         self._z = np.zeros(self._num_z)
         if dt is not None:
             self._dt = float(dt)
-        # Warm up z with all-zero signals at training dt, matching validate_model.py
-        sigs_zero = self._normalize_signals(0., 0., 0., 0., 0., 0.)
-        U_n_zero  = self._normalize_U(80.0)
-        for _ in range(warmup_steps):
-            self._z = self._step_z(self._z, sigs_zero, U_n_zero, self._dt_ref)
+        if warmup_csv is not None:
+            self._warmup_from_csv(warmup_csv)
+
+    def _warmup_from_csv(self, csv_path):
+        """Drive z through a real trajectory CSV (no gust, no delta) to load latent state."""
+        import csv as _csv
+        with open(csv_path) as f:
+            rows = list(_csv.reader(f))
+        data = np.array([[float(v) for v in r] for r in rows[1:]])
+        # columns: t, h, hd, alpha, ad, Fy, Mz, W_gust, delta
+        t_col  = data[:, 0]
+        dt_arr = np.diff(t_col)
+        for i in range(len(data) - 1):
+            h, hd, a, ad = data[i, 1], data[i, 2], data[i, 3], data[i, 4]
+            W, delta     = data[i, 7], data[i, 8]
+            sigs_n = self._normalize_signals(h, hd, a, ad, delta, W)
+            U_n    = self._normalize_U(80.0)
+            sub_dt = min(float(dt_arr[i]), self._dt_ref)
+            self._z = self._step_z(self._z, sigs_n, U_n, sub_dt)
+        print(f"  [LDNetAero] warmup done ({len(data)-1} steps): z_norm={np.linalg.norm(self._z):.3f}")

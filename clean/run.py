@@ -25,13 +25,9 @@ _parser = argparse.ArgumentParser(description='GLA simulation — linear or LDNe
 _parser.add_argument('--model-dir', default=None,
                      help='Path to LDNet weights directory. '
                           'Omit to use the linear Theodorsen model.')
+_parser.add_argument('--warmup-csv', default=None,
+                     help='Path to structural_trajectory.csv used to pre-load LDNet latent state.')
 _args = _parser.parse_args()
-
-# ── Simulation parameters ──────────────────────────────────────────────────────
-
-# Aeroelastic trim state from CFD training data (sim_A_000_train, t=0)
-# LDNet was trained on trajectories starting from this equilibrium, NOT from zero.
-X0_TRIM = np.array([-6.49e-3, 0.0, -8.76e-4, 0.0])
 
 U_INF         = 80.0   # freestream velocity [m/s]
 RHO           = 1.225  # air density [kg/m³]
@@ -112,15 +108,24 @@ def simulate(ctrl=None):
     delta_arr = np.zeros(N)
     W_hat_arr = np.zeros(N)
 
-    x0  = X0_TRIM if hasattr(_aero_module, 'reset') else np.zeros(4)
+    if hasattr(_aero_module, 'reset'):
+        _aero_module.reset(dt=DT, warmup_csv=_args.warmup_csv if hasattr(_args, 'warmup_csv') else None)
+        if _args.warmup_csv:
+            import csv as _csv
+            with open(_args.warmup_csv) as _f:
+                _rows = list(_csv.reader(_f))
+            _last = [float(v) for v in _rows[-1]]
+            x0 = np.array([_last[1], _last[2], _last[3], _last[4]])
+        else:
+            x0 = np.zeros(4)
+    else:
+        x0 = np.zeros(4)
+
     x   = x0.copy()
     obs = Observer(dt=DT, U=U_INF, aero_module=_aero_module)
 
     if ctrl is not None:
         ctrl.reset()
-
-    if hasattr(_aero_module, 'reset'):
-        _aero_module.reset(dt=DT)
 
     x_hat = x0.copy()
     W_hat = 0.0
