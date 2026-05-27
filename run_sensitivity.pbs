@@ -18,14 +18,7 @@ apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
         pip install scipy matplotlib h5py -q
 
         echo '========================================'
-        echo 'STEP 0 — Preprocessing (add family labels)'
-        echo '========================================'
-        cd ${WORKDIR}/data
-        python3 preprocess_GLA.py
-
-        echo ''
-        echo '========================================'
-        echo 'STEP 1 — Latent-state sensitivity sweep'
+        echo 'Training latent_10 -> clean/models/latent_10'
         echo '========================================'
         cd ${WORKDIR}/src
         python3 sensitivity_latent.py
