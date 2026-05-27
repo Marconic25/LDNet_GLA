@@ -38,6 +38,11 @@ class LDNetAero:
         self._num_z = config['num_latent_states']
         self._dt_ref = self._norm['time']['time_constant']
 
+        # Detect output type: forces (F_y/M_z) or coefficients (C_L/C_M)
+        out_names = [s if isinstance(s, str) else s['name']
+                     for s in self._problem['output_signals']]
+        self._output_is_forces = ('F_y' in out_names)
+
         n_signals = len(self._problem['input_signals'])      # 6
         n_params  = len(self._problem['input_parameters'])   # 1 (U_inf)
         n_space   = self._problem['space']['dimension']       # 2 spatial coords (always 0,0 at eval)
@@ -95,15 +100,16 @@ class LDNetAero:
         p = self._norm['input_parameters']['U_inf']
         return (2.0 * U - p['min'] - p['max']) / (p['max'] - p['min'])
 
-    def _denorm_CL_CM(self, CL_n, CM_n):
+    def _denorm_output(self, v0_n, v1_n):
+        """Denormalize first two output signals, return physical values."""
         o = self._norm['output_signals']
-        CL = 0.5 * float(CL_n) * (o['C_L']['max'] - o['C_L']['min']) \
-             + 0.5 * (o['C_L']['max'] + o['C_L']['min'])
-        CM = 0.5 * float(CM_n) * (o['C_M']['max'] - o['C_M']['min']) \
-             + 0.5 * (o['C_M']['max'] + o['C_M']['min'])
-        return CL, CM
+        keys = list(o.keys())
+        def dn(v_n, key):
+            lo, hi = o[key]['min'], o[key]['max']
+            return 0.5 * float(v_n) * (hi - lo) + 0.5 * (hi + lo)
+        return dn(v0_n, keys[0]), dn(v1_n, keys[1])
 
-    def _forward(self, z, sigs_n, U_n):
+    def _forward(self, z, sigs_n, U_n, U):
         """Run NNdyn and NNrec, return (z_new, C_L, C_M). Does not mutate self._z."""
         dyn_inp = np.reshape(
             np.concatenate([z, [U_n], sigs_n]),
@@ -117,7 +123,28 @@ class LDNetAero:
             (1, 1, 1, self._num_z + len(sigs_n) + 2)
         )
         out_n = self.NNrec(rec_inp, training=False)
-        C_L, C_M = self._denorm_CL_CM(out_n[0, 0, 0, 0], out_n[0, 0, 0, 1])
+
+        # sensitivity sweep models use cubic output activation: (x^3 + alpha*x)/(1+alpha)
+        if self._output_is_forces:
+            alpha = 0.05
+            o0 = out_n[0, 0, 0, 0]
+            o1 = out_n[0, 0, 0, 1]
+            o0 = (o0**3 + alpha * o0) / (1 + alpha)
+            o1 = (o1**3 + alpha * o1) / (1 + alpha)
+        else:
+            o0 = out_n[0, 0, 0, 0]
+            o1 = out_n[0, 0, 0, 1]
+
+        v0, v1 = self._denorm_output(o0, o1)
+
+        if self._output_is_forces:
+            # F_y [N], M_z [N·m] -> C_L, C_M
+            q_dyn = 0.5 * 1.225 * float(U)**2 * 0.05
+            C_L = v0 / q_dyn
+            C_M = v1 / (q_dyn * 1.0)   # C_REF = 1.0 m
+        else:
+            C_L, C_M = v0, v1
+
         return z_new, C_L, C_M
 
     def predict(self, state, delta_deg, W, U):
@@ -133,7 +160,7 @@ class LDNetAero:
         h, hd, a, ad = state
         sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
         U_n    = self._normalize_U(U)
-        _, C_L, C_M = self._forward(self._z, sigs_n, U_n)
+        _, C_L, C_M = self._forward(self._z, sigs_n, U_n, U)
         return float(C_L), float(C_M)
 
     def advance(self, state, delta_deg, W, U, dt):
@@ -145,7 +172,7 @@ class LDNetAero:
         h, hd, a, ad = state
         sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
         U_n    = self._normalize_U(U)
-        z_new, _, _ = self._forward(self._z, sigs_n, U_n)
+        z_new, _, _ = self._forward(self._z, sigs_n, U_n, U)
         self._z = z_new
 
     def reset(self, dt=None):
