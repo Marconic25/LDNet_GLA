@@ -5,14 +5,15 @@ C_L = 2π*(α + W/U + ḣ/U) + C_Lδ * δ_rad
 C_M = C_Mα * α + C_Mδ * δ_rad
 
 δ is in degrees (same convention as rest of codebase); converted internally.
+Convention: δ > 0 = TE down = C_L increases.
 """
 import numpy as np
 
 # Flap effectiveness coefficients (30% chord trailing-edge flap, thin airfoil)
-C_La    = 2.0 * np.pi    # lift-curve slope [rad⁻¹]
-C_Ldelta = -0.7          # flap lift coefficient [rad⁻¹]  (negative: TE down → C_L up in LDNet sign)
-C_Ma    = -0.1           # pitch moment vs alpha [rad⁻¹]
-C_Mdelta = -0.35         # pitch moment vs flap [rad⁻¹]
+C_La     = 2.0 * np.pi   # lift-curve slope [rad⁻¹]
+C_Ldelta = +0.7           # flap lift coefficient [rad⁻¹]  (positive: δ>0 = TE down → C_L up)
+C_Ma     = -0.1           # pitch moment vs alpha [rad⁻¹]
+C_Mdelta = +0.35          # pitch moment vs flap [rad⁻¹]   (positive: δ>0 = TE down → C_M up)
 
 
 def predict(x, delta_deg, W, U):

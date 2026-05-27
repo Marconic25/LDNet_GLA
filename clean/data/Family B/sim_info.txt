@@ -1,0 +1,4 @@
+# sim_B_035_val
+family=B  law=1  split=val
+R=0.0  T_g=0.0  W_g0=0.0
+delta_max=5.169°  rate_max=64.21°/s  (flap puro)

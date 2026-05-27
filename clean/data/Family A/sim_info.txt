@@ -1,0 +1,4 @@
+# sim_A_023_val
+family=A  law=0  split=val
+R=0.226203  T_g=0.651035  W_g0=18.0962
+delta=0 (no flap)
