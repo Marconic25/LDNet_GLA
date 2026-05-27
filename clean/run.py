@@ -130,6 +130,15 @@ def simulate(ctrl=None):
     x_hat = x0.copy()
     W_hat = 0.0
 
+    # Compute trim aero loads (W=0, delta=0) to subtract as static offset.
+    # The structural integrator only sees perturbations from trim equilibrium.
+    if hasattr(_aero_module, 'reset'):
+        C_L_trim, C_M_trim = _aero_module.predict(x0, 0.0, 0.0, U_INF)
+        Fy_trim = q_dyn * C_L_trim
+        Mz_trim = q_dyn * C_M_trim * C_REF
+    else:
+        Fy_trim, Mz_trim = 0.0, 0.0
+
     for i, t in enumerate(t_arr):
 
         h_arr[i], hd_arr[i], a_arr[i], ad_arr[i] = x
@@ -147,8 +156,8 @@ def simulate(ctrl=None):
         CL_arr[i] = C_L
         CM_arr[i] = C_M
 
-        Fy = q_dyn * C_L
-        Mz = q_dyn * C_M * C_REF
+        Fy = q_dyn * C_L - Fy_trim
+        Mz = q_dyn * C_M * C_REF - Mz_trim
 
         _, hddot, _, _ = structure.rhs(x, Fy, Mz)
         hddot_arr[i]   = hddot
