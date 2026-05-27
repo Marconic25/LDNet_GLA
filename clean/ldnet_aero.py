@@ -184,8 +184,13 @@ class LDNetAero:
         z_new, _, _ = self._forward(self._z, sigs_n, U_n, U, dt)
         self._z = z_new
 
-    def reset(self, dt=None):
-        """Reset latent state to zero. Pass dt to sync the timestep for predict()."""
+    def reset(self, dt=None, warmup_steps=200):
+        """Reset and warm up latent state with zero inputs at training dt."""
         self._z = np.zeros(self._num_z)
         if dt is not None:
             self._dt = float(dt)
+        # Warm up z with all-zero signals at training dt, matching validate_model.py
+        sigs_zero = self._normalize_signals(0., 0., 0., 0., 0., 0.)
+        U_n_zero  = self._normalize_U(80.0)
+        for _ in range(warmup_steps):
+            self._z = self._step_z(self._z, sigs_zero, U_n_zero, self._dt_ref)
