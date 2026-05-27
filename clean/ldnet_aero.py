@@ -15,12 +15,14 @@ with the true delta and true gust — call it once per timestep in run.py.
 import json
 import shutil
 import tempfile
-import numpy as np
 import os
+import numpy as np
+
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 import tensorflow as tf
 from pathlib import Path
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 tf.config.set_visible_devices([], 'GPU')
 tf.keras.backend.set_floatx('float64')
 
