@@ -33,7 +33,7 @@ RESULTS_DIR = Path("/work/u10677113/LDNet_GLA/results/sensitivity")
 
 # ---------------------------------------------------------------
 # Hyperparameters
-LATENT_SWEEP    = [1, 3, 5, 10]
+LATENT_SWEEP    = [10]
 dt              = 0.002
 dt_base         = 0.002
 num_epochs_Adam = 200
@@ -343,6 +343,17 @@ def main():
         # Save weights
         NNdyn.save_weights(str(out_dir / 'NNdyn_weights.weights.h5'))
         NNrec.save_weights(str(out_dir / 'NNrec_weights.weights.h5'))
+
+        # Save config.json for clean/ inference
+        import json as _json
+        config = {
+            'problem': problem,
+            'normalization': normalization,
+            'num_latent_states': num_latent_states,
+        }
+        with open(out_dir / 'config.json', 'w') as _fp:
+            _json.dump(config, _fp, indent=2)
+        print(f'  Saved config.json to {out_dir}')
 
         # Save loss curve
         fig, ax = plt.subplots()
