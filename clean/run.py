@@ -115,7 +115,7 @@ def simulate(ctrl=None):
         ctrl.reset()
 
     if hasattr(_aero_module, 'reset'):
-        _aero_module.reset()
+        _aero_module.reset(dt=DT)
 
     x_hat = np.zeros(4)
     W_hat = 0.0

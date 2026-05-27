@@ -61,8 +61,8 @@ class LDNetAero:
         ])
 
         self._load_weights(model_dir)
-        self._z = np.zeros(self._num_z)
-        self._dt = 0.01  # default timestep; overridden by advance()
+        self._z  = np.zeros(self._num_z)
+        self._dt = 0.01  # set by reset(dt) or advance(); default matches run.py DT
 
     def _load_weights(self, model_dir):
         try:
@@ -148,6 +148,8 @@ class LDNetAero:
         z_new, _, _ = self._forward(self._z, sigs_n, U_n)
         self._z = z_new
 
-    def reset(self):
-        """Reset latent state to zero (call before each simulation)."""
+    def reset(self, dt=None):
+        """Reset latent state to zero. Pass dt to sync the timestep for predict()."""
         self._z = np.zeros(self._num_z)
+        if dt is not None:
+            self._dt = float(dt)
