@@ -110,16 +110,28 @@ def simulate(ctrl=None):
 
     if hasattr(_aero_module, 'reset'):
         _aero_module.reset(dt=DT, warmup_csv=_args.warmup_csv if hasattr(_args, 'warmup_csv') else None)
-        if _args.warmup_csv:
-            import csv as _csv
-            with open(_args.warmup_csv) as _f:
-                _rows = list(_csv.reader(_f))
-            _last = [float(v) for v in _rows[-1]]
-            x0 = np.array([_last[1], _last[2], _last[3], _last[4]])
-        else:
-            x0 = np.zeros(4)
+
+    # Compute trim aero loads (W=0, delta=0) to subtract as static offset.
+    # The structural integrator only sees perturbations from trim equilibrium.
+    if hasattr(_aero_module, 'reset'):
+        from scipy.optimize import fsolve
+
+        def _trim_residual(x_eq):
+            C_L_eq, C_M_eq = _aero_module.predict(
+                np.array([x_eq[0], 0., x_eq[1], 0.]), 0., 0., U_INF)
+            dFy = q_dyn * C_L_eq
+            dMz = q_dyn * C_M_eq * C_REF
+            return [-dFy - structure.K_H * x_eq[0],
+                     dMz - structure.K_ALPHA * x_eq[1]]
+
+        x_eq = fsolve(_trim_residual, [0., 0.])
+        x0   = np.array([x_eq[0], 0., x_eq[1], 0.])
+        C_L_trim, C_M_trim = _aero_module.predict(x0, 0., 0., U_INF)
+        Fy_trim = q_dyn * C_L_trim
+        Mz_trim = q_dyn * C_M_trim * C_REF
     else:
         x0 = np.zeros(4)
+        Fy_trim, Mz_trim = 0.0, 0.0
 
     x   = x0.copy()
     obs = Observer(dt=DT, U=U_INF, aero_module=_aero_module)
@@ -129,15 +141,6 @@ def simulate(ctrl=None):
 
     x_hat = x0.copy()
     W_hat = 0.0
-
-    # Compute trim aero loads (W=0, delta=0) to subtract as static offset.
-    # The structural integrator only sees perturbations from trim equilibrium.
-    if hasattr(_aero_module, 'reset'):
-        C_L_trim, C_M_trim = _aero_module.predict(x0, 0.0, 0.0, U_INF)
-        Fy_trim = q_dyn * C_L_trim
-        Mz_trim = q_dyn * C_M_trim * C_REF
-    else:
-        Fy_trim, Mz_trim = 0.0, 0.0
 
     for i, t in enumerate(t_arr):
 
