@@ -13,22 +13,22 @@ where M_aug is the 2×2 augmented mass matrix coupling wing and flap inertia.
 """
 import numpy as np
 
-# --- Wing structural parameters -------------------------------------------
-M_WING  = 22.9          # mass [kg]
-I_WING  = 2.057121362   # moment of inertia about elastic axis [kg·m²]
-K_H     = 4000.0        # heave spring stiffness [N/m]
-D_H     = 12.0          # heave damping coefficient [N·s/m]      (ζ ≈ 2 %)
-K_ALPHA = 700.0         # pitch spring stiffness [N·m/rad]
-D_ALPHA = 1.6           # pitch damping coefficient [N·m·s/rad]  (ζ ≈ 2 %)
+# --- Wing structural parameters (Hodges-Pierce benchmark, from cosim_driver.py) ---
+M_WING  = 19.24          # mass [kg]
+I_WING  = 1.155          # moment of inertia about elastic axis [kg·m²]
+K_H     = 25460.0        # heave spring stiffness [N/m]   (ω_h ≈ 36.4 rad/s)
+D_H     = 88.0           # heave damping coefficient [N·s/m]      (ζ ≈ 2 %)
+K_ALPHA = 9530.0         # pitch spring stiffness [N·m/rad]       (ω_α ≈ 90.9 rad/s)
+D_ALPHA = 6.6            # pitch damping coefficient [N·m·s/rad]  (ζ ≈ 2 %)
 
 # --- Flap parameters ------------------------------------------------------
 M_FLAP    = 1.19   # flap mass [kg]
 I_FLAP_CG = 0.006  # flap moment of inertia about its own centre of gravity [kg·m²]
 
 # Elastic axis and hinge positions (measured from leading edge)
-EA_X     = 0.25    # elastic axis x [m]
+EA_X     = 0.40    # elastic axis x [m]  (40%c — Hodges-Pierce)
 HINGE_X  = 0.779   # flap hinge x [m]
-DX       = HINGE_X - EA_X   # 0.529 m — horizontal offset EA → hinge
+DX       = HINGE_X - EA_X   # 0.379 m — horizontal offset EA → hinge
 DY       = 0.0               # vertical offset (hinge on chord line)
 
 # Flap moment of inertia about the elastic axis (parallel-axis theorem)
