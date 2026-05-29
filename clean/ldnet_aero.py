@@ -193,19 +193,24 @@ class LDNetAero:
             self._warmup_from_csv(warmup_csv)
 
     def _warmup_from_csv(self, csv_path):
-        """Drive z through a real trajectory CSV (no gust, no delta) to load latent state."""
+        """Drive z through a real trajectory CSV to pre-load the latent state.
+
+        The CSV raw dt (~2.8e-4 s) is much finer than the training dt (dt_ref).
+        We subsample to the nearest stride so each step is exactly dt_ref,
+        matching the integration rate the model was trained with.
+        """
         import csv as _csv
         with open(csv_path) as f:
             rows = list(_csv.reader(f))
         data = np.array([[float(v) for v in r] for r in rows[1:]])
         # columns: t, h, hd, alpha, ad, Fy, Mz, W_gust, delta
-        t_col  = data[:, 0]
-        dt_arr = np.diff(t_col)
-        for i in range(len(data) - 1):
+        raw_dt = float(data[1, 0] - data[0, 0])
+        stride = max(1, round(self._dt_ref / raw_dt))  # e.g. 0.002/2.8e-4 ≈ 7
+        indices = range(0, len(data) - stride, stride)
+        for i in indices:
             h, hd, a, ad = data[i, 1], data[i, 2], data[i, 3], data[i, 4]
             W, delta     = data[i, 7], data[i, 8]
             sigs_n = self._normalize_signals(h, hd, a, ad, delta, W)
             U_n    = self._normalize_U(80.0)
-            sub_dt = min(float(dt_arr[i]), self._dt_ref)
-            self._z = self._step_z(self._z, sigs_n, U_n, sub_dt)
-        print(f"  [LDNetAero] warmup done ({len(data)-1} steps): z_norm={np.linalg.norm(self._z):.3f}")
+            self._z = self._step_z(self._z, sigs_n, U_n, self._dt_ref)
+        print(f"  [LDNetAero] warmup done ({len(indices)} steps, stride={stride}): z_norm={np.linalg.norm(self._z):.3f}")
