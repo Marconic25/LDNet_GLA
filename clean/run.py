@@ -35,7 +35,7 @@ S_REF         = 0.05   # reference area [m²]
 C_REF         = 1.0    # reference chord [m]
 
 T_END         = 5.0    # simulation duration [s]
-DT            = 0.01   # time step [s]
+DT            = 0.002  # time step [s] (matches training dt_ref)
 
 GUST_W0       = 10.0   # peak gust velocity [m/s]
 GUST_DURATION = 1.0    # gust duration [s]
