@@ -50,7 +50,8 @@ class Controller:
 
     def __init__(self, aero_predict, U=80.0, dt=0.01,
                  Q_h=1e4, Q_alpha=1e4, Q_alpha_dot=1e4, Q_CL=1e3, R=1.0,
-                 delta_max=20.0, delta_dot_max=100.0):
+                 delta_max=20.0, delta_dot_max=100.0,
+                 C_L_trim=0.0, Fy_trim=0.0, Mz_trim=0.0):
         self.aero_predict  = aero_predict
         self.U             = float(U)
         self.dt            = float(dt)
@@ -64,6 +65,11 @@ class Controller:
 
         self._q_dyn    = 0.5 * RHO * U**2 * S_REF
         self._delta_prev = 0.0
+        # Trim offsets: controller integrates perturbations from equilibrium,
+        # and penalizes C_L deviation from trim (not absolute C_L).
+        self._C_L_trim = float(C_L_trim)
+        self._Fy_trim  = float(Fy_trim)
+        self._Mz_trim  = float(Mz_trim)
 
     # ------------------------------------------------------------------
     def _predict_next(self, state, delta_deg, W_hat):
@@ -75,8 +81,8 @@ class Controller:
         """
         C_L, C_M = self.aero_predict(state, delta_deg, W_hat, self.U)
 
-        Fy = self._q_dyn * C_L
-        Mz = self._q_dyn * C_M * C_REF
+        Fy = self._q_dyn * C_L - self._Fy_trim
+        Mz = self._q_dyn * C_M * C_REF - self._Mz_trim
 
         x = np.asarray(state, dtype=float)
         dt = self.dt
@@ -99,7 +105,7 @@ class Controller:
         return (  self.Q_h         * x_next[0]**2
                 + self.Q_alpha     * x_next[2]**2
                 + self.Q_alpha_dot * x_next[3]**2
-                + self.Q_CL        * C_L**2
+                + self.Q_CL        * (C_L - self._C_L_trim)**2
                 + self.R           * delta_deg**2)
 
     # ------------------------------------------------------------------

@@ -72,6 +72,9 @@ def gust(t):
 
 # ── Aeroelastic simulation loop ────────────────────────────────────────────────
 
+TRIM_CL = TRIM_FY = TRIM_MZ = 0.0   # set by simulate() for the LDNet model
+
+
 def simulate(ctrl=None):
     """
     Run one aeroelastic simulation.
@@ -131,7 +134,11 @@ def simulate(ctrl=None):
         Mz_trim = q_dyn * C_M_trim * C_REF
     else:
         x0 = np.zeros(4)
+        C_L_trim = 0.0
         Fy_trim, Mz_trim = 0.0, 0.0
+
+    global TRIM_CL, TRIM_FY, TRIM_MZ
+    TRIM_CL, TRIM_FY, TRIM_MZ = float(C_L_trim), float(Fy_trim), float(Mz_trim)
 
     x   = x0.copy()
     obs = Observer(dt=DT, U=U_INF, aero_module=_aero_module)
@@ -209,6 +216,9 @@ ctrl = Controller(
     R             = R,
     delta_max     = DELTA_MAX,
     delta_dot_max = DELTA_DOT_MAX,
+    C_L_trim      = TRIM_CL,
+    Fy_trim       = TRIM_FY,
+    Mz_trim       = TRIM_MZ,
 )
 res_cl = simulate(ctrl=ctrl)
 
