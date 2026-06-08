@@ -69,6 +69,11 @@ class LDNetAero:
         self._z      = np.zeros(self._num_z)
         self._dt     = 0.01   # set by reset(dt) or advance(); default matches run.py DT
         self._dt_sub = self._dt_ref  # sub-step size for latent integration (= training dt)
+        # Spatial eval point (0,0) must be normalized exactly as training did
+        # (utils.dataset_normalize -> normalize_forw with space min/max).
+        sp = self._norm['space']
+        smin = np.asarray(sp['min'], dtype=float); smax = np.asarray(sp['max'], dtype=float)
+        self._pts_n = ((2.0 * 0.0 - smin - smax) / (smax - smin)).tolist()  # e.g. [-1.0, -1.0]
 
     def _load_weights(self, model_dir):
         try:
@@ -119,21 +124,14 @@ class LDNetAero:
         dz = self.NNdyn(dyn_inp, training=False)
         return z + (sub_dt / self._dt_ref) * dz.numpy().flatten()
 
-    def _forward(self, z, sigs_n, U_n, U, dt):
-        """Advance z by dt using sub-steps of size dt_sub, then reconstruct output."""
-        n_sub = max(1, round(dt / self._dt_sub))
-        sub_dt = dt / n_sub
-        z_new = z
-        for _ in range(n_sub):
-            z_new = self._step_z(z_new, sigs_n, U_n, sub_dt)
-
+    def _reconstruct(self, z, sigs_n, U):
+        """Reconstruct (C_L, C_M) from the CURRENT latent state z and signals.
+        Matches training rollout: output_i = NNrec(z_i, sig_i) — no z stepping here."""
         rec_inp = np.reshape(
-            np.concatenate([z_new, sigs_n, [0.0, 0.0]]),
+            np.concatenate([z, sigs_n, self._pts_n]),
             (1, 1, 1, self._num_z + len(sigs_n) + 2)
         )
         out_n = self.NNrec(rec_inp, training=False)
-
-        # sensitivity sweep models use cubic output activation: (x^3 + alpha*x)/(1+alpha)
         if self._output_is_forces:
             alpha = 0.05
             o0 = out_n[0, 0, 0, 0]
@@ -143,46 +141,37 @@ class LDNetAero:
         else:
             o0 = out_n[0, 0, 0, 0]
             o1 = out_n[0, 0, 0, 1]
-
         v0, v1 = self._denorm_output(o0, o1)
-
         if self._output_is_forces:
-            # F_y [N], M_z [N·m] -> C_L, C_M
             q_dyn = 0.5 * 1.225 * float(U)**2 * 0.05
             C_L = v0 / q_dyn
-            C_M = v1 / (q_dyn * 1.0)   # C_REF = 1.0 m
+            C_M = v1 / (q_dyn * 1.0)
         else:
             C_L, C_M = v0, v1
-
-        return z_new, C_L, C_M
-
-    def predict(self, state, delta_deg, W, U):
-        """
-        Predict (C_L, C_M) using current z — read-only, does NOT update z.
-
-        Same signature as clean/aero.predict:
-          state     : (h, hd, alpha, alpha_dot)
-          delta_deg : flap deflection [degrees]
-          W         : gust velocity [m/s]
-          U         : freestream velocity [m/s]
-        """
-        h, hd, a, ad = state
-        sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
-        U_n    = self._normalize_U(U)
-        _, C_L, C_M = self._forward(self._z, sigs_n, U_n, U, self._dt)
         return float(C_L), float(C_M)
 
+    def _advance_z(self, z, sigs_n, U_n, dt):
+        """Advance z by dt with forward-Euler sub-steps of size <= dt_sub."""
+        n_sub = max(1, round(dt / self._dt_sub))
+        sub_dt = dt / n_sub
+        z_new = z
+        for _ in range(n_sub):
+            z_new = self._step_z(z_new, sigs_n, U_n, sub_dt)
+        return z_new
+
+    def predict(self, state, delta_deg, W, U):
+        """Predict (C_L, C_M) from the CURRENT z — read-only, does NOT update z."""
+        h, hd, a, ad = state
+        sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
+        return self._reconstruct(self._z, sigs_n, U)
+
     def advance(self, state, delta_deg, W, U, dt):
-        """
-        Advance latent state z one step using true (state, delta, W, U, dt).
-        Call once per timestep in run.py after true forces are computed.
-        """
+        """Advance latent state z one step using true (state, delta, W, U, dt)."""
         dt = float(dt)
         h, hd, a, ad = state
         sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
         U_n    = self._normalize_U(U)
-        z_new, _, _ = self._forward(self._z, sigs_n, U_n, U, dt)
-        self._z = z_new
+        self._z = self._advance_z(self._z, sigs_n, U_n, dt)
 
     def reset(self, dt=None, warmup_csv=None):
         """Reset latent state. If warmup_csv is given, drive z through that trajectory."""
