@@ -73,30 +73,16 @@ class Observer:
         return self._x_hat.copy(), self._W_hat
 
     def _estimate_gust(self, C_L_meas, delta, W_lo=0.0, W_hi=80.0, tol=0.5):
+        """Recover gust W by minimizing |C_L(W) - C_L_meas| over [W_lo, W_hi].
+
+        Bounded scalar minimization works regardless of monotonicity of C_L(W).
+        With LDNet, predict() is a nonlinear function of the latent state z and is
+        not guaranteed monotone in W, so the old sign-change bisection could fail
+        and spike W_hat to W_hi=80 m/s every non-monotone step.
         """
-        Bisection on C_L(W) = C_L_meas to recover W.
-
-        The aerodynamic model is monotone in W, so bisection always converges.
-        """
-        def CL_at(W):
-            return self._aero.predict(self._x_hat, delta, W, self.U)[0]
-
-        f_lo = CL_at(W_lo) - C_L_meas
-        f_hi = CL_at(W_hi) - C_L_meas
-
-        if f_lo * f_hi > 0:
-            return W_lo if abs(f_lo) < abs(f_hi) else W_hi
-
-        for _ in range(20):
-            W_mid = 0.5 * (W_lo + W_hi)
-            if (W_hi - W_lo) < tol:
-                break
-            f_mid = CL_at(W_mid) - C_L_meas
-            if f_lo * f_mid <= 0:
-                W_hi = W_mid
-                f_hi = f_mid
-            else:
-                W_lo = W_mid
-                f_lo = f_mid
-
-        return 0.5 * (W_lo + W_hi)
+        from scipy.optimize import minimize_scalar
+        def obj(W):
+            return (self._aero.predict(self._x_hat, delta, W, self.U)[0] - C_L_meas)**2
+        result = minimize_scalar(obj, bounds=(W_lo, W_hi), method='bounded',
+                                 options={'xatol': tol})
+        return float(result.x)
