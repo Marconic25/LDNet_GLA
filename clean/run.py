@@ -231,11 +231,12 @@ else:
         aero_predict  = _aero_module.predict,
         U             = U_INF,
         dt            = DT,
-        Q_h           = Q_H,
-        Q_alpha       = Q_ALPHA,
-        Q_alpha_dot   = Q_ALPHA_DOT,
-        Q_CL          = Q_CL,
-        R             = R,
+        # Tuned config that beats the proportional law on C_L without exciting pitch:
+        Q_h           = 0.0,
+        Q_alpha       = 0.0,
+        Q_alpha_dot   = 3e5,     # penalize pitch rate -> protects alpha_dot AND sharpens C_L
+        Q_CL          = 1e3,
+        R             = 0.3,
         delta_max     = DELTA_MAX,
         delta_dot_max = DELTA_DOT_MAX,
         C_L_trim      = TRIM_CL,
@@ -244,6 +245,7 @@ else:
         global_search = True,    # non-convex one-step cost on LDNet -> need global search
         causal_basin  = True,    # restrict to the causal (stabilizing) flap-sign basin
         n_grid        = 15,
+        target_lpf    = 0.95,    # low-pass the optimal delta -> kills chatter (C_L peak, pitch)
     )
 res_cl = simulate(ctrl=ctrl)
 
