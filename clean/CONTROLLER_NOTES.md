@@ -33,3 +33,33 @@ larger gusts push the model into regimes where those gains over-react.
 
 To make the optimal robust: gain-schedule / normalize the cost weights by the
 measured C_L-excursion (gust) magnitude, or adapt R / Q_alpha_dot online.
+
+## Robustness investigation — making the optimal work across gusts
+The optimal destabilizes at W0>=20 via a **pitch resonance**: at large gusts its
+sharp one-step delta moves (incl. causal-basin sign flips when C_L crosses trim)
+drive alpha_dot into a growing oscillation (instrumented in diag20.py).
+
+Levers tried:
+- **R gain-scheduling** (scale control penalty with C_L excursion): NO effect
+  (R is not the dominant cost term vs Q_CL/Q_alpha_dot).
+- **Fixed heavy LPF**: DOES stabilize high gust but kills C_L:
+  | W0 | lpf=0.95 (adot) | lpf=0.99 | lpf=0.995 |
+  | 20 | -168%  | -107% | **+2.6%** |
+  | 30 | -466%  | **+11.4%** | (over-damped) |
+  So a LPF schedule (light at design gust, heavy at high gust) is the mechanism.
+- **LPF schedule keyed on closed-loop C_L excursion**: FAILS to activate —
+  when the controller is active the cl0 excursion stays near trim, so the
+  scheduling signal does not see the true gust strength. Fundamental flaw:
+  the scheduling variable is corrupted by the control action.
+
+Conclusion: simple gain-scheduling does not cleanly restore high-gust robustness.
+The instability is multi-step (pitch coupling) and the gust strength is not
+reliably observable with this model (C_L(W) non-invertible). Robust options:
+  1) short receding-horizon MPC (anticipates the pitch dynamics that cause the
+     resonance) — the principled fix, beyond one-step;
+  2) a reliable independent gust/disturbance estimate to key the schedule on;
+  3) operational: proportional for robustness across all gusts + optimal for
+     peak performance within its validated range (W0<=15).
+
+Controller now exposes e_ref/R_sched_gain/lpf_max (scheduling infrastructure),
+target_lpf, causal_basin, global_search, R_du for future work.

@@ -52,7 +52,8 @@ class Controller:
                  Q_h=1e4, Q_alpha=1e4, Q_alpha_dot=1e4, Q_CL=1e3, R=1.0,
                  delta_max=20.0, delta_dot_max=100.0,
                  C_L_trim=0.0, Fy_trim=0.0, Mz_trim=0.0,
-                 global_search=True, n_grid=25, causal_basin=False, R_du=0.0, target_lpf=0.0):
+                 global_search=True, n_grid=25, causal_basin=False, R_du=0.0, target_lpf=0.0,
+                 e_ref=0.0, R_sched_gain=1.0, lpf_max=0.0):
         self.aero_predict  = aero_predict
         self.U             = float(U)
         self.dt            = float(dt)
@@ -77,6 +78,10 @@ class Controller:
         self.R_du = float(R_du)   # move-suppression: penalize (delta - delta_prev)^2
         self.target_lpf = float(target_lpf)  # low-pass the optimal target delta (0=off)
         self._d_filt = 0.0
+        self.e_ref = float(e_ref)          # C_L-excursion ref for gust gain-scheduling (0=off)
+        self.R_sched_gain = float(R_sched_gain)
+        self._R_eff = float(self.R)
+        self.lpf_max = float(lpf_max)   # schedule target_lpf up to lpf_max at high excursion
 
     # ------------------------------------------------------------------
     def _predict_next(self, state, delta_deg, W_hat):
@@ -113,7 +118,7 @@ class Controller:
                 + self.Q_alpha     * x_next[2]**2
                 + self.Q_alpha_dot * x_next[3]**2
                 + self.Q_CL        * (C_L - self._C_L_trim)**2
-                + self.R           * delta_deg**2
+                + self._R_eff      * delta_deg**2
                 + self.R_du        * (delta_deg - self._delta_prev)**2)
 
     # ------------------------------------------------------------------
@@ -139,8 +144,18 @@ class Controller:
         # excursion (to reduce C_L above trim the lift-reducing flap deflects
         # positive, and vice-versa). Avoids the non-causal "nulling" basin that
         # destabilizes the non-monotone LDNet C_L(delta).
-        if self.causal_basin:
+        if self.causal_basin or self.e_ref > 0.0:
             cl0 = float(self.aero_predict(state, 0.0, float(W_hat), self.U)[0])
+        else:
+            cl0 = None
+        # Gust gain-scheduling: gentler control (larger R) at larger C_L excursion,
+        # so the optimizer does not over-react and excite pitch at strong gusts.
+        if self.e_ref > 0.0:
+            e = abs(cl0 - self._C_L_trim)
+            self._R_eff = self.R * max(1.0, e / self.e_ref) ** self.R_sched_gain
+        else:
+            self._R_eff = self.R
+        if self.causal_basin:
             if cl0 >= self._C_L_trim:
                 g_lo, g_hi = 0.0, self.delta_max
             else:
@@ -167,8 +182,12 @@ class Controller:
                 method='bounded', args=(state, float(W_hat)), options={'xatol': 0.01})
             if float(ref.fun) <= costs[j]:
                 d_target = float(ref.x)
-            if self.target_lpf > 0.0:
-                self._d_filt = self.target_lpf * self._d_filt + (1.0 - self.target_lpf) * d_target
+            lpf_eff = self.target_lpf
+            if self.lpf_max > self.target_lpf and self.e_ref > 0.0:
+                frac = min(1.0, max(0.0, (abs(cl0 - self._C_L_trim) / self.e_ref - 1.0) / 0.6))
+                lpf_eff = self.target_lpf + (self.lpf_max - self.target_lpf) * frac
+            if lpf_eff > 0.0:
+                self._d_filt = lpf_eff * self._d_filt + (1.0 - lpf_eff) * d_target
                 d_target = self._d_filt
             delta = float(np.clip(d_target, lb, ub))   # rate-limit the move
         else:
