@@ -19,7 +19,7 @@ from pathlib import Path
 import argparse
 import structure
 from observer import Observer
-from controller import Controller
+from controller import Controller, ProportionalController
 
 _parser = argparse.ArgumentParser(description='GLA simulation — linear or LDNet aero')
 _parser.add_argument('--model-dir', default=None,
@@ -148,6 +148,10 @@ def simulate(ctrl=None):
 
     x_hat = x0.copy()
     W_hat = 0.0
+    C_L_prev = C_L_trim
+    # The proportional controller needs no state/gust estimate, so skip the
+    # (expensive) observer unless the model-based optimal controller is in use.
+    _use_observer = ctrl is not None and not isinstance(ctrl, ProportionalController)
 
     for i, t in enumerate(t_arr):
 
@@ -155,7 +159,10 @@ def simulate(ctrl=None):
         W_hat_arr[i] = W_hat
 
         if ctrl is not None:
-            delta = ctrl.compute(x_hat, W_hat)
+            if isinstance(ctrl, ProportionalController):
+                delta = ctrl.compute(C_L_prev)        # pure C_L feedback (prev step)
+            else:
+                delta = ctrl.compute(x_hat, W_hat)
         else:
             delta = 0.0
         delta_arr[i] = delta
@@ -165,6 +172,7 @@ def simulate(ctrl=None):
             _aero_module.advance(x, delta, W_true[i], U_INF, DT)
         CL_arr[i] = C_L
         CM_arr[i] = C_M
+        C_L_prev  = C_L
 
         Fy = q_dyn * C_L - Fy_trim
         Mz = q_dyn * C_M * C_REF - Mz_trim
@@ -175,14 +183,14 @@ def simulate(ctrl=None):
         x = structure.step_rk4(x, Fy, Mz, DT)
 
         # Sensors: h_ddot from accelerometer, α and α̇ from encoder/gyro.
-        # Observer integrates h_ddot for h and ḣ, and inverts C_L to get W.
-        x_hat, W_hat = obs.update(
-            h_ddot    = hddot,
-            alpha     = x[2],
-            alpha_dot = x[3],
-            delta     = delta,
-            C_L_meas  = C_L,
-        )
+        if _use_observer:
+            x_hat, W_hat = obs.update(
+                h_ddot    = hddot,
+                alpha     = x[2],
+                alpha_dot = x[3],
+                delta     = delta,
+                C_L_meas  = C_L,
+            )
 
     return {
         't':      t_arr,
@@ -204,22 +212,32 @@ def simulate(ctrl=None):
 print("Running open loop...")
 res_ol = simulate(ctrl=None)
 
-print("Running closed loop (optimal controller)...")
-ctrl = Controller(
-    aero_predict  = _aero_module.predict,
-    U             = U_INF,
-    dt            = DT,
-    Q_h           = Q_H,
-    Q_alpha       = Q_ALPHA,
-    Q_alpha_dot   = Q_ALPHA_DOT,
-    Q_CL          = Q_CL,
-    R             = R,
-    delta_max     = DELTA_MAX,
-    delta_dot_max = DELTA_DOT_MAX,
-    C_L_trim      = TRIM_CL,
-    Fy_trim       = TRIM_FY,
-    Mz_trim       = TRIM_MZ,
-)
+if _args.controller == 'proportional':
+    print(f"Running closed loop (proportional C_L feedback, gain={_args.gain})...")
+    ctrl = ProportionalController(
+        C_L_trim      = TRIM_CL,
+        gain          = _args.gain,
+        dt            = DT,
+        delta_max     = DELTA_MAX,
+        delta_dot_max = DELTA_DOT_MAX,
+    )
+else:
+    print("Running closed loop (model-based optimal controller)...")
+    ctrl = Controller(
+        aero_predict  = _aero_module.predict,
+        U             = U_INF,
+        dt            = DT,
+        Q_h           = Q_H,
+        Q_alpha       = Q_ALPHA,
+        Q_alpha_dot   = Q_ALPHA_DOT,
+        Q_CL          = Q_CL,
+        R             = R,
+        delta_max     = DELTA_MAX,
+        delta_dot_max = DELTA_DOT_MAX,
+        C_L_trim      = TRIM_CL,
+        Fy_trim       = TRIM_FY,
+        Mz_trim       = TRIM_MZ,
+    )
 res_cl = simulate(ctrl=ctrl)
 
 

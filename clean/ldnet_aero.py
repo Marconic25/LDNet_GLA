@@ -173,6 +173,18 @@ class LDNetAero:
         U_n    = self._normalize_U(U)
         self._z = self._advance_z(self._z, sigs_n, U_n, dt)
 
+    def predict_step(self, state, delta_deg, W, U, dt):
+        """(C_L, C_M) that result AFTER advancing a COPY of z one step with this
+        delta (z-aware one-step prediction). Does NOT mutate self._z. Lets a
+        model-based controller see delta's effect through the latent dynamics,
+        not just the frozen-z reconstruction."""
+        dt = float(dt)
+        h, hd, a, ad = state
+        sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
+        U_n    = self._normalize_U(U)
+        z_next = self._advance_z(self._z, sigs_n, U_n, dt)
+        return self._reconstruct(z_next, sigs_n, U)
+
     def reset(self, dt=None, warmup_csv=None):
         """Reset latent state. If warmup_csv is given, drive z through that trajectory."""
         self._z = np.zeros(self._num_z)

@@ -148,3 +148,36 @@ class Controller:
     def reset(self):
         """Reset internal state (call before each new simulation run)."""
         self._delta_prev = 0.0
+
+
+class ProportionalController:
+    """Pure C_L-feedback flap law for gust load alleviation.
+
+        delta = clip( gain * (C_L_meas - C_L_trim) )   [rate- and magnitude-limited]
+
+    Needs only the measured lift coefficient — no gust estimate and no state
+    estimate. This is robust where the model-based optimizer fails: LDNet's
+    C_L(W) is non-invertible (so a gust observer cannot recover W) and its
+    one-step optimizer prediction destabilizes the loop. Reacting directly to
+    measured C_L sidesteps both problems.
+    """
+
+    def __init__(self, C_L_trim=0.0, gain=10.0, dt=0.01,
+                 delta_max=20.0, delta_dot_max=100.0):
+        self.C_L_trim      = float(C_L_trim)
+        self.gain          = float(gain)
+        self.dt            = float(dt)
+        self.delta_max     = float(delta_max)
+        self.delta_dot_max = float(delta_dot_max)
+        self._delta_prev   = 0.0
+
+    def compute(self, C_L_meas):
+        d = self.gain * (float(C_L_meas) - self.C_L_trim)
+        d = float(np.clip(d, -self.delta_max, self.delta_max))
+        rate = self.delta_dot_max * self.dt
+        d = float(np.clip(d, self._delta_prev - rate, self._delta_prev + rate))
+        self._delta_prev = d
+        return d
+
+    def reset(self):
+        self._delta_prev = 0.0
