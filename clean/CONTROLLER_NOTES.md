@@ -63,3 +63,26 @@ reliably observable with this model (C_L(W) non-invertible). Robust options:
 
 Controller now exposes e_ref/R_sched_gain/lpf_max (scheduling infrastructure),
 target_lpf, causal_basin, global_search, R_du for future work.
+
+## CRITICAL: physical regime + latent free-running instability (the real caveat)
+The closed-loop study above was run COLD (latent z=0). That is NOT physical:
+- z=0 gives trim C_L=0.543 and gust C_L excursion ~0.81 (W0=10).
+- The CFD data has trim F_y=164 N (C_L~0.84) and gust excursion ~0.27.
+The PHYSICAL regime is the WARMED one (run.py --warmup-csv): trim C_L=0.839 (matches
+CFD exactly), gust excursion ~0.18. So the cold study inflates the gust load ~4x.
+
+In the physical (warmed) regime the controllers reduce the C_L EXCURSION
+(prop -51%, mpc -62%) BUT h_ddot is unchanged (+0.0%) for all of them. Reason
+(figE_latent_drift.png): the LDNet latent state has NO equilibrium -- ||z|| drifts
++~4.4/step unbounded. The warmed 'trim' is therefore not a true equilibrium, so the
+structure gets a startup transient at t=0 that rings down and DOMINATES h_ddot. The
+h_ddot trajectory is identical with and without the gust -> the gust barely couples
+to the structure at the high-z operating point.
+
+Bottom line: LDNet is excellent for TEACHER-FORCED replay (NRMSE 0.019) but its
+FREE-RUNNING latent dynamics are unstable, so it is not a physically reliable forward
+simulator for closed-loop GLA. Fix is at the MODEL level: retrain with a latent
+stability/equilibrium regularization (penalize ||z|| drift, or an explicit damped
+latent ODE) so the free-running model has a trim and physical gust->structure
+coupling. Inference-time leak on z is a possible stopgap (test pending) but will
+likely degrade the replay accuracy the model was trained for.
