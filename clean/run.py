@@ -27,6 +27,10 @@ _parser.add_argument('--model-dir', default=None,
                           'Omit to use the linear Theodorsen model.')
 _parser.add_argument('--warmup-csv', default=None,
                      help='Path to structural_trajectory.csv used to pre-load LDNet latent state.')
+_parser.add_argument('--controller', default='proportional', choices=['proportional','optimal'],
+                     help='Closed-loop controller: proportional C_L feedback (default) or model-based optimal.')
+_parser.add_argument('--gain', type=float, default=10.0,
+                     help='Proportional controller gain G (deg per unit C_L deviation).')
 _args = _parser.parse_args()
 
 U_INF         = 80.0   # freestream velocity [m/s]
