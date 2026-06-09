@@ -52,7 +52,7 @@ class Controller:
                  Q_h=1e4, Q_alpha=1e4, Q_alpha_dot=1e4, Q_CL=1e3, R=1.0,
                  delta_max=20.0, delta_dot_max=100.0,
                  C_L_trim=0.0, Fy_trim=0.0, Mz_trim=0.0,
-                 global_search=True, n_grid=25):
+                 global_search=True, n_grid=25, causal_basin=False):
         self.aero_predict  = aero_predict
         self.U             = float(U)
         self.dt            = float(dt)
@@ -73,6 +73,7 @@ class Controller:
         self._Mz_trim  = float(Mz_trim)
         self.global_search = bool(global_search)
         self.n_grid = int(n_grid)
+        self.causal_basin = bool(causal_basin)
 
     # ------------------------------------------------------------------
     def _predict_next(self, state, delta_deg, W_hat):
@@ -140,13 +141,25 @@ class Controller:
             # so a search restricted to the rate-limited window [lb, ub] does local
             # descent and gets trapped in the wrong basin. Find the GLOBAL one-step
             # optimum over the full actuator range, then rate-limit the move toward it.
-            grid = np.linspace(-self.delta_max, self.delta_max, self.n_grid)
+            if self.causal_basin:
+                # Non-monotone C_L(delta) gives the global minimizer a non-causal
+                # "nulling" basin (large flap of the wrong sign) that destabilizes.
+                # Restrict the search to the causal half: to reduce C_L above trim,
+                # the (lift-reducing) flap must deflect positive, and vice-versa.
+                cl0 = float(self.aero_predict(state, 0.0, float(W_hat), self.U)[0])
+                if cl0 >= self._C_L_trim:
+                    g_lo, g_hi = 0.0, self.delta_max
+                else:
+                    g_lo, g_hi = -self.delta_max, 0.0
+            else:
+                g_lo, g_hi = -self.delta_max, self.delta_max
+            grid = np.linspace(g_lo, g_hi, self.n_grid)
             costs = [self._cost(float(d), state, float(W_hat)) for d in grid]
             j = int(np.argmin(costs)); d_target = float(grid[j])
             step = grid[1] - grid[0]
             ref = minimize_scalar(
                 self._cost,
-                bounds=(max(-self.delta_max, d_target - step), min(self.delta_max, d_target + step)),
+                bounds=(max(g_lo, d_target - step), min(g_hi, d_target + step)),
                 method='bounded', args=(state, float(W_hat)), options={'xatol': 0.01})
             if float(ref.fun) <= costs[j]:
                 d_target = float(ref.x)

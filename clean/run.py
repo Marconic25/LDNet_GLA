@@ -241,6 +241,9 @@ else:
         C_L_trim      = TRIM_CL,
         Fy_trim       = TRIM_FY,
         Mz_trim       = TRIM_MZ,
+        global_search = True,    # non-convex one-step cost on LDNet -> need global search
+        causal_basin  = True,    # restrict to the causal (stabilizing) flap-sign basin
+        n_grid        = 15,
     )
 res_cl = simulate(ctrl=ctrl)
 
