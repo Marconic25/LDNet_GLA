@@ -20,6 +20,7 @@ wrapper gives the neural-network version with no other changes.
 """
 import numpy as np
 from scipy.optimize import minimize_scalar
+import structure as _st
 from structure import rhs as structural_rhs
 
 # Air and geometry constants (must match the values used in the simulation)
@@ -139,6 +140,35 @@ class Controller:
             aero._z = z_save
         return J
 
+    def _rk4_batch(self, x_b, Fy_b, Mz_b, dt):
+        """Batched RK4 structural step (Fy_b, Mz_b held constant over the step)."""
+        def rhs(xx):
+            h=xx[:,0]; hd=xx[:,1]; a=xx[:,2]; ad=xx[:,3]
+            rh = -Fy_b - _st.D_H*hd - _st.K_H*h
+            ra =  Mz_b - _st.D_ALPHA*ad - _st.K_ALPHA*a
+            hdd = (_st.M_AA*rh - _st.M_HA*ra)/_st.DET
+            add = (_st.M_HH*ra - _st.M_HA*rh)/_st.DET
+            return np.stack([hd, hdd, ad, add], axis=1)
+        k1=rhs(x_b); k2=rhs(x_b+0.5*dt*k1); k3=rhs(x_b+0.5*dt*k2); k4=rhs(x_b+dt*k3)
+        return x_b + (dt/6.0)*(k1+2*k2+2*k3+k4)
+
+    def _rollout_cost_batch(self, deltas, state, W_hat):
+        """Vectorized rollout cost for ALL candidate deltas at once (B = len(deltas)).
+        One batched TF call per horizon step instead of B per step -> ~B x faster."""
+        aero=self._aero; B=len(deltas)
+        z_b=np.tile(np.asarray(aero._z).reshape(1,-1),(B,1))
+        x_b=np.tile(np.asarray(state,dtype=float).reshape(1,-1),(B,1))
+        d_b=np.asarray(deltas,dtype=float)
+        J=self.R*d_b**2
+        for _ in range(self.mpc_horizon):
+            CL,CM,z_b=aero.batch_step(z_b,x_b,d_b,float(W_hat),self.U,self.dt)
+            Fy=self._q_dyn*CL-self._Fy_trim
+            Mz=self._q_dyn*CM*C_REF-self._Mz_trim
+            x_b=self._rk4_batch(x_b,Fy,Mz,self.dt)
+            J=J+(self.Q_h*x_b[:,0]**2+self.Q_alpha*x_b[:,2]**2
+                 +self.Q_alpha_dot*x_b[:,3]**2+self.Q_CL*(CL-self._C_L_trim)**2)
+        return J
+
     # ------------------------------------------------------------------
     def _cost(self, delta_deg, state, W_hat):
         """Objective function evaluated at a candidate δ."""
@@ -195,6 +225,14 @@ class Controller:
 
         if lb >= ub:
             delta = float(np.clip(self._delta_prev, g_lo, g_hi))
+            self._delta_prev = delta
+            return delta
+
+        # Fast vectorized MPC: evaluate the whole delta grid in batched TF calls.
+        if self.mpc_horizon > 1 and self._aero is not None and hasattr(self._aero, 'batch_step'):
+            grid = np.linspace(g_lo, g_hi, self.n_grid)
+            J = self._rollout_cost_batch(grid, state, float(W_hat))
+            delta = float(np.clip(float(grid[int(np.argmin(J))]), lb, ub))
             self._delta_prev = delta
             return delta
 

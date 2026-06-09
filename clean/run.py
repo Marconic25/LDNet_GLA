@@ -27,10 +27,12 @@ _parser.add_argument('--model-dir', default=None,
                           'Omit to use the linear Theodorsen model.')
 _parser.add_argument('--warmup-csv', default=None,
                      help='Path to structural_trajectory.csv used to pre-load LDNet latent state.')
-_parser.add_argument('--controller', default='proportional', choices=['proportional','optimal'],
+_parser.add_argument('--controller', default='proportional', choices=['proportional','optimal','mpc'],
                      help='Closed-loop controller: proportional C_L feedback (default) or model-based optimal.')
 _parser.add_argument('--gain', type=float, default=10.0,
                      help='Proportional controller gain G (deg per unit C_L deviation).')
+_parser.add_argument('--mpc-horizon', type=int, default=6, dest='mpc_horizon',
+                     help='Receding-horizon length (steps) for --controller mpc.')
 _args = _parser.parse_args()
 
 U_INF         = 80.0   # freestream velocity [m/s]
@@ -224,6 +226,28 @@ if _args.controller == 'proportional':
         dt            = DT,
         delta_max     = DELTA_MAX,
         delta_dot_max = DELTA_DOT_MAX,
+    )
+elif _args.controller == 'mpc':
+    print(f"Running closed loop (receding-horizon MPC, N={_args.mpc_horizon})...")
+    ctrl = Controller(
+        aero_predict  = _aero_module.predict,
+        U             = U_INF,
+        dt            = DT,
+        Q_h           = 0.0,
+        Q_alpha       = 0.0,
+        Q_alpha_dot   = 3e5,
+        Q_CL          = 1e3,
+        R             = 0.3,
+        delta_max     = DELTA_MAX,
+        delta_dot_max = DELTA_DOT_MAX,
+        C_L_trim      = TRIM_CL,
+        Fy_trim       = TRIM_FY,
+        Mz_trim       = TRIM_MZ,
+        global_search = True,
+        causal_basin  = True,
+        n_grid        = 9,
+        mpc_horizon   = _args.mpc_horizon,   # multi-step rollout -> robust at high gust
+        aero          = _aero_module,        # enables the batched MPC fast path
     )
 else:
     print("Running closed loop (model-based optimal controller)...")
