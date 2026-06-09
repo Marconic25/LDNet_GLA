@@ -52,7 +52,7 @@ class Controller:
                  Q_h=1e4, Q_alpha=1e4, Q_alpha_dot=1e4, Q_CL=1e3, R=1.0,
                  delta_max=20.0, delta_dot_max=100.0,
                  C_L_trim=0.0, Fy_trim=0.0, Mz_trim=0.0,
-                 global_search=True, n_grid=25, causal_basin=False, R_du=0.0):
+                 global_search=True, n_grid=25, causal_basin=False, R_du=0.0, target_lpf=0.0):
         self.aero_predict  = aero_predict
         self.U             = float(U)
         self.dt            = float(dt)
@@ -75,6 +75,8 @@ class Controller:
         self.n_grid = int(n_grid)
         self.causal_basin = bool(causal_basin)
         self.R_du = float(R_du)   # move-suppression: penalize (delta - delta_prev)^2
+        self.target_lpf = float(target_lpf)  # low-pass the optimal target delta (0=off)
+        self._d_filt = 0.0
 
     # ------------------------------------------------------------------
     def _predict_next(self, state, delta_deg, W_hat):
@@ -165,6 +167,9 @@ class Controller:
                 method='bounded', args=(state, float(W_hat)), options={'xatol': 0.01})
             if float(ref.fun) <= costs[j]:
                 d_target = float(ref.x)
+            if self.target_lpf > 0.0:
+                self._d_filt = self.target_lpf * self._d_filt + (1.0 - self.target_lpf) * d_target
+                d_target = self._d_filt
             delta = float(np.clip(d_target, lb, ub))   # rate-limit the move
         else:
             result = minimize_scalar(
@@ -177,6 +182,7 @@ class Controller:
     def reset(self):
         """Reset internal state (call before each new simulation run)."""
         self._delta_prev = 0.0
+        self._d_filt = 0.0
 
 
 class ProportionalController:
