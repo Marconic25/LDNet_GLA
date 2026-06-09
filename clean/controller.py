@@ -51,7 +51,8 @@ class Controller:
     def __init__(self, aero_predict, U=80.0, dt=0.01,
                  Q_h=1e4, Q_alpha=1e4, Q_alpha_dot=1e4, Q_CL=1e3, R=1.0,
                  delta_max=20.0, delta_dot_max=100.0,
-                 C_L_trim=0.0, Fy_trim=0.0, Mz_trim=0.0):
+                 C_L_trim=0.0, Fy_trim=0.0, Mz_trim=0.0,
+                 global_search=True, n_grid=25):
         self.aero_predict  = aero_predict
         self.U             = float(U)
         self.dt            = float(dt)
@@ -70,6 +71,8 @@ class Controller:
         self._C_L_trim = float(C_L_trim)
         self._Fy_trim  = float(Fy_trim)
         self._Mz_trim  = float(Mz_trim)
+        self.global_search = bool(global_search)
+        self.n_grid = int(n_grid)
 
     # ------------------------------------------------------------------
     def _predict_next(self, state, delta_deg, W_hat):
@@ -132,16 +135,27 @@ class Controller:
             self._delta_prev = delta
             return delta
 
-        result = minimize_scalar(
-            self._cost,
-            bounds=(lb, ub),
-            method='bounded',
-            args=(state, float(W_hat)),
-            options={'xatol': 0.01}
-        )
-
-        # result.x is guaranteed within [lb, ub] ⊆ [-delta_max, delta_max]
-        delta = float(result.x)
+        if self.global_search:
+            # The one-step cost is non-convex for LDNet (C_L(delta) is non-monotone),
+            # so a search restricted to the rate-limited window [lb, ub] does local
+            # descent and gets trapped in the wrong basin. Find the GLOBAL one-step
+            # optimum over the full actuator range, then rate-limit the move toward it.
+            grid = np.linspace(-self.delta_max, self.delta_max, self.n_grid)
+            costs = [self._cost(float(d), state, float(W_hat)) for d in grid]
+            j = int(np.argmin(costs)); d_target = float(grid[j])
+            step = grid[1] - grid[0]
+            ref = minimize_scalar(
+                self._cost,
+                bounds=(max(-self.delta_max, d_target - step), min(self.delta_max, d_target + step)),
+                method='bounded', args=(state, float(W_hat)), options={'xatol': 0.01})
+            if float(ref.fun) <= costs[j]:
+                d_target = float(ref.x)
+            delta = float(np.clip(d_target, lb, ub))   # rate-limit the move
+        else:
+            result = minimize_scalar(
+                self._cost, bounds=(lb, ub), method='bounded',
+                args=(state, float(W_hat)), options={'xatol': 0.01})
+            delta = float(result.x)
         self._delta_prev = delta
         return delta
 

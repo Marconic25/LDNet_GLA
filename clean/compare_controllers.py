@@ -24,10 +24,10 @@ RR=DT*100.0  # per-step rate limit (delta_dot_max*DT)
 def run(mode, G=10.0):
     aero.reset(dt=DT); x=x0.copy(); dprev=0.; clm=CLt
     ctrl=None
-    if mode in ('opt_frozen','opt_zaware'):
-        pred = aero.predict if mode=='opt_frozen' else (lambda s,d,W,Uu: aero.predict_step(s,d,W,Uu,DT))
-        ctrl=Controller(pred,U=U,dt=DT,Q_h=1e4,Q_alpha=1e4,Q_alpha_dot=1e4,Q_CL=1e3,R=1.0,
-                        delta_max=20.,delta_dot_max=100.,C_L_trim=CLt,Fy_trim=Fyt,Mz_trim=Mzt); ctrl.reset()
+    if mode in ('opt_frozen','opt_global'):
+        gs = (mode=='opt_global')
+        ctrl=Controller(aero.predict,U=U,dt=DT,Q_h=1e4,Q_alpha=1e4,Q_alpha_dot=1e4,Q_CL=1e3,R=1.0,
+                        delta_max=20.,delta_dot_max=100.,C_L_trim=CLt,Fy_trim=Fyt,Mz_trim=Mzt,global_search=gs); ctrl.reset()
     tt=np.arange(0,TE+DT,DT); CL=np.zeros(len(tt)); HD=np.zeros(len(tt)); AL=np.zeros(len(tt)); D=np.zeros(len(tt))
     for i,t in enumerate(tt):
         W=gust(t)
@@ -47,5 +47,5 @@ def line(name,r):
     rc=(o['cl']-r['cl'])/o['cl']*100; rh=(o['hd']-r['hd'])/o['hd']*100; ra=(o['al']-r['al'])/o['al']*100
     print(f"{name:<12}{r['cl']:>9.3f}{rc:>8.1f}{r['hd']:>10.3f}{rh:>8.1f}{np.rad2deg(r['al']):>11.4f}{ra:>8.1f}{r['dmax']:>10.1f}")
 line('open',o)
-for m in ['prop','opt_frozen','opt_zaware']:
+for m in ['prop','opt_frozen','opt_global']:
     line(m, run(m))
