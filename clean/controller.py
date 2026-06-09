@@ -53,7 +53,8 @@ class Controller:
                  delta_max=20.0, delta_dot_max=100.0,
                  C_L_trim=0.0, Fy_trim=0.0, Mz_trim=0.0,
                  global_search=True, n_grid=25, causal_basin=False, R_du=0.0, target_lpf=0.0,
-                 e_ref=0.0, R_sched_gain=1.0, lpf_max=0.0):
+                 e_ref=0.0, R_sched_gain=1.0, lpf_max=0.0,
+                 mpc_horizon=1, aero=None):
         self.aero_predict  = aero_predict
         self.U             = float(U)
         self.dt            = float(dt)
@@ -82,6 +83,8 @@ class Controller:
         self.R_sched_gain = float(R_sched_gain)
         self._R_eff = float(self.R)
         self.lpf_max = float(lpf_max)   # schedule target_lpf up to lpf_max at high excursion
+        self.mpc_horizon = int(mpc_horizon)  # >1: receding-horizon (constant-delta rollout)
+        self._aero = aero                    # LDNetAero object (needed for the rollout)
 
     # ------------------------------------------------------------------
     def _predict_next(self, state, delta_deg, W_hat):
@@ -109,6 +112,32 @@ class Controller:
         x_next = x + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
 
         return x_next, float(C_L)
+
+    # ------------------------------------------------------------------
+    def _rollout_cost(self, delta_deg, state, W_hat):
+        """Accumulated cost of HOLDING delta_deg over mpc_horizon steps (constant-delta
+        receding horizon). Rolls the latent z + structural state forward and sums the
+        stage costs, so a delta that excites the pitch mode is penalized by the growing
+        alpha_dot over the horizon -- which a one-step cost cannot see. Restores z."""
+        aero = self._aero
+        z_save = aero._z.copy()
+        x = np.asarray(state, dtype=float)
+        W = float(W_hat); dt = self.dt
+        J = self.R * delta_deg**2
+        try:
+            for _ in range(self.mpc_horizon):
+                C_L, C_M = aero.predict(x, delta_deg, W, self.U)
+                aero.advance(x, delta_deg, W, self.U, dt)
+                Fy = self._q_dyn * float(C_L) - self._Fy_trim
+                Mz = self._q_dyn * float(C_M) * C_REF - self._Mz_trim
+                def f(ss): return np.array(structural_rhs(ss, Fy, Mz))
+                k1=f(x); k2=f(x+0.5*dt*k1); k3=f(x+0.5*dt*k2); k4=f(x+dt*k3)
+                x = x + (dt/6.0)*(k1+2*k2+2*k3+k4)
+                J += (self.Q_h*x[0]**2 + self.Q_alpha*x[2]**2 + self.Q_alpha_dot*x[3]**2
+                      + self.Q_CL*(float(C_L)-self._C_L_trim)**2)
+        finally:
+            aero._z = z_save
+        return J
 
     # ------------------------------------------------------------------
     def _cost(self, delta_deg, state, W_hat):
@@ -172,12 +201,13 @@ class Controller:
         if self.global_search:
             # Non-convex one-step cost: confine to causal range, take the GLOBAL
             # optimum, then rate-limit the move toward it.
+            obj = self._rollout_cost if (self.mpc_horizon > 1 and self._aero is not None) else self._cost
             grid = np.linspace(g_lo, g_hi, self.n_grid)
-            costs = [self._cost(float(d), state, float(W_hat)) for d in grid]
+            costs = [obj(float(d), state, float(W_hat)) for d in grid]
             j = int(np.argmin(costs)); d_target = float(grid[j])
             step = grid[1] - grid[0]
             ref = minimize_scalar(
-                self._cost,
+                obj,
                 bounds=(max(g_lo, d_target - step), min(g_hi, d_target + step)),
                 method='bounded', args=(state, float(W_hat)), options={'xatol': 0.01})
             if float(ref.fun) <= costs[j]:
