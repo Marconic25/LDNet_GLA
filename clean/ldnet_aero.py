@@ -69,6 +69,7 @@ class LDNetAero:
         self._z      = np.zeros(self._num_z)
         self._dt     = 0.01   # set by reset(dt) or advance(); default matches run.py DT
         self._dt_sub = self._dt_ref  # sub-step size for latent integration (= training dt)
+        self._z_leak = 0.0  # optional leak: z <- (1-leak)*z + factor*dz (0 = trained behavior)
         # Spatial eval point (0,0) must be normalized exactly as training did
         # (utils.dataset_normalize -> normalize_forw with space min/max).
         sp = self._norm['space']
@@ -122,7 +123,7 @@ class LDNetAero:
             (1, self._num_z + 1 + len(sigs_n))
         )
         dz = self.NNdyn(dyn_inp, training=False)
-        return z + (sub_dt / self._dt_ref) * dz.numpy().flatten()
+        return (1.0 - self._z_leak) * z + (sub_dt / self._dt_ref) * dz.numpy().flatten()
 
     def _reconstruct(self, z, sigs_n, U):
         """Reconstruct (C_L, C_M) from the CURRENT latent state z and signals.
