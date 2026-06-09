@@ -52,7 +52,7 @@ class Controller:
                  Q_h=1e4, Q_alpha=1e4, Q_alpha_dot=1e4, Q_CL=1e3, R=1.0,
                  delta_max=20.0, delta_dot_max=100.0,
                  C_L_trim=0.0, Fy_trim=0.0, Mz_trim=0.0,
-                 global_search=True, n_grid=25, causal_basin=False):
+                 global_search=True, n_grid=25, causal_basin=False, R_du=0.0):
         self.aero_predict  = aero_predict
         self.U             = float(U)
         self.dt            = float(dt)
@@ -74,6 +74,7 @@ class Controller:
         self.global_search = bool(global_search)
         self.n_grid = int(n_grid)
         self.causal_basin = bool(causal_basin)
+        self.R_du = float(R_du)   # move-suppression: penalize (delta - delta_prev)^2
 
     # ------------------------------------------------------------------
     def _predict_next(self, state, delta_deg, W_hat):
@@ -110,7 +111,8 @@ class Controller:
                 + self.Q_alpha     * x_next[2]**2
                 + self.Q_alpha_dot * x_next[3]**2
                 + self.Q_CL        * (C_L - self._C_L_trim)**2
-                + self.R           * delta_deg**2)
+                + self.R           * delta_deg**2
+                + self.R_du        * (delta_deg - self._delta_prev)**2)
 
     # ------------------------------------------------------------------
     def compute(self, state, W_hat=0.0):
@@ -131,28 +133,28 @@ class Controller:
         lb = max(-self.delta_max, self._delta_prev - reach)
         ub = min( self.delta_max, self._delta_prev + reach)
 
+        # Causal-basin: restrict to the flap-sign half that reduces the lift
+        # excursion (to reduce C_L above trim the lift-reducing flap deflects
+        # positive, and vice-versa). Avoids the non-causal "nulling" basin that
+        # destabilizes the non-monotone LDNet C_L(delta).
+        if self.causal_basin:
+            cl0 = float(self.aero_predict(state, 0.0, float(W_hat), self.U)[0])
+            if cl0 >= self._C_L_trim:
+                g_lo, g_hi = 0.0, self.delta_max
+            else:
+                g_lo, g_hi = -self.delta_max, 0.0
+        else:
+            g_lo, g_hi = -self.delta_max, self.delta_max
+        lb = max(lb, g_lo); ub = min(ub, g_hi)
+
         if lb >= ub:
-            delta = float(np.clip(self._delta_prev, -self.delta_max, self.delta_max))
+            delta = float(np.clip(self._delta_prev, g_lo, g_hi))
             self._delta_prev = delta
             return delta
 
         if self.global_search:
-            # The one-step cost is non-convex for LDNet (C_L(delta) is non-monotone),
-            # so a search restricted to the rate-limited window [lb, ub] does local
-            # descent and gets trapped in the wrong basin. Find the GLOBAL one-step
-            # optimum over the full actuator range, then rate-limit the move toward it.
-            if self.causal_basin:
-                # Non-monotone C_L(delta) gives the global minimizer a non-causal
-                # "nulling" basin (large flap of the wrong sign) that destabilizes.
-                # Restrict the search to the causal half: to reduce C_L above trim,
-                # the (lift-reducing) flap must deflect positive, and vice-versa.
-                cl0 = float(self.aero_predict(state, 0.0, float(W_hat), self.U)[0])
-                if cl0 >= self._C_L_trim:
-                    g_lo, g_hi = 0.0, self.delta_max
-                else:
-                    g_lo, g_hi = -self.delta_max, 0.0
-            else:
-                g_lo, g_hi = -self.delta_max, self.delta_max
+            # Non-convex one-step cost: confine to causal range, take the GLOBAL
+            # optimum, then rate-limit the move toward it.
             grid = np.linspace(g_lo, g_hi, self.n_grid)
             costs = [self._cost(float(d), state, float(W_hat)) for d in grid]
             j = int(np.argmin(costs)); d_target = float(grid[j])
