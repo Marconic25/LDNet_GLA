@@ -311,6 +311,12 @@ for key, label in zip(metrics, labels):
     red = (ol - cl) / ol * 100 if ol > 0 else 0.0
     print(f"  {label:<12s}  {ol:10.4f}  {cl:10.4f}  {red:+9.1f} %")
 
+# C_L excursion from trim - the physically meaningful gust-load metric
+_ex_ol = np.max(np.abs(res_ol['C_L'][gust_win] - TRIM_CL))
+_ex_cl = np.max(np.abs(res_cl['C_L'][gust_win] - TRIM_CL))
+_ex_red = (_ex_ol - _ex_cl) / _ex_ol * 100 if _ex_ol > 0 else 0.0
+print(f"  {'C_L excurs.':<12s}  {_ex_ol:10.4f}  {_ex_cl:10.4f}  {_ex_red:+9.1f} %  (trim={TRIM_CL:.3f})")
+
 print(f"\n  Max flap deflection: {np.max(np.abs(res_cl['delta'])):.1f} deg")
 
 
