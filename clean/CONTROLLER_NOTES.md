@@ -113,3 +113,19 @@ should survive longer training -> CHOSEN lambda=0.003, proceed to Task B
 Infra added: optimization.py gained a no-op-default checkpoint hook
 (checkpoint_callback / checkpoint_every); sensitivity_latent_damped_ckpt.py wires it
 to save weights+config every 200 iters (BFGS saves only at end otherwise).
+
+## Task B — full-convergence of l003 (NBFGS=4000) + the coupling collapse (2026-06-10)
+Trained lambda=0.003 to convergence (4000 BFGS, ~7h, val loss plateaued ~1.27e-4) ->
+clean/models_damped_l003_full. Validation (val_damped_param.py):
+  replay NRMSE_F_y 0.011 (test-set NRMSE 0.0024, BETTER than original 0.019/0.014),
+  free-run ||z|| 521 (bounded), trim C_L 0.227, gust->h_ddot 0.10 (DECOUPLED).
+vs l003@150iter: NRMSE 0.146, ||z|| 244, gust->h_ddot 2.38 (COUPLED).
+
+KEY FINDING: the gust->structure coupling (2.38) seen in the UNDERTRAINED l003 was a
+TRAINING ARTIFACT, not structural. At convergence lambda=0.003 decouples (0.10) just
+like lambda=0.01. => Task A premise (tune lambda for coupling) FAILS: replay accuracy
+and free-running gust-coupling are in tension; convergence favors accuracy and kills
+the free-running W->latent->C_L->structure channel. Open question (investigating):
+is the decoupling real, or a test artifact of the startup transient (x0 trim computed
+at a latent zsave that then drifts once the sim runs)? Need a proper JOINT (latent+
+structure) equilibrium test before concluding on Tasks C/D.
