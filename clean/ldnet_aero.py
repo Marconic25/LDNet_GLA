@@ -36,6 +36,7 @@ class LDNetAero:
         self._norm = config['normalization']
         self._problem = config['problem']
         self._num_z = config['num_latent_states']
+        self._cfg_leak = float(config.get('lambda_damp', 0.0))  # damped-ODE leak (0 = original model)
         self._dt_ref = self._norm['time']['time_constant']
 
         # Detect output type: forces (F_y/M_z) or coefficients (C_L/C_M)
@@ -69,7 +70,7 @@ class LDNetAero:
         self._z      = np.zeros(self._num_z)
         self._dt     = 0.01   # set by reset(dt) or advance(); default matches run.py DT
         self._dt_sub = self._dt_ref  # sub-step size for latent integration (= training dt)
-        self._z_leak = 0.0  # optional leak: z <- (1-leak)*z + factor*dz (0 = trained behavior)
+        self._z_leak = self._cfg_leak  # damped-ODE leak from config (0 = original model)
         # Spatial eval point (0,0) must be normalized exactly as training did
         # (utils.dataset_normalize -> normalize_forw with space min/max).
         sp = self._norm['space']
