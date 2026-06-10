@@ -86,3 +86,30 @@ stability/equilibrium regularization (penalize ||z|| drift, or an explicit dampe
 latent ODE) so the free-running model has a trim and physical gust->structure
 coupling. Inference-time leak on z is a possible stopgap (test pending) but will
 likely degrade the replay accuracy the model was trained for.
+
+## Task A — damping-lambda sweep for gust->structure coupling (2026-06-10)
+Retrained the damped-ODE LDNet at smaller lambda (NADAM=400/NBFGS=150 each) to
+recover the gust's indirect channel (W -> latent -> C_L -> structure), which the
+lambda=0.01 model damps away (latent memory 1/lambda too short vs the 1s gust).
+Variants in clean/models_damped_l005 (lambda=0.005) and _l003 (lambda=0.003).
+Evaluated all with clean/val_damped_param.py (replay on CFD sim_A_025_test +
+free-run ||z|| stability + gust vs no-gust h_ddot coupling):
+
+| model    | lambda | replay NRMSE_F_y | free-run ||z|| | trim C_L | gust C_L exc | gust->h_ddot |
+|----------|--------|------------------|----------------|----------|--------------|--------------|
+| original | 0.000  | 0.019            | 6567 (UNBND)   | 1.329    | 0.625        | 9.93 COUPLED |
+| damped   | 0.010  | 0.036            | 175  (bnd)     | 0.640    | 0.299        | 0.15 decoup  |
+| l005     | 0.005  | 0.092            | 416  (bnd)     | 0.793    | 0.120        | 0.29 decoup  |
+| l003     | 0.003  | 0.146            | 244  (bnd)     | 0.930    | 0.459        | 2.38 COUPLED |
+
+Finding: lower lambda restores coupling (longer latent memory) but degrades replay
+accuracy at fixed (short) BFGS budget. Only lambda=0.003 hits BOTH bounded ||z||
+(244) AND real gust->h_ddot (2.38 m/s2 > 2.0 goal); its replay NRMSE (0.146) misses
+the <0.04 goal. lambda=0.005 is the worst trade (decoupled AND less accurate than
+0.01). The coupling is structural (memory length), not from undertraining, so it
+should survive longer training -> CHOSEN lambda=0.003, proceed to Task B
+(full-convergence) to drive replay NRMSE down while keeping coupling.
+
+Infra added: optimization.py gained a no-op-default checkpoint hook
+(checkpoint_callback / checkpoint_every); sensitivity_latent_damped_ckpt.py wires it
+to save weights+config every 200 iters (BFGS saves only at end otherwise).

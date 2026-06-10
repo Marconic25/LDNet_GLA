@@ -25,6 +25,8 @@ class OptimizationProblem():
         self.compile()
 
         self.iteration = 0
+        self.checkpoint_callback = None
+        self.checkpoint_every = 200
         self.iterations_history = list()
         self.loss_train_history = list()
         self.loss_valid_history = list()
@@ -71,6 +73,8 @@ class OptimizationProblem():
             self.loss_valid_history.append(self.ag_valid_loss())
             print('epoch% 5d   -   training loss: %1.3e   -   validation loss %1.3e' % 
                   (self.iteration, self.loss_train_history[-1], self.loss_valid_history[-1]))
+        if self.checkpoint_callback is not None and self.iteration > 0 and self.iteration % self.checkpoint_every == 0:
+            self.checkpoint_callback(self.iteration)
         self.iteration += 1
         
     def optimize_keras(self, num_epochs, optimizer):
