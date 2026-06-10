@@ -129,3 +129,26 @@ the free-running W->latent->C_L->structure channel. Open question (investigating
 is the decoupling real, or a test artifact of the startup transient (x0 trim computed
 at a latent zsave that then drifts once the sim runs)? Need a proper JOINT (latent+
 structure) equilibrium test before concluding on Tasks C/D.
+
+## DECISIVE: CFD ground truth reframes the whole coupling question (2026-06-10)
+Checked the CFD reference sim_A_025_test (gust W_peak=11.46) directly:
+  C_L trim 0.833, C_L excursion 0.321
+  h_ddot PEAK = 0.113 m/s2 (rms 0.033); h peak-peak 2.6mm, alpha 0.06deg
+The real structure barely accelerates under the gust: a 1s gust (~1 Hz) is QUASI-STATIC
+for the 5.8 Hz heave / 14.5 Hz pitch modes -> small h_ddot is CORRECT PHYSICS.
+
+=> Task A's goal (gust->h_ddot > 2 m/s2) was anchored to the COLD UNSTABLE model's
+inflated 9.93 (~90x the true 0.11) and is WRONG. The proper alleviation metric is the
+C_L EXCURSION (the load), not h_ddot.
+
+Coupling diagnostic (invest_coupling.py), joint latent+structure fixed point then gust:
+  lambda=0.01 (models_damped): settles to PHYSICAL trim C_L=0.843 (=CFD 0.833), ||z||175,
+    residual accel 0; DIRECT channel dC_L/dW real (W=10 -> dC_L=-0.125), latent +0.085,
+    gust C_L excursion 0.20, h_ddot 0.044  => correct order of magnitude vs CFD. GOOD.
+  lambda=0.003_full: coupled latent+structure free-run is UNSTABLE (diverges to C_L=1.34,
+    a_ddot=72, h_ddot 283) even though latent-alone (struct clamped) is bounded. BAD.
+
+CONCLUSION: stop lowering lambda. lambda=0.01 is the correct closed-loop model (stable
+physical trim, real gust load). Task B redefined = full-convergence of LAMBDA=0.01
+(current model only NADAM400/NBFGS150 -> NRMSE 0.036; target ~0.01 like l003_full) while
+KEEPING stability. Tasks C/D evaluate controllers on the C_L-excursion metric.
