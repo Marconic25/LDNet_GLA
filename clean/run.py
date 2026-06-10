@@ -31,6 +31,8 @@ _parser.add_argument('--controller', default='proportional', choices=['proportio
                      help='Closed-loop controller: proportional C_L feedback (default) or model-based optimal.')
 _parser.add_argument('--gain', type=float, default=10.0,
                      help='Proportional controller gain G (deg per unit C_L deviation).')
+_parser.add_argument('--settle', type=int, default=0,
+                     help='Relax joint latent+structure to equilibrium for N steps before sim (damped model physical init).')
 _parser.add_argument('--mpc-horizon', type=int, default=6, dest='mpc_horizon',
                      help='Receding-horizon length (steps) for --controller mpc.')
 _args = _parser.parse_args()
@@ -122,7 +124,25 @@ def simulate(ctrl=None):
 
     # Compute trim aero loads (W=0, delta=0) to subtract as static offset.
     # The structural integrator only sees perturbations from trim equilibrium.
-    if hasattr(_aero_module, 'reset'):
+    _settle = getattr(_args, 'settle', 0)
+    if hasattr(_aero_module, 'reset') and _settle > 0 and hasattr(_aero_module, 'advance'):
+        # Damped model: relax the joint latent+structure system to its physical
+        # equilibrium so the sim starts at a true trim (no startup transient).
+        xs = np.zeros(4)
+        for _ in range(_settle):
+            cl_s, cm_s = _aero_module.predict(xs, 0., 0., U_INF)
+            _aero_module.advance(xs, 0., 0., U_INF, DT)
+            xs = structure.step_rk4(xs, q_dyn * cl_s, q_dyn * cm_s * C_REF, DT)
+        x0 = xs.copy()
+        C_L_trim, C_M_trim = _aero_module.predict(x0, 0., 0., U_INF)
+        # x0=xs is already a joint equilibrium at rest under ABSOLUTE loads
+        # (spring balances absolute aero load). Integrate absolute loads -> do NOT
+        # subtract trim, else the spring force -K_H*h at x0 has no aero counterpart
+        # and the structure rings (spurious startup transient). C_L_trim kept only
+        # as the controller reference.
+        Fy_trim = 0.0
+        Mz_trim = 0.0
+    elif hasattr(_aero_module, 'reset'):
         from scipy.optimize import fsolve
 
         def _trim_residual(x_eq):
