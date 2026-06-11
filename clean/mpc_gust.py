@@ -4,6 +4,9 @@ import structure
 from ldnet_aero import LDNetAero
 from controller import Controller
 from scipy.optimize import fsolve
+# Optional extra pitch damping (the LDNet aero under-represents aerodynamic pitch damping,
+# so the lightly-damped structural pitch mode rings; a modest bump smooths alpha_dot).
+structure.D_ALPHA *= float(os.environ.get('DAMULT','1'))
 U=80.; RHO=1.225; C=1.0; DT=0.002; S=0.05; q=0.5*RHO*U**2*S
 MD='models_rollout/latent_10'
 W0=float(os.environ.get('W0','10')); TG=float(os.environ.get('TG','1.0'))
@@ -65,11 +68,13 @@ mw = tg <= (TG+0.5)
 def pk(r,k): return np.max(np.abs(r[k][mw]))
 exo=np.max(np.abs(OL['CL'][mw]-CLTRIM))
 exc=np.max(np.abs(CL['CL'][mw]-CLTRIM))
+def adrms(r): return np.sqrt(np.mean((r['ad'][mw])**2))*180/np.pi   # alpha_dot RMS deg/s, gust window
+de_end=np.mean(np.abs(CL['de'][int(2.3/DT):int(2.7/DT)]))           # residual flap ~t=2.5 (should ->0)
 flag=''
 for k in ['ad','add','hdd']:
     if pk(CL,k) > 3.0*pk(OL,k)+1e-9: flag+=k+'!! '
-print(f'W0={W0:.1f} Tg={TG:.2f} Qad={QAD:g} R={RW:g} | CLexc open={exo:.3f} closed={exc:.3f} ({(exo-exc)/exo*100:+.0f}%) '
-      f'| flap_max={pk(CL,"de"):.1f} ad {pk(OL,"ad"):.3g}->{pk(CL,"ad"):.3g} hdd {pk(OL,"hdd"):.3g}->{pk(CL,"hdd"):.3g} '
+print(f'W0={W0:.1f} Tg={TG:.2f} Qad={QAD:g} R={RW:g} DLPF={DLPF:g} ng={NGRID} | CLexc {exo:.3f}->{exc:.3f} ({(exo-exc)/exo*100:+.0f}%) '
+      f'| flap_max={pk(CL,"de"):.1f} de@2.5={de_end:.2f} | adot_RMS deg/s open={adrms(OL):.3f} closed={adrms(CL):.3f} '
       f'{"EXPLODE: "+flag if flag else "stable"}', flush=True)
 
 if PLOT:
