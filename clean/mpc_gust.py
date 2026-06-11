@@ -14,6 +14,7 @@ TEND=float(os.environ.get('TEND','3.0')); N=int(round(TEND/DT))+1
 NH=int(os.environ.get('NH','6')); NGRID=int(os.environ.get('NGRID','15'))
 PLOT=os.environ.get('PLOT','0')=='1'
 SCHED=os.environ.get('SCHED','0')=='1'
+ONESIDED=os.environ.get('ONESIDED','0')=='1'   # clamp flap to lift-reducing sign -> single bell delta
 QAD=float(os.environ.get('QAD','100')); RW=float(os.environ.get('RW','0.01'))
 LPF=float(os.environ.get('LPF','0.0'))   # (unused for MPC batch path)
 RQUIET=float(os.environ.get('RQUIET','0.1')) # control penalty when the gust is gone: R is
@@ -53,14 +54,16 @@ def simulate(use_ctrl):
             Q_CL=1.0,R=RW,n_grid=NGRID,global_search=True,causal_basin=False,mpc_horizon=NH,aero=a,
             target_lpf=LPF,C_L_trim=CLTRIM,Fy_trim=0.,Mz_trim=0.,delta_max=14.,delta_dot_max=300.)
         ctrl.reset()
-    x=X0.copy(); de_f=0.0; R={k:[] for k in ['h','hd','al','ad','hdd','add','de','CL','CM','Fy']}
+    x=X0.copy(); de_f=0.0; de_f2=0.0; R={k:[] for k in ['h','hd','al','ad','hdd','add','de','CL','CM','Fy']}
     for i in range(N):
         if ctrl:
             wn = min(1.0, (Wt[i]/W0)/0.1) if W0 > 1e-6 else 0.0   # 1 while gust>10% peak, ramps to 0 at the tails
             ctrl.R = RQUIET - (RQUIET - RW)*wn             # aggressive THROUGHOUT the gust, gentle only after
             de_raw = ctrl.compute(x,W_hat=float(Wt[i]))
-            de_f = DLPF*de_f + (1.0-DLPF)*de_raw      # smooth (sinusoidal) flap
-            de = de_f
+            if ONESIDED: de_raw = min(de_raw, 0.0)         # lift-reducing flap only -> single bell-shaped delta
+            de_f  = DLPF*de_f  + (1.0-DLPF)*de_raw     # 2nd-order (cascaded) low-pass -> C1-smooth flap
+            de_f2 = DLPF*de_f2 + (1.0-DLPF)*de_f       # (no corners, rounded transitions / raccordi)
+            de = de_f2
             ctrl._delta_prev = de                     # keep the rate-limit consistent
         else:
             de = 0.0
