@@ -202,3 +202,25 @@ and over-driving raises h_pk -> GAIN-SCHEDULING needed (key schedule on a gust e
 closed-loop C_L which the controller flattens). dC_L/ddelta~0.014/deg sets the authority
 limit: cancelling a 0.6 excursion needs ~14 deg (saturation). NEXT: MPC in the z=0 regime
 (anticipates), gust-magnitude-scheduled gain, extend ROLLOUT_LEN, run.py z=0 driver path.
+
+## One-step OPTIMAL controller with the rollout model — minimal objective (2026-06-11)
+clean/optimal_test.py drives the Controller class (mpc_horizon=1, global_search, no LPF,
+Fy_trim=Mz_trim=0 for the z=0 full-load rollout regime) with the MINIMAL objective
+J = Q_CL*(C_L-trim)^2 + R*delta^2 (Q_h=Q_alpha=Q_alpha_dot=0). W_hat = true gust. Records
+all states+derivatives; flags explosion (>3x open-loop peak of ad/add/hdd).
+
+Phase 1 (sweep R, Q_CL=1):
+sim_A_025 (design, open CLexc 0.241, ad 0.0039, add 1.48):
+  R=1e-5 CLexc 0.003(-99%) but ad 0.070(18x) add 5.96  -> EXPLODE (pitch rate)
+  R=1e-4 CLexc 0.023(-91%)     ad 0.049(12x)            -> EXPLODE
+  R=1e-3 CLexc 0.066(-73%)     ad 0.005(~open) add 1.48 -> STABLE  (sweet spot)
+  R=1e-2 CLexc 0.204(-15%) weak; R=0.1 no action.
+sim_A_027 (strong, open CLexc 0.584, ad 0.044, add 3.21):
+  R<=1e-3: CLexc only -13..-17% (flap SATURATES 14deg) AND ad/add EXPLODE (up to 18,17)
+  R>=1e-2: stable but useless (-6%). NO good R for the strong gust.
+
+Finding: the minimal-objective one-step optimal nails C_L on the DESIGN gust at R~1e-3
+(-73%, stable) but at higher aggressiveness (R<=1e-4) it EXCITES THE PITCH RATE (ad up to
+18x open) -- the one-step cost cannot foresee the pitch dynamics it drives. On the STRONG
+gust it fails outright (saturates + pitch blow-up when aggressive, no alleviation when
+gentle). => states explode, so Phase 2 adds Q_h*h^2 + Q_alpha*alpha^2 (results below).
