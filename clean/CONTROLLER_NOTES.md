@@ -152,3 +152,35 @@ CONCLUSION: stop lowering lambda. lambda=0.01 is the correct closed-loop model (
 physical trim, real gust load). Task B redefined = full-convergence of LAMBDA=0.01
 (current model only NADAM400/NBFGS150 -> NRMSE 0.036; target ~0.01 like l003_full) while
 KEEPING stability. Tasks C/D evaluate controllers on the C_L-excursion metric.
+
+## RESOLUTION: closed-loop rollout training -> usable model -> working GLA (2026-06-11)
+Root cause of 'cannot use the trained LDNet': teacher-forced (1-step) training feeds the
+TRUE structural states as inputs, so the net reads C_L off the states and (a) ignores
+delta/W when undertrained (flap-blind, but free-run stable because lazy), or (b) becomes
+free-run UNSTABLE when fully converged. Accuracy vs closed-loop stability were in tension.
+
+FIX (src/sensitivity_latent_rollout.py): closed-loop ROLLOUT training. The 2-DOF
+structural ODE is propagated IN the loss from the model's OWN predicted loads (delta,W
+exogenous from data); loss matches rolled-out states+loads to data over ROLLOUT_LEN=800
+steps. Warm-start from l003_full (flap-aware), pure BFGS (Adam degraded the warm-start),
+best-VALIDATION early stopping (BFGS overfits: train->0.007 while valid->0.10; best valid
+0.0114 at ~iter 20). TF structure step verified bit-identical to structure.py.
+
+RESULT — the rollout model is closed-loop USABLE:
+- Free-run joint equilibrium STABLE: settles to C_L=0.856 (=CFD 0.84), residual accel 0
+  (l003_full diverged here; l01_full was chaotic).
+- Captures flap (B ablation 0.111, Cc 0.031) AND gust.
+- Closed-loop replay (z=0 start, structure from model loads, FULL loads) on held-out
+  trajectories: sim_A_025(gust) C_L/h/a NRMSE 0.11/0.12/0.12; sim_Cc(gust+flap) 0.055/
+  0.063/0.046; sim_B(flap) 0.096. Stable, final state matches data.
+  NOTE: the rollout model's regime is z=0 + FULL loads (data trim state is the eq under
+  full load). Do NOT pre-settle the latent or subtract trim (those gave the spurious
+  'decoupled' / 8 m/s2-transient artifacts).
+
+GLA CONTROL WORKS (clean/taskC_gla.py, proportional delta=-G*(C_L-trim), real gust):
+  sim_A_025 (exc 0.241): gain 10 -> -39%, gain 20 -> -59%, gain 80 -> -78% C_L excursion,
+  flap only 1.5-2.8 deg, h_pk ALSO reduced (-9..-18%), no pitch destabilization.
+  sim_A_026 (exc 0.60): optimal gain ~20 (-37%); gain>=40 saturates flap at 14 deg ->
+  gain-scheduling needed for strong gusts.
+The earlier 'controllers fail / flap counterproductive' conclusion was an artifact of the
+flap-blind undertrained l=0.01 model; with a usable model GLA alleviates cleanly.
