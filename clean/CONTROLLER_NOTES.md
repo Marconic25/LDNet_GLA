@@ -248,3 +248,14 @@ saturates. Best one-step result = minimal objective Q_CL+R at R=1e-3 on the desi
 (-73%, stable); the strong gust has no viable one-step solution. => motivates receding-
 horizon MPC (sees the multi-step pitch dynamics) as the principled controller. Proportional
 remains the simple robust baseline (-59% design, modest flap).
+
+## Receding-horizon MPC with the rollout model (z=0 regime) (2026-06-11)
+clean/optimal_test.py extended with NH (mpc_horizon) env -> drives Controller's vectorized
+batch rollout (aero=a). MINIMAL objective (Q_CL + R only, horizons 3/6/10):
+sim_A_025 (design): R<=1e-2 reduces C_L well (+48..+82%) but EXPLODES (ad AND hdd now) at
+  ALL horizons -- at R=1e-3 the MPC explodes where the one-step was stable, because with only
+  Q_CL the horizon optimizes accumulated C_L -> pushes the flap harder -> excites more pitch.
+sim_A_027 (strong): stable only at R=1e-2 (+10..+18%, modest).
+=> Q_CL-only MPC does NOT beat the one-step: the constant-delta rollout has no pitch-rate
+penalty, so nothing stops it exciting pitch. The project's MPC needed Q_alpha_dot in the
+rollout (the horizon SEES alpha_dot grow and penalizes it). Testing Q_CL + Q_alpha_dot next.

@@ -7,6 +7,7 @@ DS='/work/u10677113/NACA2312/dataset_v5'; MD='models_rollout/latent_10'
 SIM=os.environ.get('SIM','sim_A_025_test')
 NSTEPS=int(os.environ.get('NSTEPS','1000'))   # truncate (gust window ~ first 1.6s); full=1592
 NGRID=int(os.environ.get('NGRID','15'))
+NH=int(os.environ.get('NH','1'))   # mpc_horizon (>1 = receding-horizon MPC)
 d=np.array([[float(v) for v in r] for r in list(csv.reader(open(f'{DS}/{SIM}/structural_trajectory.csv')))[1:]])
 d=d[range(0,len(d),7)]; W=d[:,7]; t=d[:,0]; N=min(NSTEPS,len(d)); x0=np.array([d[0,1],d[0,2],d[0,3],d[0,4]])
 a=LDNetAero(MD); a.reset(dt=DT); clt,_=a.predict(x0,0.,0.,U); CLTRIM=float(clt)
@@ -28,7 +29,7 @@ def simulate(ctrl):
 def mkctrl(Rw, QH=0., QA=0., QAD=0.):
     return Controller(aero_predict=a.predict, U=U, dt=DT, Q_h=QH, Q_alpha=QA, Q_alpha_dot=QAD,
         Q_CL=1.0, R=Rw, R_du=0., target_lpf=0., e_ref=0., lpf_max=0., n_grid=NGRID,
-        causal_basin=False, global_search=True, mpc_horizon=1,
+        causal_basin=False, global_search=True, mpc_horizon=NH, aero=(a if NH>1 else None),
         C_L_trim=CLTRIM, Fy_trim=0., Mz_trim=0., delta_max=14., delta_dot_max=300.)
 
 def peaks(r, ref=None):
@@ -42,7 +43,7 @@ def peaks(r, ref=None):
             if pk[k] > 3.0*ref[k]+1e-9: flag+=f'{k}!! '
     return pk, flag
 
-print(f'=== one-step OPTIMAL (Q_CL=1, only R) on {SIM}  trim={CLTRIM:.3f}  N={N} grid={NGRID} ===',flush=True)
+print(f'=== {"MPC H="+str(NH) if NH>1 else "one-step OPTIMAL"} (Q_CL=1) on {SIM}  trim={CLTRIM:.3f}  N={N} grid={NGRID} ===',flush=True)
 ro=simulate(None); pko,_=peaks(ro)
 print('  open: '+' '.join(f'{k}={pko[k]:.4g}' for k in ['CLexc','h','al','ad','hdd','add']),flush=True)
 QH=float(os.environ.get('QH','0')); QA=float(os.environ.get('QA','0')); QAD=float(os.environ.get('QAD','0'))
