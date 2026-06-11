@@ -298,3 +298,25 @@ Aggressive R<=1e-3 EXPLODES at almost all W0 (and Tg=1,2). Tg also matters: shor
 tolerate more aggression. Schedule adopted: Qad=100,R=1e-2 for W0<=8 (gentle), else Qad=30,
 R=1e-2, LPF=0.7. The MPC self-regulates (R*delta^2 + flap saturation cap aggression), so a
 heavy schedule is not needed -- one robust setting (+39..+57%) covers W0=10..30.
+
+## FINAL MPC config + gust grid (W0 x Tg), open vs closed-loop plots (2026-06-11)
+clean/mpc_gust.py final config: receding-horizon MPC (H=6, Q_CL + Q_alpha_dot schedule),
+n_grid=15 (coarse grid gives a natural deadband so the flap returns to 0 cleanly -- a fine
+grid let the controller chase the z-drift baseline -> spurious steady delta + late spike),
+DLPF=0.95 (smooth/sinusoidal flap, applied in the harness since the Controller's target_lpf
+is ignored on the MPC batch path), DAMULT=3 (3x structural pitch damping: the LDNet aero
+under-represents aero pitch damping so the pitch mode rings; this smooths the post-gust
+alpha_dot). Gain schedule on W0: Qad=100/R=1e-2 for W0<=8 (gentle), else Qad=30/R=1e-2.
+Synthetic 1-cos gust W(t)=(W0/2)(1-cos(2pi t/Tg)); CFD pre-gust trim IC.
+
+C_L excursion reduction, all stable, delta->0 (de@2.5=0):
+| W0 \ Tg | 0.5s | 1.0s | 2.0s |
+|  10      | +16% | +54% | +0% (negligible gust) |
+| 20      | +2%  | +42% | +57% |
+| 30      | +0%  | +14% | +33% |
+design W11.5/Tg1.12: +52%.
+Pattern: medium-long gusts at moderate W0 alleviate best; short (Tg=0.5) and strong (W30)
+gusts are flap-authority/saturation limited. Notes on alpha_dot: its RMS already matches the
+CFD ground truth (0.106 vs 0.105 deg/s) -- the visible wiggle is the LDNet C_M ripple (a
+forced, not resonant, artifact: 4x structural damping changes RMS by <7%), and the controller
+adds only ~8%. Plots: clean/results/mpc_plots/gust_W{10,20,30}_Tg{50,100,200}.png + W11_Tg112.
