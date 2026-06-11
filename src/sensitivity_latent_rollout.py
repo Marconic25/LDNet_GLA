@@ -184,20 +184,27 @@ def main():
     out_dir = RESULTS_DIR / f'latent_{NUM_LATENT}'; out_dir.mkdir(parents=True, exist_ok=True)
     cfg = {'problem':problem,'normalization':normalization,'num_latent_states':NUM_LATENT,'lambda_damp':LAMBDA_DAMP}
     json.dump(cfg, open(out_dir/'config.json','w'), indent=2)
+    best = [float(opt.ag_valid_loss().numpy())]
+    NNdyn.save_weights(str(out_dir/'NNdyn_weights.weights.h5'))
+    NNrec.save_weights(str(out_dir/'NNrec_weights.weights.h5'))
+    print(f'  [ckpt] init warm-start valid={best[0]:.4e} SAVED', flush=True)
     def _ck(it):
-        NNdyn.save_weights(str(out_dir/'NNdyn_weights.weights.h5'))
-        NNrec.save_weights(str(out_dir/'NNrec_weights.weights.h5'))
-        print(f'  [ckpt] iter {it}', flush=True)
-    opt.checkpoint_callback = _ck; opt.checkpoint_every = 100
+        vl = float(opt.ag_valid_loss().numpy())
+        if vl < best[0]:
+            best[0] = vl
+            NNdyn.save_weights(str(out_dir/'NNdyn_weights.weights.h5'))
+            NNrec.save_weights(str(out_dir/'NNrec_weights.weights.h5'))
+            print(f'  [ckpt] iter {it} valid={vl:.4e} SAVED (best)', flush=True)
+        else:
+            print(f'  [ckpt] iter {it} valid={vl:.4e} (no improve, best={best[0]:.4e})', flush=True)
+    opt.checkpoint_callback = _ck; opt.checkpoint_every = 10
 
     print("  Adam...", flush=True)
     opt.optimize_keras(num_epochs_Adam, tf.keras.optimizers.Adam(learning_rate=1e-3))
     print("  BFGS...", flush=True)
     opt.optimize_BFGS(num_epochs_BFGS)
-    NNdyn.save_weights(str(out_dir/'NNdyn_weights.weights.h5'))
-    NNrec.save_weights(str(out_dir/'NNrec_weights.weights.h5'))
-    json.dump(cfg, open(out_dir/'config.json','w'), indent=2)
-    print(f"Saved rollout model to {out_dir}", flush=True)
+    # NOTE: best-validation weights are already saved by _ck; do NOT overwrite with final.
+    print(f"Done. Best valid rollout loss = {best[0]:.4e}. Best-valid model in {out_dir}", flush=True)
 
 if __name__ == '__main__':
     main()
