@@ -16,6 +16,9 @@ PLOT=os.environ.get('PLOT','0')=='1'
 SCHED=os.environ.get('SCHED','0')=='1'
 QAD=float(os.environ.get('QAD','100')); RW=float(os.environ.get('RW','0.01'))
 LPF=float(os.environ.get('LPF','0.0'))   # (unused for MPC batch path)
+RQUIET=float(os.environ.get('RQUIET','0.1')) # control penalty when the gust is gone: R is
+# scheduled in time R(t)=RQUIET-(RQUIET-R)*W(t)/W0 -> aggressive at the gust peak, gentle when
+# W->0 so the flap returns smoothly to 0 (no post-gust pulses) -> a smooth sinusoidal delta.
 DLPF=float(os.environ.get('DLPF','0.95')) # 1st-order low-pass on the flap command in the
 # harness loop -> smooth (sinusoidal) delta that does not excite the 14.5 Hz pitch mode.
 # The Controller's own target_lpf is ignored on the vectorized MPC path, so we filter here.
@@ -23,13 +26,16 @@ OUT=os.environ.get('OUT','results/mpc_gust')
 
 def gust(t): return (W0/2.0)*(1-np.cos(2*np.pi*t/TG)) if (0<=t<=TG) else 0.0
 
-def schedule(w0):
-    # feedforward gain schedule on gust peak velocity (a gust sensor provides w0).
-    # Characterized on synthetic gusts: Qad=30,R=1e-2,LPF=0.7 is the robust optimum
-    # (+39..+57% across W0=10..30); aggressive R<=1e-3 explodes. Very weak gusts get
-    # gentler gains (loads negligible, avoid needless flap chatter).
-    if w0 <= 8: return 100.0, 1e-2
-    else:       return  30.0, 1e-2
+def schedule(w0, tg):
+    # Feedforward schedule on gust peak velocity AND duration (gust sensor provides W0, Tg).
+    # Returns (Q_alpha_dot, R, DLPF). R=1e-3 uses more flap amplitude; the flap-smoothing
+    # DLPF is scaled to the gust timescale -> FAST flap for short gusts, smooth for long
+    # ones (short needs speed; long needs smoothing or alpha_dot/h_ddot explode).
+    if w0 <= 6: return 100.0, 1e-2, 0.9          # negligible gust: gentle, no needless flap
+    if tg <= 0.6:   D, R = 0.6,  1e-3             # short/fast gust -> fast flap
+    elif tg <= 1.5: D, R = 0.85, 1e-3            # medium gust
+    else:           D, R = 0.9, (1e-2 if w0 >= 25 else 1e-3)  # long gust: gentler if strong
+    return 30.0, R, D
 
 a=LDNetAero(MD); a.reset(dt=DT)
 # CFD pre-gust trim state (identical across all dataset sims; consistent with z=0,
@@ -38,7 +44,7 @@ a=LDNetAero(MD); a.reset(dt=DT)
 X0=np.array([-6.49179e-3, 0.0, -8.76338e-4, 0.0])
 clt,cmt=a.predict(X0,0.,0.,U); CLTRIM=float(clt)
 tg=np.arange(N)*DT; Wt=np.array([gust(t) for t in tg])
-if SCHED: QAD,RW=schedule(W0)
+if SCHED: QAD,RW,DLPF=schedule(W0,TG)
 
 def simulate(use_ctrl):
     a.reset(dt=DT); ctrl=None
@@ -50,6 +56,8 @@ def simulate(use_ctrl):
     x=X0.copy(); de_f=0.0; R={k:[] for k in ['h','hd','al','ad','hdd','add','de','CL','CM','Fy']}
     for i in range(N):
         if ctrl:
+            wn = min(1.0, (Wt[i]/W0)/0.1) if W0 > 1e-6 else 0.0   # 1 while gust>10% peak, ramps to 0 at the tails
+            ctrl.R = RQUIET - (RQUIET - RW)*wn             # aggressive THROUGHOUT the gust, gentle only after
             de_raw = ctrl.compute(x,W_hat=float(Wt[i]))
             de_f = DLPF*de_f + (1.0-DLPF)*de_raw      # smooth (sinusoidal) flap
             de = de_f
