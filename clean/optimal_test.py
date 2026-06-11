@@ -25,8 +25,8 @@ def simulate(ctrl):
         R['hdd'].append(der[1]);R['add'].append(der[3]);R['de'].append(de);R['CL'].append(float(cl))
     return {k:np.array(v) for k,v in R.items()}
 
-def mkctrl(Rw, QH=0., QA=0.):
-    return Controller(aero_predict=a.predict, U=U, dt=DT, Q_h=QH, Q_alpha=QA, Q_alpha_dot=0.,
+def mkctrl(Rw, QH=0., QA=0., QAD=0.):
+    return Controller(aero_predict=a.predict, U=U, dt=DT, Q_h=QH, Q_alpha=QA, Q_alpha_dot=QAD,
         Q_CL=1.0, R=Rw, R_du=0., target_lpf=0., e_ref=0., lpf_max=0., n_grid=NGRID,
         causal_basin=False, global_search=True, mpc_horizon=1,
         C_L_trim=CLTRIM, Fy_trim=0., Mz_trim=0., delta_max=14., delta_dot_max=300.)
@@ -45,10 +45,10 @@ def peaks(r, ref=None):
 print(f'=== one-step OPTIMAL (Q_CL=1, only R) on {SIM}  trim={CLTRIM:.3f}  N={N} grid={NGRID} ===',flush=True)
 ro=simulate(None); pko,_=peaks(ro)
 print('  open: '+' '.join(f'{k}={pko[k]:.4g}' for k in ['CLexc','h','al','ad','hdd','add']),flush=True)
-QH=float(os.environ.get('QH','0')); QA=float(os.environ.get('QA','0'))
-tag = f'(Q_h={QH:.0e},Q_a={QA:.0e})' if (QH>0 or QA>0) else '(minimal: Q_CL+R only)'
+QH=float(os.environ.get('QH','0')); QA=float(os.environ.get('QA','0')); QAD=float(os.environ.get('QAD','0'))
+tag = f'(Q_h={QH:.0e},Q_a={QA:.0e},Q_ad={QAD:.0e})' if (QH>0 or QA>0 or QAD>0) else '(minimal: Q_CL+R only)'
 print(f'  --- {tag} ---',flush=True)
 for Rw in [float(x) for x in os.environ.get('RS','0.01,0.1,1,10,100').split(',')]:
-    r=simulate(mkctrl(Rw,QH,QA)); pk,flag=peaks(r,pko)
+    r=simulate(mkctrl(Rw,QH,QA,QAD)); pk,flag=peaks(r,pko)
     red=(pko['CLexc']-pk['CLexc'])/pko['CLexc']*100
     print(f'  R={Rw:<6g} CLexc={pk["CLexc"]:.3f}({red:+.0f}%) dmax={pk["dmax"]:.1f} | h={pk["h"]:.4g} al={pk["al"]:.4g} ad={pk["ad"]:.3g} hdd={pk["hdd"]:.3g} add={pk["add"]:.3g}  {("EXPLODE: "+flag) if flag else "stable"}',flush=True)

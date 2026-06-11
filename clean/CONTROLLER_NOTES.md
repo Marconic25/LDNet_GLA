@@ -224,3 +224,11 @@ Finding: the minimal-objective one-step optimal nails C_L on the DESIGN gust at 
 18x open) -- the one-step cost cannot foresee the pitch dynamics it drives. On the STRONG
 gust it fails outright (saturates + pitch blow-up when aggressive, no alleviation when
 gentle). => states explode, so Phase 2 adds Q_h*h^2 + Q_alpha*alpha^2 (results below).
+
+Phase 2 (add Q_h*h^2 + Q_alpha*alpha^2, aggressive R=1e-4/1e-5):
+sim_A_025: Q=1e3/1e4 still EXPLODE (ad); only Q_h=Q_a=1e5 @R=1e-4 is stable (CLexc -74%,
+  ad 0.0096 ~2.5x open) -- huge weights, and worse than the minimal R=1e-3 (-73%, ad~open).
+sim_A_027: Q_h=Q_a up to 1e5 ALL EXPLODE (ad 0.16-0.21, add 13-18); no effect on the strong
+  gust (flap saturates + pitch blows up regardless).
+=> Q_h/Q_alpha (penalizing the pitch ANGLE) do NOT tame the explosion, which is in the pitch
+RATE (alpha_dot). Per design intent, remove h/alpha and use only Q_alpha_dot (Phase 3).
