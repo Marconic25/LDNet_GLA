@@ -184,3 +184,21 @@ GLA CONTROL WORKS (clean/taskC_gla.py, proportional delta=-G*(C_L-trim), real gu
   gain-scheduling needed for strong gusts.
 The earlier 'controllers fail / flap counterproductive' conclusion was an artifact of the
 flap-blind undertrained l=0.01 model; with a usable model GLA alleviates cleanly.
+
+## Rollout model — GLA robustness across held-out gusts (2026-06-11)
+Closed-loop accuracy (clcheck.py, z=0 + full loads) generalizes on the held-out TEST set:
+gust families A/Cc C_L/h/a NRMSE 0.04-0.12 (A_025 0.11, A_027 0.05, A_029 0.05, Cc_060/063/
+067 0.06/0.04/0.08). Caveat: very strong gusts are UNDER-predicted in magnitude (A_027
+data C_L exc 0.99 -> model 0.59; extrapolation beyond training range). Flap-only B family
+has higher relative NRMSE (0.14-0.27) but tiny absolute signals.
+
+GLA control generalization (clean_sweep.py, proportional delta=-G*(C_L-trim), +LPF option):
+| gust (open exc) | best C_L reduction | flap | notes |
+| A_025 (0.241 weak)  | -84% (G150) / -96% (LPF G300) | 3-5 deg  | no saturation |
+| A_028 (0.486 med)   | -61% (G40) / -64% (LPF G40)   | 7 deg    | saturates >G40 |
+| A_027 (0.584 strong)| -57% (G80)                    | 14 (sat) | LPF no help; high G hurts heave |
+Pattern: optimal gain DECREASES with gust strength; strong gusts saturate the flap (14 deg)
+and over-driving raises h_pk -> GAIN-SCHEDULING needed (key schedule on a gust estimate, not
+closed-loop C_L which the controller flattens). dC_L/ddelta~0.014/deg sets the authority
+limit: cancelling a 0.6 excursion needs ~14 deg (saturation). NEXT: MPC in the z=0 regime
+(anticipates), gust-magnitude-scheduled gain, extend ROLLOUT_LEN, run.py z=0 driver path.
