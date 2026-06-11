@@ -12,7 +12,10 @@ NH=int(os.environ.get('NH','6')); NGRID=int(os.environ.get('NGRID','15'))
 PLOT=os.environ.get('PLOT','0')=='1'
 SCHED=os.environ.get('SCHED','0')=='1'
 QAD=float(os.environ.get('QAD','100')); RW=float(os.environ.get('RW','0.01'))
-LPF=float(os.environ.get('LPF','0.0'))   # target_lpf on the MPC command (anti-chatter)
+LPF=float(os.environ.get('LPF','0.0'))   # (unused for MPC batch path)
+DLPF=float(os.environ.get('DLPF','0.95')) # 1st-order low-pass on the flap command in the
+# harness loop -> smooth (sinusoidal) delta that does not excite the 14.5 Hz pitch mode.
+# The Controller's own target_lpf is ignored on the vectorized MPC path, so we filter here.
 OUT=os.environ.get('OUT','results/mpc_gust')
 
 def gust(t): return (W0/2.0)*(1-np.cos(2*np.pi*t/TG)) if (0<=t<=TG) else 0.0
@@ -32,7 +35,7 @@ a=LDNetAero(MD); a.reset(dt=DT)
 X0=np.array([-6.49179e-3, 0.0, -8.76338e-4, 0.0])
 clt,cmt=a.predict(X0,0.,0.,U); CLTRIM=float(clt)
 tg=np.arange(N)*DT; Wt=np.array([gust(t) for t in tg])
-if SCHED: QAD,RW=schedule(W0); LPF=0.7
+if SCHED: QAD,RW=schedule(W0)
 
 def simulate(use_ctrl):
     a.reset(dt=DT); ctrl=None
@@ -41,9 +44,15 @@ def simulate(use_ctrl):
             Q_CL=1.0,R=RW,n_grid=NGRID,global_search=True,causal_basin=False,mpc_horizon=NH,aero=a,
             target_lpf=LPF,C_L_trim=CLTRIM,Fy_trim=0.,Mz_trim=0.,delta_max=14.,delta_dot_max=300.)
         ctrl.reset()
-    x=X0.copy(); R={k:[] for k in ['h','hd','al','ad','hdd','add','de','CL','CM','Fy']}
+    x=X0.copy(); de_f=0.0; R={k:[] for k in ['h','hd','al','ad','hdd','add','de','CL','CM','Fy']}
     for i in range(N):
-        de = ctrl.compute(x,W_hat=float(Wt[i])) if ctrl else 0.0
+        if ctrl:
+            de_raw = ctrl.compute(x,W_hat=float(Wt[i]))
+            de_f = DLPF*de_f + (1.0-DLPF)*de_raw      # smooth (sinusoidal) flap
+            de = de_f
+            ctrl._delta_prev = de                     # keep the rate-limit consistent
+        else:
+            de = 0.0
         cl,cm=a.predict(x,de,Wt[i],U); Fy=q*cl; Mz=q*cm*C
         der=structure.rhs(x,Fy,Mz)
         a.advance(x,de,Wt[i],U,DT); x=structure.step_rk4(x,Fy,Mz,DT)
