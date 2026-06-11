@@ -280,3 +280,21 @@ gust strengths (the horizon penalizes the pitch rate it would excite). One-step 
 best ONLY on the design gust (-73%); proportional is the simple robust baseline (-59%). MPC
 trades peak alleviation for robustness. Flap-authority saturation (dC_L/ddelta~0.014/deg)
 caps strong-gust alleviation for all controllers.
+
+## MPC gain-scheduling on synthetic gusts (W0, Tg) + state plots (2026-06-11)
+clean/mpc_gust.py: synthetic 1-cos gust W(t)=(W0/2)(1-cos(2pi t/Tg)), CFD pre-gust trim IC
+(X0=[-6.49e-3,0,-8.76e-4,0]; the fsolve trim gave a spurious startup transient -> use the
+CFD trim consistent with z=0), z=0 rollout regime, MPC (Q_CL+Q_alpha_dot, H=6) with optional
+target_lpf and a feedforward gain schedule on W0. Plots all 9 states open vs closed in the
+dataset_v5 gust_response.png style (h,hd,alpha,alpha_dot,C_L,Fy,C_M,W_gust,delta).
+
+Characterization (Tg=1.0, LPF=0.7), best STABLE C_L-excursion reduction:
+  W0=5 (exc 0.08): ~0% (load negligible, MPC stays gentle)
+  W0=10(exc 0.23): Qad=30,R=1e-2 -> +55%
+  W0=15(exc 0.31): Qad=100,R=1e-2 -> +33% (Qad=30 borderline)
+  W0=20(exc 0.47): Qad=30,R=1e-2 -> +57%
+  W0=30(exc 0.59): Qad=30,R=1e-2 -> +39%
+Aggressive R<=1e-3 EXPLODES at almost all W0 (and Tg=1,2). Tg also matters: shorter gusts
+tolerate more aggression. Schedule adopted: Qad=100,R=1e-2 for W0<=8 (gentle), else Qad=30,
+R=1e-2, LPF=0.7. The MPC self-regulates (R*delta^2 + flap saturation cap aggression), so a
+heavy schedule is not needed -- one robust setting (+39..+57%) covers W0=10..30.
