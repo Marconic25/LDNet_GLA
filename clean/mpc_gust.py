@@ -33,9 +33,14 @@ def schedule(w0, tg):
     # DLPF is scaled to the gust timescale -> FAST flap for short gusts, smooth for long
     # ones (short needs speed; long needs smoothing or alpha_dot/h_ddot explode).
     if w0 <= 6: return 100.0, 1e-2, 0.9          # negligible gust: gentle, no needless flap
-    if tg <= 0.6:   D, R = 0.6,  1e-3             # short/fast gust -> fast flap
-    elif tg <= 1.5: D, R = 0.85, 1e-3            # medium gust
-    else:           D, R = 0.9, (1e-2 if w0 >= 25 else 1e-3)  # long gust: gentler if strong
+    strong = w0 >= 25
+    if tg <= 0.6:   D = 0.6                        # short/fast gust -> fast flap
+    elif tg <= 1.5: D = 0.7 if strong else 0.85   # medium gust (strong: less smoothing -> MORE flap)
+    else:           D = 0.9                        # long gust -> smoother
+    # R sets the flap amplitude: stronger gusts use MORE flap (lower R, toward saturation).
+    # Long+strong gusts kept gentle (R=1e-2) to avoid the pitch blow-up.
+    if strong:  R = 1e-2 if tg > 1.5 else 3e-4
+    else:       R = 1e-3
     return 30.0, R, D
 
 a=LDNetAero(MD); a.reset(dt=DT)
