@@ -259,3 +259,24 @@ sim_A_027 (strong): stable only at R=1e-2 (+10..+18%, modest).
 => Q_CL-only MPC does NOT beat the one-step: the constant-delta rollout has no pitch-rate
 penalty, so nothing stops it exciting pitch. The project's MPC needed Q_alpha_dot in the
 rollout (the horizon SEES alpha_dot grow and penalizes it). Testing Q_CL + Q_alpha_dot next.
+
+MPC + Q_alpha_dot (Q_CL=1 + Q_alpha_dot, H=6):
+sim_A_025 (design): Q_ad=100,R=1e-2 -> CLexc 0.131 (+46%) STABLE (ad 0.0115, hdd 0.81 ~open).
+  Q_ad=10 explodes (too weak); Q_ad=1000 over-damps -> C_L WORSE + hdd explode.
+sim_A_027 (strong): Q_ad=10,R=1e-3 -> CLexc 0.469 (+20%) STABLE (ad 0.073, hdd 3.3, add 4.8
+  all <3x open). Q_ad=100,R=1e-2 -> +11% stable. THIS is where MPC wins: stable alleviation
+  on the strong gust, where the one-step optimal had NONE.
+
+=== CONTROLLER COMPARISON (rollout model, z=0 regime, C_L excursion reduction) ===
+| controller                         | design A_025 (0.241) | strong A_027 (0.584) |
+| Proportional (G=20 / +LPF)         | -59% / up to -96%    | saturates, modest    |
+| 1-step optimal, Q_CL+R (R=1e-3)    | -73% STABLE          | NONE (explode/useless)|
+| 1-step + Q_alpha_dot               | tames pitch, C_L WORSE| stable but C_L WORSE |
+| MPC Q_CL-only (H=3..10)            | explodes             | +10..18% (R=1e-2)    |
+| MPC + Q_alpha_dot (Qad=100,R=1e-2) | +46% STABLE          | +11% STABLE          |
+| MPC + Q_alpha_dot (Qad=10,R=1e-3)  | (+76% but explode)   | +20% STABLE          |
+TAKEAWAY: MPC+Q_alpha_dot is the only model-based controller STABLE while alleviating on BOTH
+gust strengths (the horizon penalizes the pitch rate it would excite). One-step optimal is
+best ONLY on the design gust (-73%); proportional is the simple robust baseline (-59%). MPC
+trades peak alleviation for robustness. Flap-authority saturation (dC_L/ddelta~0.014/deg)
+caps strong-gust alleviation for all controllers.
