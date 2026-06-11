@@ -232,3 +232,19 @@ sim_A_027: Q_h=Q_a up to 1e5 ALL EXPLODE (ad 0.16-0.21, add 13-18); no effect on
   gust (flap saturates + pitch blows up regardless).
 => Q_h/Q_alpha (penalizing the pitch ANGLE) do NOT tame the explosion, which is in the pitch
 RATE (alpha_dot). Per design intent, remove h/alpha and use only Q_alpha_dot (Phase 3).
+
+Phase 3 (Q_CL + Q_alpha_dot + R, h/alpha removed):
+sim_A_025 (design): Q_ad=1 still EXPLODE(ad); Q_ad=100 weak (CLexc only -29%, still ad);
+  Q_ad>=1e4 TAMES pitch (ad~open) BUT flap saturates, CLexc gets WORSE (+123%) and the
+  explosion moves to HEAVE (hdd 2.2 = 8x open). No good setting.
+sim_A_027 (strong): Q_ad=1 EXPLODE; Q_ad>=100 STABLE (pitch tamed) but CLexc WORSE
+  (+13..+43%) -- controller saturates the flap to kill pitch rate, sacrificing GLA.
+
+CONCLUSION (one-step optimal, rollout model): Q_alpha_dot confirms the instability is the
+pitch RATE (penalizing it stabilizes), but there is NO one-step setting that BOTH alleviates
+C_L AND keeps the structure calm -- reducing C_L wants aggressive flap, not exciting pitch
+wants gentle flap; the one-step cost cannot navigate this multi-step tradeoff and the flap
+saturates. Best one-step result = minimal objective Q_CL+R at R=1e-3 on the design gust
+(-73%, stable); the strong gust has no viable one-step solution. => motivates receding-
+horizon MPC (sees the multi-step pitch dynamics) as the principled controller. Proportional
+remains the simple robust baseline (-59% design, modest flap).
