@@ -1,0 +1,503 @@
+=== FULL-CONV l01 start @ Wed 10 Jun 18:14:01 CEST 2026 ===
+2026-06-10 18:14:17.524816: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-10 18:14:18.992713: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-10 18:14:18.995418: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-10 18:14:19.004616: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-10 18:14:19.799204: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Loading datasets...
+  train loaded 0.3s
+  valid loaded 0.1s
+  test  loaded 0.1s
+Family indices in test set: {'A': 0, 'B': 5, 'Cc': 13}
+  loading HDF5...
+  train loaded 0.1s
+  valid loaded 0.0s
+  test  loaded 0.0s
+  processing train...
+  done 0.2s
+  processing valid...
+  done 0.0s
+  processing test...
+  done 0.0s
+
+============================================================
+  Training num_latent_states = 10
+============================================================
+Tracing functions with autograph...
+Tracing completed.
+epoch    0   -   training loss: 1.757e-01   -   validation loss 1.677e-01
+  Adam...
+epoch   10   -   training loss: 7.562e-02   -   validation loss 7.091e-02
+epoch   20   -   training loss: 2.647e-02   -   validation loss 2.947e-02
+epoch   30   -   training loss: 1.617e-02   -   validation loss 1.746e-02
+epoch   40   -   training loss: 2.409e-02   -   validation loss 2.294e-02
+epoch   50   -   training loss: 1.842e-02   -   validation loss 1.836e-02
+epoch   60   -   training loss: 1.576e-02   -   validation loss 1.649e-02
+epoch   70   -   training loss: 1.538e-02   -   validation loss 1.630e-02
+epoch   80   -   training loss: 1.535e-02   -   validation loss 1.621e-02
+epoch   90   -   training loss: 1.583e-02   -   validation loss 1.666e-02
+epoch  100   -   training loss: 1.896e-02   -   validation loss 1.929e-02
+epoch  110   -   training loss: 1.514e-02   -   validation loss 1.568e-02
+epoch  120   -   training loss: 1.523e-02   -   validation loss 1.609e-02
+epoch  130   -   training loss: 1.519e-02   -   validation loss 1.597e-02
+epoch  140   -   training loss: 1.516e-02   -   validation loss 1.591e-02
+epoch  150   -   training loss: 1.514e-02   -   validation loss 1.586e-02
+epoch  160   -   training loss: 1.513e-02   -   validation loss 1.582e-02
+epoch  170   -   training loss: 1.513e-02   -   validation loss 1.579e-02
+epoch  180   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  190   -   training loss: 1.513e-02   -   validation loss 1.576e-02
+epoch  200   -   training loss: 1.513e-02   -   validation loss 1.576e-02
+  [ckpt] saved weights at iter 200
+epoch  210   -   training loss: 1.512e-02   -   validation loss 1.577e-02
+epoch  220   -   training loss: 1.511e-02   -   validation loss 1.576e-02
+epoch  230   -   training loss: 1.514e-02   -   validation loss 1.576e-02
+epoch  240   -   training loss: 1.513e-02   -   validation loss 1.575e-02
+epoch  250   -   training loss: 1.512e-02   -   validation loss 1.577e-02
+epoch  260   -   training loss: 1.616e-02   -   validation loss 1.676e-02
+epoch  270   -   training loss: 1.550e-02   -   validation loss 1.611e-02
+epoch  280   -   training loss: 1.522e-02   -   validation loss 1.591e-02
+epoch  290   -   training loss: 1.520e-02   -   validation loss 1.584e-02
+epoch  300   -   training loss: 1.514e-02   -   validation loss 1.576e-02
+epoch  310   -   training loss: 1.514e-02   -   validation loss 1.579e-02
+epoch  320   -   training loss: 1.513e-02   -   validation loss 1.578e-02
+epoch  330   -   training loss: 1.513e-02   -   validation loss 1.576e-02
+epoch  340   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  350   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  360   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  370   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  380   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  390   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  400   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+  [ckpt] saved weights at iter 400
+  BFGS...
+epoch  410   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  420   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  430   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  440   -   training loss: 1.508e-02   -   validation loss 1.566e-02
+epoch  450   -   training loss: 1.439e-02   -   validation loss 1.528e-02
+epoch  460   -   training loss: 1.309e-02   -   validation loss 1.396e-02
+epoch  470   -   training loss: 1.261e-02   -   validation loss 1.313e-02
+epoch  480   -   training loss: 1.077e-02   -   validation loss 9.807e-03
+epoch  490   -   training loss: 7.994e-03   -   validation loss 8.543e-03
+epoch  500   -   training loss: 6.083e-03   -   validation loss 6.931e-03
+epoch  510   -   training loss: 5.055e-03   -   validation loss 5.881e-03
+epoch  520   -   training loss: 4.481e-03   -   validation loss 5.337e-03
+epoch  530   -   training loss: 3.774e-03   -   validation loss 4.510e-03
+epoch  540   -   training loss: 3.184e-03   -   validation loss 3.745e-03
+epoch  550   -   training loss: 2.703e-03   -   validation loss 3.213e-03
+epoch  560   -   training loss: 2.518e-03   -   validation loss 3.031e-03
+epoch  570   -   training loss: 2.290e-03   -   validation loss 2.844e-03
+epoch  580   -   training loss: 2.049e-03   -   validation loss 2.614e-03
+epoch  590   -   training loss: 1.895e-03   -   validation loss 2.526e-03
+epoch  600   -   training loss: 1.787e-03   -   validation loss 2.413e-03
+  [ckpt] saved weights at iter 600
+epoch  610   -   training loss: 1.683e-03   -   validation loss 2.262e-03
+epoch  620   -   training loss: 1.614e-03   -   validation loss 2.200e-03
+epoch  630   -   training loss: 1.554e-03   -   validation loss 2.111e-03
+epoch  640   -   training loss: 1.505e-03   -   validation loss 2.065e-03
+epoch  650   -   training loss: 1.457e-03   -   validation loss 1.972e-03
+epoch  660   -   training loss: 1.386e-03   -   validation loss 1.854e-03
+epoch  670   -   training loss: 1.317e-03   -   validation loss 1.750e-03
+epoch  680   -   training loss: 1.237e-03   -   validation loss 1.643e-03
+epoch  690   -   training loss: 1.180e-03   -   validation loss 1.605e-03
+epoch  700   -   training loss: 1.128e-03   -   validation loss 1.533e-03
+epoch  710   -   training loss: 1.054e-03   -   validation loss 1.414e-03
+epoch  720   -   training loss: 1.006e-03   -   validation loss 1.361e-03
+epoch  730   -   training loss: 9.546e-04   -   validation loss 1.275e-03
+epoch  740   -   training loss: 9.155e-04   -   validation loss 1.235e-03
+epoch  750   -   training loss: 8.928e-04   -   validation loss 1.194e-03
+epoch  760   -   training loss: 8.396e-04   -   validation loss 1.080e-03
+epoch  770   -   training loss: 8.082e-04   -   validation loss 1.068e-03
+epoch  780   -   training loss: 7.780e-04   -   validation loss 1.044e-03
+epoch  790   -   training loss: 7.538e-04   -   validation loss 1.010e-03
+epoch  800   -   training loss: 7.171e-04   -   validation loss 9.499e-04
+  [ckpt] saved weights at iter 800
+epoch  810   -   training loss: 6.708e-04   -   validation loss 9.017e-04
+epoch  820   -   training loss: 6.271e-04   -   validation loss 8.319e-04
+epoch  830   -   training loss: 5.949e-04   -   validation loss 7.921e-04
+epoch  840   -   training loss: 5.786e-04   -   validation loss 7.873e-04
+epoch  850   -   training loss: 5.427e-04   -   validation loss 7.266e-04
+epoch  860   -   training loss: 5.178e-04   -   validation loss 6.884e-04
+epoch  870   -   training loss: 4.974e-04   -   validation loss 6.591e-04
+epoch  880   -   training loss: 4.688e-04   -   validation loss 5.919e-04
+epoch  890   -   training loss: 4.242e-04   -   validation loss 5.402e-04
+epoch  900   -   training loss: 3.936e-04   -   validation loss 5.128e-04
+epoch  910   -   training loss: 3.651e-04   -   validation loss 4.813e-04
+epoch  920   -   training loss: 3.434e-04   -   validation loss 4.448e-04
+epoch  930   -   training loss: 3.255e-04   -   validation loss 4.060e-04
+epoch  940   -   training loss: 3.121e-04   -   validation loss 3.703e-04
+epoch  950   -   training loss: 2.998e-04   -   validation loss 3.502e-04
+epoch  960   -   training loss: 2.915e-04   -   validation loss 3.402e-04
+epoch  970   -   training loss: 2.738e-04   -   validation loss 3.376e-04
+epoch  980   -   training loss: 2.663e-04   -   validation loss 3.189e-04
+epoch  990   -   training loss: 2.528e-04   -   validation loss 2.967e-04
+epoch 1000   -   training loss: 2.426e-04   -   validation loss 2.943e-04
+  [ckpt] saved weights at iter 1000
+epoch 1010   -   training loss: 2.341e-04   -   validation loss 2.804e-04
+epoch 1020   -   training loss: 2.215e-04   -   validation loss 2.746e-04
+epoch 1030   -   training loss: 2.159e-04   -   validation loss 2.617e-04
+epoch 1040   -   training loss: 2.094e-04   -   validation loss 2.527e-04
+epoch 1050   -   training loss: 2.054e-04   -   validation loss 2.440e-04
+epoch 1060   -   training loss: 2.017e-04   -   validation loss 2.371e-04
+epoch 1070   -   training loss: 1.936e-04   -   validation loss 2.272e-04
+epoch 1080   -   training loss: 1.886e-04   -   validation loss 2.212e-04
+epoch 1090   -   training loss: 1.856e-04   -   validation loss 2.181e-04
+epoch 1100   -   training loss: 1.831e-04   -   validation loss 2.141e-04
+epoch 1110   -   training loss: 1.796e-04   -   validation loss 2.079e-04
+epoch 1120   -   training loss: 1.725e-04   -   validation loss 1.980e-04
+epoch 1130   -   training loss: 1.687e-04   -   validation loss 1.916e-04
+epoch 1140   -   training loss: 1.653e-04   -   validation loss 1.890e-04
+epoch 1150   -   training loss: 1.594e-04   -   validation loss 1.886e-04
+epoch 1160   -   training loss: 1.562e-04   -   validation loss 1.883e-04
+epoch 1170   -   training loss: 1.515e-04   -   validation loss 1.765e-04
+epoch 1180   -   training loss: 1.478e-04   -   validation loss 1.739e-04
+epoch 1190   -   training loss: 1.441e-04   -   validation loss 1.715e-04
+epoch 1200   -   training loss: 1.378e-04   -   validation loss 1.678e-04
+  [ckpt] saved weights at iter 1200
+epoch 1210   -   training loss: 1.346e-04   -   validation loss 1.632e-04
+epoch 1220   -   training loss: 1.309e-04   -   validation loss 1.590e-04
+epoch 1230   -   training loss: 1.281e-04   -   validation loss 1.538e-04
+epoch 1240   -   training loss: 1.263e-04   -   validation loss 1.544e-04
+epoch 1250   -   training loss: 1.238e-04   -   validation loss 1.525e-04
+epoch 1260   -   training loss: 1.216e-04   -   validation loss 1.473e-04
+epoch 1270   -   training loss: 1.184e-04   -   validation loss 1.428e-04
+epoch 1280   -   training loss: 1.159e-04   -   validation loss 1.390e-04
+epoch 1290   -   training loss: 1.129e-04   -   validation loss 1.385e-04
+epoch 1300   -   training loss: 1.112e-04   -   validation loss 1.342e-04
+epoch 1310   -   training loss: 1.077e-04   -   validation loss 1.290e-04
+epoch 1320   -   training loss: 1.052e-04   -   validation loss 1.245e-04
+epoch 1330   -   training loss: 1.036e-04   -   validation loss 1.237e-04
+epoch 1340   -   training loss: 1.006e-04   -   validation loss 1.217e-04
+epoch 1350   -   training loss: 9.631e-05   -   validation loss 1.168e-04
+epoch 1360   -   training loss: 9.423e-05   -   validation loss 1.155e-04
+epoch 1370   -   training loss: 9.143e-05   -   validation loss 1.106e-04
+epoch 1380   -   training loss: 8.949e-05   -   validation loss 1.083e-04
+epoch 1390   -   training loss: 8.746e-05   -   validation loss 1.086e-04
+epoch 1400   -   training loss: 8.554e-05   -   validation loss 1.083e-04
+  [ckpt] saved weights at iter 1400
+epoch 1410   -   training loss: 8.366e-05   -   validation loss 1.078e-04
+epoch 1420   -   training loss: 8.086e-05   -   validation loss 1.046e-04
+epoch 1430   -   training loss: 7.871e-05   -   validation loss 1.030e-04
+epoch 1440   -   training loss: 7.589e-05   -   validation loss 9.874e-05
+epoch 1450   -   training loss: 7.345e-05   -   validation loss 9.491e-05
+epoch 1460   -   training loss: 7.222e-05   -   validation loss 9.286e-05
+epoch 1470   -   training loss: 7.100e-05   -   validation loss 9.153e-05
+epoch 1480   -   training loss: 6.930e-05   -   validation loss 9.104e-05
+epoch 1490   -   training loss: 6.754e-05   -   validation loss 8.713e-05
+epoch 1500   -   training loss: 6.568e-05   -   validation loss 8.586e-05
+epoch 1510   -   training loss: 6.370e-05   -   validation loss 8.630e-05
+epoch 1520   -   training loss: 6.294e-05   -   validation loss 8.461e-05
+epoch 1530   -   training loss: 6.183e-05   -   validation loss 8.329e-05
+epoch 1540   -   training loss: 6.058e-05   -   validation loss 8.120e-05
+epoch 1550   -   training loss: 5.907e-05   -   validation loss 8.086e-05
+epoch 1560   -   training loss: 5.759e-05   -   validation loss 7.794e-05
+epoch 1570   -   training loss: 5.620e-05   -   validation loss 7.639e-05
+epoch 1580   -   training loss: 5.537e-05   -   validation loss 7.454e-05
+epoch 1590   -   training loss: 5.334e-05   -   validation loss 7.154e-05
+epoch 1600   -   training loss: 5.131e-05   -   validation loss 6.779e-05
+  [ckpt] saved weights at iter 1600
+epoch 1610   -   training loss: 5.009e-05   -   validation loss 6.553e-05
+epoch 1620   -   training loss: 4.882e-05   -   validation loss 6.470e-05
+epoch 1630   -   training loss: 4.734e-05   -   validation loss 6.293e-05
+epoch 1640   -   training loss: 4.637e-05   -   validation loss 6.287e-05
+epoch 1650   -   training loss: 4.481e-05   -   validation loss 6.055e-05
+epoch 1660   -   training loss: 4.401e-05   -   validation loss 5.888e-05
+epoch 1670   -   training loss: 4.298e-05   -   validation loss 5.764e-05
+epoch 1680   -   training loss: 4.229e-05   -   validation loss 5.700e-05
+epoch 1690   -   training loss: 4.142e-05   -   validation loss 5.502e-05
+epoch 1700   -   training loss: 4.092e-05   -   validation loss 5.425e-05
+epoch 1710   -   training loss: 4.033e-05   -   validation loss 5.358e-05
+epoch 1720   -   training loss: 3.968e-05   -   validation loss 5.289e-05
+epoch 1730   -   training loss: 3.900e-05   -   validation loss 5.195e-05
+epoch 1740   -   training loss: 3.834e-05   -   validation loss 5.184e-05
+epoch 1750   -   training loss: 3.767e-05   -   validation loss 5.101e-05
+epoch 1760   -   training loss: 3.711e-05   -   validation loss 5.027e-05
+epoch 1770   -   training loss: 3.658e-05   -   validation loss 4.908e-05
+epoch 1780   -   training loss: 3.598e-05   -   validation loss 4.805e-05
+epoch 1790   -   training loss: 3.525e-05   -   validation loss 4.766e-05
+epoch 1800   -   training loss: 3.462e-05   -   validation loss 4.712e-05
+  [ckpt] saved weights at iter 1800
+epoch 1810   -   training loss: 3.377e-05   -   validation loss 4.611e-05
+epoch 1820   -   training loss: 3.285e-05   -   validation loss 4.470e-05
+epoch 1830   -   training loss: 3.235e-05   -   validation loss 4.351e-05
+epoch 1840   -   training loss: 3.212e-05   -   validation loss 4.337e-05
+epoch 1850   -   training loss: 3.158e-05   -   validation loss 4.252e-05
+epoch 1860   -   training loss: 3.084e-05   -   validation loss 4.205e-05
+epoch 1870   -   training loss: 3.050e-05   -   validation loss 4.182e-05
+epoch 1880   -   training loss: 3.030e-05   -   validation loss 4.167e-05
+epoch 1890   -   training loss: 2.995e-05   -   validation loss 4.094e-05
+epoch 1900   -   training loss: 2.953e-05   -   validation loss 3.974e-05
+epoch 1910   -   training loss: 2.918e-05   -   validation loss 3.917e-05
+epoch 1920   -   training loss: 2.884e-05   -   validation loss 3.834e-05
+epoch 1930   -   training loss: 2.810e-05   -   validation loss 3.699e-05
+epoch 1940   -   training loss: 2.748e-05   -   validation loss 3.672e-05
+epoch 1950   -   training loss: 2.696e-05   -   validation loss 3.615e-05
+epoch 1960   -   training loss: 2.656e-05   -   validation loss 3.645e-05
+epoch 1970   -   training loss: 2.596e-05   -   validation loss 3.609e-05
+epoch 1980   -   training loss: 2.562e-05   -   validation loss 3.592e-05
+epoch 1990   -   training loss: 2.535e-05   -   validation loss 3.548e-05
+epoch 2000   -   training loss: 2.504e-05   -   validation loss 3.504e-05
+  [ckpt] saved weights at iter 2000
+epoch 2010   -   training loss: 2.485e-05   -   validation loss 3.469e-05
+epoch 2020   -   training loss: 2.478e-05   -   validation loss 3.446e-05
+epoch 2030   -   training loss: 2.455e-05   -   validation loss 3.382e-05
+epoch 2040   -   training loss: 2.437e-05   -   validation loss 3.334e-05
+epoch 2050   -   training loss: 2.426e-05   -   validation loss 3.299e-05
+epoch 2060   -   training loss: 2.412e-05   -   validation loss 3.312e-05
+epoch 2070   -   training loss: 2.397e-05   -   validation loss 3.278e-05
+epoch 2080   -   training loss: 2.373e-05   -   validation loss 3.227e-05
+epoch 2090   -   training loss: 2.357e-05   -   validation loss 3.241e-05
+epoch 2100   -   training loss: 2.343e-05   -   validation loss 3.208e-05
+epoch 2110   -   training loss: 2.315e-05   -   validation loss 3.149e-05
+epoch 2120   -   training loss: 2.302e-05   -   validation loss 3.154e-05
+epoch 2130   -   training loss: 2.281e-05   -   validation loss 3.168e-05
+epoch 2140   -   training loss: 2.268e-05   -   validation loss 3.183e-05
+epoch 2150   -   training loss: 2.258e-05   -   validation loss 3.160e-05
+epoch 2160   -   training loss: 2.246e-05   -   validation loss 3.150e-05
+epoch 2170   -   training loss: 2.231e-05   -   validation loss 3.160e-05
+epoch 2180   -   training loss: 2.214e-05   -   validation loss 3.131e-05
+epoch 2190   -   training loss: 2.192e-05   -   validation loss 3.079e-05
+epoch 2200   -   training loss: 2.182e-05   -   validation loss 3.058e-05
+  [ckpt] saved weights at iter 2200
+epoch 2210   -   training loss: 2.169e-05   -   validation loss 3.052e-05
+epoch 2220   -   training loss: 2.150e-05   -   validation loss 3.036e-05
+epoch 2230   -   training loss: 2.132e-05   -   validation loss 3.015e-05
+epoch 2240   -   training loss: 2.119e-05   -   validation loss 3.007e-05
+epoch 2250   -   training loss: 2.093e-05   -   validation loss 2.958e-05
+epoch 2260   -   training loss: 2.074e-05   -   validation loss 3.003e-05
+epoch 2270   -   training loss: 2.061e-05   -   validation loss 2.964e-05
+epoch 2280   -   training loss: 2.027e-05   -   validation loss 2.933e-05
+epoch 2290   -   training loss: 2.019e-05   -   validation loss 2.923e-05
+epoch 2300   -   training loss: 2.012e-05   -   validation loss 2.907e-05
+epoch 2310   -   training loss: 1.993e-05   -   validation loss 2.827e-05
+epoch 2320   -   training loss: 1.974e-05   -   validation loss 2.772e-05
+epoch 2330   -   training loss: 1.941e-05   -   validation loss 2.693e-05
+epoch 2340   -   training loss: 1.932e-05   -   validation loss 2.686e-05
+epoch 2350   -   training loss: 1.927e-05   -   validation loss 2.692e-05
+epoch 2360   -   training loss: 1.917e-05   -   validation loss 2.705e-05
+epoch 2370   -   training loss: 1.901e-05   -   validation loss 2.702e-05
+epoch 2380   -   training loss: 1.886e-05   -   validation loss 2.724e-05
+epoch 2390   -   training loss: 1.876e-05   -   validation loss 2.758e-05
+epoch 2400   -   training loss: 1.871e-05   -   validation loss 2.767e-05
+  [ckpt] saved weights at iter 2400
+epoch 2410   -   training loss: 1.868e-05   -   validation loss 2.768e-05
+epoch 2420   -   training loss: 1.855e-05   -   validation loss 2.762e-05
+epoch 2430   -   training loss: 1.846e-05   -   validation loss 2.742e-05
+epoch 2440   -   training loss: 1.830e-05   -   validation loss 2.702e-05
+epoch 2450   -   training loss: 1.817e-05   -   validation loss 2.654e-05
+epoch 2460   -   training loss: 1.807e-05   -   validation loss 2.648e-05
+epoch 2470   -   training loss: 1.791e-05   -   validation loss 2.596e-05
+epoch 2480   -   training loss: 1.781e-05   -   validation loss 2.564e-05
+epoch 2490   -   training loss: 1.776e-05   -   validation loss 2.549e-05
+epoch 2500   -   training loss: 1.771e-05   -   validation loss 2.549e-05
+epoch 2510   -   training loss: 1.762e-05   -   validation loss 2.526e-05
+epoch 2520   -   training loss: 1.749e-05   -   validation loss 2.514e-05
+epoch 2530   -   training loss: 1.734e-05   -   validation loss 2.474e-05
+epoch 2540   -   training loss: 1.720e-05   -   validation loss 2.503e-05
+epoch 2550   -   training loss: 1.704e-05   -   validation loss 2.451e-05
+epoch 2560   -   training loss: 1.696e-05   -   validation loss 2.447e-05
+epoch 2570   -   training loss: 1.689e-05   -   validation loss 2.439e-05
+epoch 2580   -   training loss: 1.684e-05   -   validation loss 2.418e-05
+epoch 2590   -   training loss: 1.678e-05   -   validation loss 2.389e-05
+epoch 2600   -   training loss: 1.671e-05   -   validation loss 2.393e-05
+  [ckpt] saved weights at iter 2600
+epoch 2610   -   training loss: 1.665e-05   -   validation loss 2.387e-05
+epoch 2620   -   training loss: 1.655e-05   -   validation loss 2.361e-05
+epoch 2630   -   training loss: 1.650e-05   -   validation loss 2.347e-05
+epoch 2640   -   training loss: 1.639e-05   -   validation loss 2.371e-05
+epoch 2650   -   training loss: 1.626e-05   -   validation loss 2.352e-05
+epoch 2660   -   training loss: 1.622e-05   -   validation loss 2.348e-05
+epoch 2670   -   training loss: 1.610e-05   -   validation loss 2.349e-05
+epoch 2680   -   training loss: 1.590e-05   -   validation loss 2.363e-05
+epoch 2690   -   training loss: 1.575e-05   -   validation loss 2.332e-05
+epoch 2700   -   training loss: 1.564e-05   -   validation loss 2.305e-05
+epoch 2710   -   training loss: 1.556e-05   -   validation loss 2.272e-05
+epoch 2720   -   training loss: 1.551e-05   -   validation loss 2.265e-05
+epoch 2730   -   training loss: 1.541e-05   -   validation loss 2.268e-05
+epoch 2740   -   training loss: 1.526e-05   -   validation loss 2.258e-05
+epoch 2750   -   training loss: 1.516e-05   -   validation loss 2.257e-05
+epoch 2760   -   training loss: 1.507e-05   -   validation loss 2.213e-05
+epoch 2770   -   training loss: 1.501e-05   -   validation loss 2.188e-05
+epoch 2780   -   training loss: 1.494e-05   -   validation loss 2.143e-05
+epoch 2790   -   training loss: 1.485e-05   -   validation loss 2.144e-05
+epoch 2800   -   training loss: 1.478e-05   -   validation loss 2.138e-05
+  [ckpt] saved weights at iter 2800
+epoch 2810   -   training loss: 1.464e-05   -   validation loss 2.117e-05
+epoch 2820   -   training loss: 1.454e-05   -   validation loss 2.076e-05
+epoch 2830   -   training loss: 1.442e-05   -   validation loss 2.060e-05
+epoch 2840   -   training loss: 1.425e-05   -   validation loss 2.049e-05
+epoch 2850   -   training loss: 1.417e-05   -   validation loss 2.031e-05
+epoch 2860   -   training loss: 1.411e-05   -   validation loss 2.000e-05
+epoch 2870   -   training loss: 1.405e-05   -   validation loss 2.001e-05
+epoch 2880   -   training loss: 1.399e-05   -   validation loss 2.008e-05
+epoch 2890   -   training loss: 1.393e-05   -   validation loss 1.991e-05
+epoch 2900   -   training loss: 1.385e-05   -   validation loss 1.979e-05
+epoch 2910   -   training loss: 1.377e-05   -   validation loss 1.997e-05
+epoch 2920   -   training loss: 1.373e-05   -   validation loss 2.006e-05
+epoch 2930   -   training loss: 1.363e-05   -   validation loss 1.997e-05
+epoch 2940   -   training loss: 1.357e-05   -   validation loss 2.013e-05
+epoch 2950   -   training loss: 1.350e-05   -   validation loss 1.999e-05
+epoch 2960   -   training loss: 1.339e-05   -   validation loss 1.968e-05
+epoch 2970   -   training loss: 1.333e-05   -   validation loss 1.961e-05
+epoch 2980   -   training loss: 1.327e-05   -   validation loss 1.951e-05
+epoch 2990   -   training loss: 1.323e-05   -   validation loss 1.947e-05
+epoch 3000   -   training loss: 1.315e-05   -   validation loss 1.945e-05
+  [ckpt] saved weights at iter 3000
+epoch 3010   -   training loss: 1.309e-05   -   validation loss 1.934e-05
+epoch 3020   -   training loss: 1.301e-05   -   validation loss 1.916e-05
+epoch 3030   -   training loss: 1.298e-05   -   validation loss 1.913e-05
+epoch 3040   -   training loss: 1.291e-05   -   validation loss 1.901e-05
+epoch 3050   -   training loss: 1.285e-05   -   validation loss 1.887e-05
+epoch 3060   -   training loss: 1.278e-05   -   validation loss 1.855e-05
+epoch 3070   -   training loss: 1.267e-05   -   validation loss 1.863e-05
+epoch 3080   -   training loss: 1.258e-05   -   validation loss 1.841e-05
+epoch 3090   -   training loss: 1.251e-05   -   validation loss 1.833e-05
+epoch 3100   -   training loss: 1.244e-05   -   validation loss 1.814e-05
+epoch 3110   -   training loss: 1.238e-05   -   validation loss 1.807e-05
+epoch 3120   -   training loss: 1.234e-05   -   validation loss 1.798e-05
+epoch 3130   -   training loss: 1.228e-05   -   validation loss 1.814e-05
+epoch 3140   -   training loss: 1.223e-05   -   validation loss 1.798e-05
+epoch 3150   -   training loss: 1.219e-05   -   validation loss 1.804e-05
+epoch 3160   -   training loss: 1.217e-05   -   validation loss 1.816e-05
+epoch 3170   -   training loss: 1.214e-05   -   validation loss 1.808e-05
+epoch 3180   -   training loss: 1.208e-05   -   validation loss 1.815e-05
+epoch 3190   -   training loss: 1.202e-05   -   validation loss 1.809e-05
+epoch 3200   -   training loss: 1.195e-05   -   validation loss 1.792e-05
+  [ckpt] saved weights at iter 3200
+epoch 3210   -   training loss: 1.190e-05   -   validation loss 1.776e-05
+epoch 3220   -   training loss: 1.187e-05   -   validation loss 1.771e-05
+epoch 3230   -   training loss: 1.184e-05   -   validation loss 1.759e-05
+epoch 3240   -   training loss: 1.180e-05   -   validation loss 1.762e-05
+epoch 3250   -   training loss: 1.175e-05   -   validation loss 1.763e-05
+epoch 3260   -   training loss: 1.173e-05   -   validation loss 1.757e-05
+epoch 3270   -   training loss: 1.170e-05   -   validation loss 1.764e-05
+epoch 3280   -   training loss: 1.168e-05   -   validation loss 1.783e-05
+epoch 3290   -   training loss: 1.165e-05   -   validation loss 1.789e-05
+epoch 3300   -   training loss: 1.160e-05   -   validation loss 1.790e-05
+epoch 3310   -   training loss: 1.153e-05   -   validation loss 1.783e-05
+epoch 3320   -   training loss: 1.148e-05   -   validation loss 1.764e-05
+epoch 3330   -   training loss: 1.142e-05   -   validation loss 1.752e-05
+epoch 3340   -   training loss: 1.138e-05   -   validation loss 1.741e-05
+epoch 3350   -   training loss: 1.134e-05   -   validation loss 1.759e-05
+epoch 3360   -   training loss: 1.129e-05   -   validation loss 1.760e-05
+epoch 3370   -   training loss: 1.124e-05   -   validation loss 1.739e-05
+epoch 3380   -   training loss: 1.119e-05   -   validation loss 1.722e-05
+epoch 3390   -   training loss: 1.115e-05   -   validation loss 1.711e-05
+epoch 3400   -   training loss: 1.113e-05   -   validation loss 1.708e-05
+  [ckpt] saved weights at iter 3400
+epoch 3410   -   training loss: 1.108e-05   -   validation loss 1.725e-05
+epoch 3420   -   training loss: 1.106e-05   -   validation loss 1.721e-05
+epoch 3430   -   training loss: 1.104e-05   -   validation loss 1.709e-05
+epoch 3440   -   training loss: 1.101e-05   -   validation loss 1.706e-05
+epoch 3450   -   training loss: 1.097e-05   -   validation loss 1.692e-05
+epoch 3460   -   training loss: 1.094e-05   -   validation loss 1.698e-05
+epoch 3470   -   training loss: 1.086e-05   -   validation loss 1.700e-05
+epoch 3480   -   training loss: 1.078e-05   -   validation loss 1.658e-05
+epoch 3490   -   training loss: 1.076e-05   -   validation loss 1.655e-05
+epoch 3500   -   training loss: 1.074e-05   -   validation loss 1.652e-05
+epoch 3510   -   training loss: 1.070e-05   -   validation loss 1.651e-05
+epoch 3520   -   training loss: 1.066e-05   -   validation loss 1.652e-05
+epoch 3530   -   training loss: 1.063e-05   -   validation loss 1.643e-05
+epoch 3540   -   training loss: 1.061e-05   -   validation loss 1.645e-05
+epoch 3550   -   training loss: 1.059e-05   -   validation loss 1.651e-05
+epoch 3560   -   training loss: 1.054e-05   -   validation loss 1.649e-05
+epoch 3570   -   training loss: 1.051e-05   -   validation loss 1.643e-05
+epoch 3580   -   training loss: 1.048e-05   -   validation loss 1.646e-05
+epoch 3590   -   training loss: 1.047e-05   -   validation loss 1.646e-05
+epoch 3600   -   training loss: 1.046e-05   -   validation loss 1.649e-05
+  [ckpt] saved weights at iter 3600
+epoch 3610   -   training loss: 1.045e-05   -   validation loss 1.645e-05
+epoch 3620   -   training loss: 1.043e-05   -   validation loss 1.649e-05
+epoch 3630   -   training loss: 1.040e-05   -   validation loss 1.647e-05
+epoch 3640   -   training loss: 1.038e-05   -   validation loss 1.646e-05
+epoch 3650   -   training loss: 1.035e-05   -   validation loss 1.628e-05
+epoch 3660   -   training loss: 1.032e-05   -   validation loss 1.598e-05
+epoch 3670   -   training loss: 1.029e-05   -   validation loss 1.598e-05
+epoch 3680   -   training loss: 1.026e-05   -   validation loss 1.598e-05
+epoch 3690   -   training loss: 1.025e-05   -   validation loss 1.596e-05
+epoch 3700   -   training loss: 1.024e-05   -   validation loss 1.605e-05
+epoch 3710   -   training loss: 1.022e-05   -   validation loss 1.601e-05
+epoch 3720   -   training loss: 1.019e-05   -   validation loss 1.591e-05
+epoch 3730   -   training loss: 1.016e-05   -   validation loss 1.590e-05
+epoch 3740   -   training loss: 1.014e-05   -   validation loss 1.587e-05
+epoch 3750   -   training loss: 1.010e-05   -   validation loss 1.576e-05
+epoch 3760   -   training loss: 1.009e-05   -   validation loss 1.564e-05
+epoch 3770   -   training loss: 1.007e-05   -   validation loss 1.551e-05
+epoch 3780   -   training loss: 1.006e-05   -   validation loss 1.557e-05
+epoch 3790   -   training loss: 1.002e-05   -   validation loss 1.563e-05
+epoch 3800   -   training loss: 9.992e-06   -   validation loss 1.552e-05
+  [ckpt] saved weights at iter 3800
+epoch 3810   -   training loss: 9.966e-06   -   validation loss 1.559e-05
+epoch 3820   -   training loss: 9.954e-06   -   validation loss 1.562e-05
+epoch 3830   -   training loss: 9.949e-06   -   validation loss 1.562e-05
+epoch 3840   -   training loss: 9.936e-06   -   validation loss 1.556e-05
+epoch 3850   -   training loss: 9.920e-06   -   validation loss 1.547e-05
+epoch 3860   -   training loss: 9.913e-06   -   validation loss 1.546e-05
+epoch 3870   -   training loss: 9.892e-06   -   validation loss 1.558e-05
+epoch 3880   -   training loss: 9.877e-06   -   validation loss 1.558e-05
+epoch 3890   -   training loss: 9.867e-06   -   validation loss 1.560e-05
+epoch 3900   -   training loss: 9.854e-06   -   validation loss 1.553e-05
+epoch 3910   -   training loss: 9.850e-06   -   validation loss 1.553e-05
+epoch 3920   -   training loss: 9.844e-06   -   validation loss 1.548e-05
+epoch 3930   -   training loss: 9.835e-06   -   validation loss 1.553e-05
+epoch 3940   -   training loss: 9.820e-06   -   validation loss 1.552e-05
+epoch 3950   -   training loss: 9.812e-06   -   validation loss 1.555e-05
+epoch 3960   -   training loss: 9.775e-06   -   validation loss 1.563e-05
+epoch 3970   -   training loss: 9.760e-06   -   validation loss 1.577e-05
+epoch 3980   -   training loss: 9.750e-06   -   validation loss 1.579e-05
+epoch 3990   -   training loss: 9.742e-06   -   validation loss 1.573e-05
+epoch 4000   -   training loss: 9.736e-06   -   validation loss 1.569e-05
+  [ckpt] saved weights at iter 4000
+epoch 4010   -   training loss: 9.700e-06   -   validation loss 1.556e-05
+epoch 4020   -   training loss: 9.665e-06   -   validation loss 1.569e-05
+epoch 4030   -   training loss: 9.655e-06   -   validation loss 1.577e-05
+epoch 4040   -   training loss: 9.649e-06   -   validation loss 1.577e-05
+epoch 4050   -   training loss: 9.644e-06   -   validation loss 1.575e-05
+epoch 4060   -   training loss: 9.637e-06   -   validation loss 1.571e-05
+epoch 4070   -   training loss: 9.625e-06   -   validation loss 1.566e-05
+epoch 4080   -   training loss: 9.610e-06   -   validation loss 1.557e-05
+epoch 4090   -   training loss: 9.583e-06   -   validation loss 1.537e-05
+epoch 4100   -   training loss: 9.547e-06   -   validation loss 1.540e-05
+epoch 4110   -   training loss: 9.513e-06   -   validation loss 1.540e-05
+epoch 4120   -   training loss: 9.492e-06   -   validation loss 1.541e-05
+epoch 4130   -   training loss: 9.482e-06   -   validation loss 1.540e-05
+epoch 4140   -   training loss: 9.473e-06   -   validation loss 1.547e-05
+epoch 4150   -   training loss: 9.460e-06   -   validation loss 1.546e-05
+epoch 4160   -   training loss: 9.453e-06   -   validation loss 1.551e-05
+epoch 4170   -   training loss: 9.444e-06   -   validation loss 1.544e-05
+epoch 4180   -   training loss: 9.425e-06   -   validation loss 1.542e-05
+epoch 4190   -   training loss: 9.407e-06   -   validation loss 1.527e-05
+epoch 4200   -   training loss: 9.395e-06   -   validation loss 1.526e-05
+  [ckpt] saved weights at iter 4200
+epoch 4210   -   training loss: 9.386e-06   -   validation loss 1.525e-05
+epoch 4220   -   training loss: 9.364e-06   -   validation loss 1.520e-05
+epoch 4230   -   training loss: 9.313e-06   -   validation loss 1.520e-05
+epoch 4240   -   training loss: 9.285e-06   -   validation loss 1.519e-05
+epoch 4250   -   training loss: 9.279e-06   -   validation loss 1.520e-05
+epoch 4260   -   training loss: 9.274e-06   -   validation loss 1.517e-05
+epoch 4270   -   training loss: 9.259e-06   -   validation loss 1.518e-05
+epoch 4280   -   training loss: 9.233e-06   -   validation loss 1.501e-05
+epoch 4290   -   training loss: 9.223e-06   -   validation loss 1.500e-05
+epoch 4300   -   training loss: 9.198e-06   -   validation loss 1.495e-05
+epoch 4310   -   training loss: 9.162e-06   -   validation loss 1.488e-05
+epoch 4320   -   training loss: 9.145e-06   -   validation loss 1.478e-05
+epoch 4330   -   training loss: 9.132e-06   -   validation loss 1.479e-05
+epoch 4340   -   training loss: 9.123e-06   -   validation loss 1.485e-05
+epoch 4350   -   training loss: 9.114e-06   -   validation loss 1.490e-05
+epoch 4360   -   training loss: 9.098e-06   -   validation loss 1.490e-05
+epoch 4370   -   training loss: 9.079e-06   -   validation loss 1.486e-05
+epoch 4380   -   training loss: 9.054e-06   -   validation loss 1.482e-05
+epoch 4390   -   training loss: 9.041e-06   -   validation loss 1.489e-05
+epoch 4400   -   training loss: 9.027e-06   -   validation loss 1.488e-05
+  [ckpt] saved weights at iter 4400
+  Saved config.json to /work/u10677113/LDNet_GLA/clean/models_damped_l01_full/latent_10
+  NRMSE F_y: 1.298e-03   1-rho: 6.100e-05
+  NRMSE M_z: 1.286e-03   1-rho: 1.242e-04
+  NRMSE combined: 6.884e-04   1-rho: 4.552e-06
+  Saved /work/u10677113/LDNet_GLA/clean/models_damped_l01_full/latent_10/timeseries.png
+
+Saved summary plot: /work/u10677113/LDNet_GLA/clean/models_damped_l01_full/summary/nrmse_rho_vs_latent.png
+
+Sweep complete.
+=== FULL-CONV l01 done @ Thu 11 Jun 00:55:23 CEST 2026 ===

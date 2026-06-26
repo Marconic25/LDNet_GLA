@@ -1,0 +1,26 @@
+2026-06-09 09:29:04.382497: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-09 09:29:06.059961: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-09 09:29:06.062785: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-09 09:29:06.071529: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-09 09:29:07.049748: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== opt ===  t : delta   C_L    h_ddot   a_dot
+  0.00 :   -0.01   0.543    +5.25  +0.0000
+  0.20 :   -6.92   1.027    -4.95  -0.1416
+  0.40 :   -0.44   1.175    +5.44  -0.0954
+  0.60 :   -3.34   1.188    -1.87  +0.0728
+  0.80 :   -1.18   1.103    +8.55  -0.2192
+  1.00 :   -5.77   1.176    -0.23  +0.0367
+  1.20 :   -6.43   1.176    +1.18  -0.0063
+  1.40 :   -4.36   1.171    +0.55  -0.0104
+  1.60 :   -3.05   1.144    +0.04  -0.0120
+=== prop ===  t : delta   C_L    h_ddot   a_dot
+  0.00 :   +0.00   0.543    +5.25  +0.0000
+  0.20 :   +2.90   0.833    +0.87  +0.0714
+  0.40 :   +3.11   0.858    -0.09  -0.0338
+  0.60 :   +3.09   0.852    -0.27  -0.0079
+  0.80 :   +2.90   0.836    -0.40  +0.0174
+  1.00 :   +2.72   0.818    -0.05  +0.0064
+  1.20 :   +2.82   0.824    +0.10  -0.0063
+  1.40 :   +2.90   0.833    +0.04  +0.0003
+  1.60 :   +2.83   0.827    +0.07  +0.0021

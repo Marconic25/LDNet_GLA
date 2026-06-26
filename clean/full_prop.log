@@ -1,0 +1,24 @@
+2026-06-09 09:13:24.438913: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-09 09:13:25.887628: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-09 09:13:25.890348: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-09 09:13:25.900062: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-09 09:13:26.707613: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Using LDNet model from: /work/u10677113/LDNet_GLA/clean/models/latent_10  (latent_dim=10)
+Running open loop...
+  [LDNetAero] warmup done (1591 steps, stride=7): z_norm=6963.511
+Running closed loop (proportional C_L feedback, gain=10.0)...
+  [LDNetAero] warmup done (1591 steps, stride=7): z_norm=6963.511
+
+               Open loop  Controlled   Reduction
+  C_L [-]           0.9687      0.9023       +6.9 %
+  h_ddot [m/s²]      7.9743      7.9743       +0.0 %
+  h [m]             0.0065      0.0065       +0.0 %
+  α [rad]           0.0009      0.0009       +0.0 %
+
+  Max flap deflection: 0.6 deg
+
+Saved /work/u10677113/LDNet_GLA/clean/results/fig1_loads.png
+Saved /work/u10677113/LDNet_GLA/clean/results/fig2_states.png
+Saved /work/u10677113/LDNet_GLA/clean/results/fig3_control.png
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

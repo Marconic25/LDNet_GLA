@@ -1,0 +1,41 @@
+2026-06-09 23:31:50.405282: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-09 23:31:51.806628: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-09 23:31:51.809387: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-09 23:31:51.817265: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-09 23:31:52.551138: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Loading datasets...
+  train loaded 0.5s
+  valid loaded 0.1s
+  test  loaded 0.1s
+Family indices in test set: {'A': 0, 'B': 5, 'Cc': 13}
+  loading HDF5...
+  train loaded 0.1s
+  valid loaded 0.0s
+  test  loaded 0.0s
+  processing train...
+  done 0.2s
+  processing valid...
+  done 0.0s
+  processing test...
+  done 0.0s
+
+============================================================
+  Training num_latent_states = 10
+============================================================
+Tracing functions with autograph...
+Tracing completed.
+epoch    0   -   training loss: 1.094e+00   -   validation loss 1.118e+00
+  Adam...
+  BFGS...
+epoch   10   -   training loss: 1.554e-02   -   validation loss 1.624e-02
+  Saved config.json to /work/u10677113/LDNet_GLA/clean/models_damped/latent_10
+  NRMSE F_y: 1.194e-01   1-rho: 1.009e+00
+  NRMSE M_z: 8.206e-02   1-rho: 1.006e+00
+  NRMSE combined: 6.236e-02   1-rho: 3.808e-02
+  Saved /work/u10677113/LDNet_GLA/clean/models_damped/latent_10/timeseries.png
+
+Saved summary plot: /work/u10677113/LDNet_GLA/clean/models_damped/summary/nrmse_rho_vs_latent.png
+
+Sweep complete.
+DONE_MARKER

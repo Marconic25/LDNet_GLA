@@ -1,0 +1,194 @@
+=== TRAIN lambda=0.005 -> models_damped_l005 @ Wed 10 Jun 09:27:18 CEST 2026 ===
+2026-06-10 09:27:36.567190: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-10 09:27:38.027152: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-10 09:27:38.030066: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-10 09:27:38.039015: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-10 09:27:38.840162: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Loading datasets...
+  train loaded 0.4s
+  valid loaded 0.1s
+  test  loaded 0.2s
+Family indices in test set: {'A': 0, 'B': 5, 'Cc': 13}
+  loading HDF5...
+  train loaded 0.1s
+  valid loaded 0.0s
+  test  loaded 0.0s
+  processing train...
+  done 0.2s
+  processing valid...
+  done 0.0s
+  processing test...
+  done 0.0s
+
+============================================================
+  Training num_latent_states = 10
+============================================================
+Tracing functions with autograph...
+Tracing completed.
+epoch    0   -   training loss: 2.593e-01   -   validation loss 2.541e-01
+  Adam...
+epoch   10   -   training loss: 1.264e-01   -   validation loss 1.207e-01
+epoch   20   -   training loss: 2.770e-02   -   validation loss 2.668e-02
+epoch   30   -   training loss: 3.035e-02   -   validation loss 2.832e-02
+epoch   40   -   training loss: 1.832e-02   -   validation loss 1.998e-02
+epoch   50   -   training loss: 1.591e-02   -   validation loss 1.609e-02
+epoch   60   -   training loss: 1.523e-02   -   validation loss 1.594e-02
+epoch   70   -   training loss: 1.519e-02   -   validation loss 1.568e-02
+epoch   80   -   training loss: 1.521e-02   -   validation loss 1.602e-02
+epoch   90   -   training loss: 1.518e-02   -   validation loss 1.569e-02
+epoch  100   -   training loss: 1.514e-02   -   validation loss 1.578e-02
+epoch  110   -   training loss: 1.514e-02   -   validation loss 1.582e-02
+epoch  120   -   training loss: 1.514e-02   -   validation loss 1.578e-02
+epoch  130   -   training loss: 1.514e-02   -   validation loss 1.576e-02
+epoch  140   -   training loss: 1.513e-02   -   validation loss 1.576e-02
+epoch  150   -   training loss: 1.513e-02   -   validation loss 1.576e-02
+epoch  160   -   training loss: 1.512e-02   -   validation loss 1.574e-02
+epoch  170   -   training loss: 1.522e-02   -   validation loss 1.601e-02
+epoch  180   -   training loss: 1.517e-02   -   validation loss 1.589e-02
+epoch  190   -   training loss: 1.515e-02   -   validation loss 1.582e-02
+epoch  200   -   training loss: 1.514e-02   -   validation loss 1.578e-02
+epoch  210   -   training loss: 1.513e-02   -   validation loss 1.575e-02
+epoch  220   -   training loss: 1.603e-02   -   validation loss 1.727e-02
+epoch  230   -   training loss: 1.579e-02   -   validation loss 1.701e-02
+epoch  240   -   training loss: 1.535e-02   -   validation loss 1.610e-02
+epoch  250   -   training loss: 1.530e-02   -   validation loss 1.576e-02
+epoch  260   -   training loss: 1.518e-02   -   validation loss 1.574e-02
+epoch  270   -   training loss: 1.514e-02   -   validation loss 1.583e-02
+epoch  280   -   training loss: 1.514e-02   -   validation loss 1.581e-02
+epoch  290   -   training loss: 1.514e-02   -   validation loss 1.575e-02
+epoch  300   -   training loss: 1.514e-02   -   validation loss 1.578e-02
+epoch  310   -   training loss: 1.514e-02   -   validation loss 1.578e-02
+epoch  320   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  330   -   training loss: 1.513e-02   -   validation loss 1.578e-02
+epoch  340   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  350   -   training loss: 1.513e-02   -   validation loss 1.578e-02
+epoch  360   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  370   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  380   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  390   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  400   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+  BFGS...
+epoch  410   -   training loss: 1.513e-02   -   validation loss 1.577e-02
+epoch  420   -   training loss: 1.491e-02   -   validation loss 1.573e-02
+epoch  430   -   training loss: 1.406e-02   -   validation loss 1.457e-02
+epoch  440   -   training loss: 1.312e-02   -   validation loss 1.370e-02
+epoch  450   -   training loss: 1.268e-02   -   validation loss 1.311e-02
+epoch  460   -   training loss: 1.206e-02   -   validation loss 1.266e-02
+epoch  470   -   training loss: 9.669e-03   -   validation loss 1.067e-02
+epoch  480   -   training loss: 5.033e-03   -   validation loss 5.905e-03
+epoch  490   -   training loss: 4.439e-03   -   validation loss 5.411e-03
+epoch  500   -   training loss: 3.954e-03   -   validation loss 4.794e-03
+epoch  510   -   training loss: 3.357e-03   -   validation loss 4.035e-03
+epoch  520   -   training loss: 2.899e-03   -   validation loss 3.535e-03
+epoch  530   -   training loss: 2.792e-03   -   validation loss 3.383e-03
+epoch  540   -   training loss: 2.720e-03   -   validation loss 3.297e-03
+epoch  550   -   training loss: 2.648e-03   -   validation loss 3.245e-03
+  Saved config.json to /work/u10677113/LDNet_GLA/clean/models_damped_l005/latent_10
+  NRMSE F_y: 3.045e-02   1-rho: 3.363e-02
+  NRMSE M_z: 2.660e-02   1-rho: 5.034e-02
+  NRMSE combined: 1.604e-02   1-rho: 2.457e-03
+  Saved /work/u10677113/LDNet_GLA/clean/models_damped_l005/latent_10/timeseries.png
+
+Saved summary plot: /work/u10677113/LDNet_GLA/clean/models_damped_l005/summary/nrmse_rho_vs_latent.png
+
+Sweep complete.
+=== DONE lambda=0.005 @ Wed 10 Jun 09:54:27 CEST 2026 ===
+=== TRAIN lambda=0.003 -> models_damped_l003 @ Wed 10 Jun 09:54:27 CEST 2026 ===
+2026-06-10 09:54:45.242954: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-10 09:54:48.065883: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-10 09:54:48.068813: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-10 09:54:48.077900: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-10 09:54:49.177290: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Loading datasets...
+  train loaded 0.1s
+  valid loaded 0.0s
+  test  loaded 0.0s
+Family indices in test set: {'A': 0, 'B': 5, 'Cc': 13}
+  loading HDF5...
+  train loaded 0.1s
+  valid loaded 0.0s
+  test  loaded 0.0s
+  processing train...
+  done 0.2s
+  processing valid...
+  done 0.0s
+  processing test...
+  done 0.0s
+
+============================================================
+  Training num_latent_states = 10
+============================================================
+Tracing functions with autograph...
+Tracing completed.
+epoch    0   -   training loss: 4.428e-01   -   validation loss 4.361e-01
+  Adam...
+epoch   10   -   training loss: 5.394e-02   -   validation loss 5.339e-02
+epoch   20   -   training loss: 2.990e-02   -   validation loss 2.840e-02
+epoch   30   -   training loss: 2.255e-02   -   validation loss 2.279e-02
+epoch   40   -   training loss: 1.486e-02   -   validation loss 1.534e-02
+epoch   50   -   training loss: 1.311e-02   -   validation loss 1.387e-02
+epoch   60   -   training loss: 1.206e-02   -   validation loss 1.265e-02
+epoch   70   -   training loss: 1.165e-02   -   validation loss 1.226e-02
+epoch   80   -   training loss: 1.143e-02   -   validation loss 1.222e-02
+epoch   90   -   training loss: 1.118e-02   -   validation loss 1.201e-02
+epoch  100   -   training loss: 1.107e-02   -   validation loss 1.194e-02
+epoch  110   -   training loss: 1.096e-02   -   validation loss 1.188e-02
+epoch  120   -   training loss: 1.087e-02   -   validation loss 1.176e-02
+epoch  130   -   training loss: 1.079e-02   -   validation loss 1.172e-02
+epoch  140   -   training loss: 1.073e-02   -   validation loss 1.160e-02
+epoch  150   -   training loss: 1.066e-02   -   validation loss 1.165e-02
+epoch  160   -   training loss: 1.056e-02   -   validation loss 1.145e-02
+epoch  170   -   training loss: 1.056e-02   -   validation loss 1.132e-02
+epoch  180   -   training loss: 1.043e-02   -   validation loss 1.126e-02
+epoch  190   -   training loss: 1.046e-02   -   validation loss 1.133e-02
+epoch  200   -   training loss: 1.110e-02   -   validation loss 1.223e-02
+epoch  210   -   training loss: 1.078e-02   -   validation loss 1.165e-02
+epoch  220   -   training loss: 1.018e-02   -   validation loss 1.090e-02
+epoch  230   -   training loss: 1.003e-02   -   validation loss 1.079e-02
+epoch  240   -   training loss: 1.091e-02   -   validation loss 1.177e-02
+epoch  250   -   training loss: 1.052e-02   -   validation loss 1.164e-02
+epoch  260   -   training loss: 1.024e-02   -   validation loss 1.134e-02
+epoch  270   -   training loss: 1.162e-02   -   validation loss 1.256e-02
+epoch  280   -   training loss: 1.425e-02   -   validation loss 1.532e-02
+epoch  290   -   training loss: 1.354e-02   -   validation loss 1.375e-02
+epoch  300   -   training loss: 1.052e-02   -   validation loss 1.063e-02
+epoch  310   -   training loss: 1.045e-02   -   validation loss 1.161e-02
+epoch  320   -   training loss: 9.490e-03   -   validation loss 1.020e-02
+epoch  330   -   training loss: 1.024e-02   -   validation loss 1.158e-02
+epoch  340   -   training loss: 9.620e-03   -   validation loss 1.072e-02
+epoch  350   -   training loss: 1.149e-02   -   validation loss 1.296e-02
+epoch  360   -   training loss: 9.244e-03   -   validation loss 1.025e-02
+epoch  370   -   training loss: 8.854e-03   -   validation loss 1.005e-02
+epoch  380   -   training loss: 1.382e-02   -   validation loss 1.372e-02
+epoch  390   -   training loss: 1.263e-02   -   validation loss 1.294e-02
+epoch  400   -   training loss: 1.175e-02   -   validation loss 1.260e-02
+  BFGS...
+epoch  410   -   training loss: 1.134e-02   -   validation loss 1.211e-02
+epoch  420   -   training loss: 1.115e-02   -   validation loss 1.191e-02
+epoch  430   -   training loss: 1.066e-02   -   validation loss 1.165e-02
+epoch  440   -   training loss: 8.976e-03   -   validation loss 1.055e-02
+epoch  450   -   training loss: 8.061e-03   -   validation loss 9.764e-03
+epoch  460   -   training loss: 7.444e-03   -   validation loss 9.205e-03
+epoch  470   -   training loss: 6.955e-03   -   validation loss 8.708e-03
+epoch  480   -   training loss: 6.325e-03   -   validation loss 8.780e-03
+epoch  490   -   training loss: 5.359e-03   -   validation loss 7.013e-03
+epoch  500   -   training loss: 4.652e-03   -   validation loss 6.426e-03
+epoch  510   -   training loss: 4.288e-03   -   validation loss 6.661e-03
+epoch  520   -   training loss: 3.664e-03   -   validation loss 5.083e-03
+epoch  530   -   training loss: 3.090e-03   -   validation loss 4.411e-03
+epoch  540   -   training loss: 2.901e-03   -   validation loss 6.016e-03
+epoch  550   -   training loss: 2.711e-03   -   validation loss 5.680e-03
+  Saved config.json to /work/u10677113/LDNet_GLA/clean/models_damped_l003/latent_10
+  NRMSE F_y: 3.688e-02   1-rho: 5.093e-02
+  NRMSE M_z: 3.361e-02   1-rho: 8.478e-02
+  NRMSE combined: 1.947e-02   1-rho: 3.620e-03
+  Saved /work/u10677113/LDNet_GLA/clean/models_damped_l003/latent_10/timeseries.png
+
+Saved summary plot: /work/u10677113/LDNet_GLA/clean/models_damped_l003/summary/nrmse_rho_vs_latent.png
+
+Sweep complete.
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort
+=== DONE lambda=0.003 @ Wed 10 Jun 10:19:48 CEST 2026 ===
+ALL TRAINING DONE @ Wed 10 Jun 10:19:48 CEST 2026

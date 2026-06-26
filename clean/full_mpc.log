@@ -1,0 +1,27 @@
+2026-06-09 20:02:16.316638: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-09 20:02:17.767887: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-09 20:02:17.770610: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-09 20:02:17.778502: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-09 20:02:18.547951: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Using LDNet model from: /work/u10677113/LDNet_GLA/clean/models/latent_10  (latent_dim=10)
+Running open loop...
+  [LDNetAero] warmup done (1591 steps, stride=7): z_norm=6963.511
+Running closed loop (receding-horizon MPC, N=6)...
+  [LDNetAero] warmup done (1591 steps, stride=7): z_norm=6963.511
+
+               Open loop  Controlled   Reduction
+  C_L [-]           0.9687      1.0582       -9.2 %
+  h_ddot [m/s²]      7.9743      7.9743       +0.0 %
+  h [m]             0.0065      0.0065       +0.0 %
+  α [rad]           0.0009      0.0009       +0.0 %
+
+  Max flap deflection: 3.9 deg
+
+Saved /work/u10677113/LDNet_GLA/clean/results/fig1_loads.png
+Saved /work/u10677113/LDNet_GLA/clean/results/fig2_states.png
+Saved /work/u10677113/LDNet_GLA/clean/results/fig3_control.png
+
+real	9m17.349s
+user	9m0.147s
+sys	0m6.492s

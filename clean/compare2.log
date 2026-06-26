@@ -1,0 +1,11 @@
+2026-06-09 09:37:22.386529: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-09 09:37:24.135667: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-09 09:37:24.138479: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-09 09:37:24.157734: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-09 09:37:25.224985: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+mode           C_L_pk    red%  hddot_pk    red%  a_pk[deg]    red%  flap_max
+open            1.351     0.0     7.645     0.0     0.2704     0.0       0.0
+prop            1.060    21.6     5.245    31.4     0.1325    51.0       3.3
+opt_frozen      1.385    -2.5    13.660   -78.7     0.4320   -59.8       9.5
+opt_global      1.346     0.4     8.370    -9.5     0.3063   -13.3       3.8

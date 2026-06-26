@@ -1,0 +1,76 @@
+##### TRAJ sim_A_025_test #####
+2026-06-11 12:35:56.331873: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-11 12:35:57.918067: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-11 12:35:57.921132: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-11 12:35:57.929637: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-11 12:35:58.751973: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== MPC H=3 (Q_CL=1) on sim_A_025_test  trim=0.868  N=1000 grid=15 ===
+  open: CLexc=0.2409 h=0.008559 al=0.001694 ad=0.003913 hdd=0.2751 add=1.478
+  --- (minimal: Q_CL+R only) ---
+  R=0.0001 CLexc=0.042(+82%) dmax=8.0 | h=0.007255 al=0.001541 ad=0.0567 hdd=0.908 add=5  EXPLODE: ad!! add!! hdd!! 
+  R=0.001  CLexc=0.064(+73%) dmax=4.0 | h=0.007162 al=0.002111 ad=0.0874 hdd=0.859 add=7.66  EXPLODE: ad!! add!! hdd!! 
+  R=0.01   CLexc=0.126(+48%) dmax=2.0 | h=0.007696 al=0.001763 ad=0.0139 hdd=0.715 add=1.48  EXPLODE: ad!! 
+2026-06-11 12:38:21.791768: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-11 12:38:21.884505: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-11 12:38:21.884571: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-11 12:38:21.884623: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-11 12:38:21.898175: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== MPC H=6 (Q_CL=1) on sim_A_025_test  trim=0.868  N=1000 grid=15 ===
+  open: CLexc=0.2409 h=0.008559 al=0.001694 ad=0.003913 hdd=0.2751 add=1.478
+  --- (minimal: Q_CL+R only) ---
+  R=0.0001 CLexc=0.042(+82%) dmax=8.0 | h=0.007254 al=0.001576 ad=0.061 hdd=0.95 add=5.45  EXPLODE: ad!! add!! hdd!! 
+  R=0.001  CLexc=0.056(+77%) dmax=4.0 | h=0.007163 al=0.002298 ad=0.123 hdd=0.894 add=10.6  EXPLODE: ad!! add!! hdd!! 
+  R=0.01   CLexc=0.094(+61%) dmax=2.0 | h=0.007397 al=0.001758 ad=0.0266 hdd=0.904 add=2.15  EXPLODE: ad!! hdd!! 
+2026-06-11 12:42:05.084710: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-11 12:42:05.180005: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-11 12:42:05.180095: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-11 12:42:05.180153: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-11 12:42:05.193911: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== MPC H=10 (Q_CL=1) on sim_A_025_test  trim=0.868  N=1000 grid=15 ===
+  open: CLexc=0.2409 h=0.008559 al=0.001694 ad=0.003913 hdd=0.2751 add=1.478
+  --- (minimal: Q_CL+R only) ---
+  R=0.0001 CLexc=0.045(+81%) dmax=8.0 | h=0.007295 al=0.0015 ad=0.0365 hdd=1.19 add=3.44  EXPLODE: ad!! hdd!! 
+  R=0.001  CLexc=0.065(+73%) dmax=4.0 | h=0.007363 al=0.002307 ad=0.12 hdd=1.58 add=10.3  EXPLODE: ad!! add!! hdd!! 
+  R=0.01   CLexc=0.103(+57%) dmax=2.0 | h=0.007786 al=0.001795 ad=0.0292 hdd=1.48 add=2.22  EXPLODE: ad!! hdd!! 
+##### TRAJ sim_A_027_test #####
+2026-06-11 12:47:45.146667: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-11 12:47:45.238324: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-11 12:47:45.238387: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-11 12:47:45.238439: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-11 12:47:45.251791: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== MPC H=3 (Q_CL=1) on sim_A_027_test  trim=0.868  N=1000 grid=15 ===
+  open: CLexc=0.5842 h=0.01142 al=0.003455 ad=0.04439 hdd=2.193 add=3.214
+  --- (minimal: Q_CL+R only) ---
+  R=0.0001 CLexc=0.610(-4%) dmax=14.0 | h=0.01122 al=0.004225 ad=0.114 hdd=4.44 add=9.77  EXPLODE: add!! 
+  R=0.001  CLexc=0.468(+20%) dmax=12.6 | h=0.009781 al=0.00449 ad=0.138 hdd=3.62 add=11.6  EXPLODE: ad!! add!! 
+  R=0.01   CLexc=0.529(+10%) dmax=6.0 | h=0.01076 al=0.003633 ad=0.0453 hdd=2.81 add=3.22  stable
+2026-06-11 12:50:02.124334: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-11 12:50:02.217260: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-11 12:50:02.217328: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-11 12:50:02.217381: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-11 12:50:02.231046: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== MPC H=6 (Q_CL=1) on sim_A_027_test  trim=0.868  N=1000 grid=15 ===
+  open: CLexc=0.5842 h=0.01142 al=0.003455 ad=0.04439 hdd=2.193 add=3.214
+  --- (minimal: Q_CL+R only) ---
+  R=0.0001 CLexc=0.543(+7%) dmax=14.0 | h=0.0109 al=0.003986 ad=0.133 hdd=4.08 add=11.3  EXPLODE: add!! 
+  R=0.001  CLexc=0.482(+18%) dmax=12.0 | h=0.009945 al=0.004368 ad=0.257 hdd=4 add=21.9  EXPLODE: ad!! add!! 
+  R=0.01   CLexc=0.538(+8%) dmax=9.8 | h=0.009966 al=0.004065 ad=0.124 hdd=2.4 add=10.7  EXPLODE: add!! 
+2026-06-11 12:53:42.820902: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-11 12:53:42.915704: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-11 12:53:42.915771: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-11 12:53:42.915824: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-11 12:53:42.929677: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== MPC H=10 (Q_CL=1) on sim_A_027_test  trim=0.868  N=1000 grid=15 ===
+  open: CLexc=0.5842 h=0.01142 al=0.003455 ad=0.04439 hdd=2.193 add=3.214
+  --- (minimal: Q_CL+R only) ---
+  R=0.0001 CLexc=0.503(+14%) dmax=14.0 | h=0.01067 al=0.004405 ad=0.215 hdd=4.38 add=18  EXPLODE: ad!! add!! 
+  R=0.001  CLexc=0.473(+19%) dmax=11.8 | h=0.009909 al=0.004221 ad=0.227 hdd=4.21 add=19.2  EXPLODE: ad!! add!! 
+  R=0.01   CLexc=0.480(+18%) dmax=14.0 | h=0.01047 al=0.00452 ad=0.0794 hdd=3.66 add=6.69  stable
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort
+MPC_DONE

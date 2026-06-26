@@ -1,0 +1,11 @@
+2026-06-09 09:48:24.175883: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-09 09:48:25.680610: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-09 09:48:25.683474: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-09 09:48:25.691633: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-09 09:48:26.462331: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+open: C_L=1.351 hddot=7.645 a=0.2704deg
+  onlyCL R=1    : C_L 1.338( +1.0%) hddot 7.529(  +1.5%) a 0.2939( -8.7%) flap 5.0
+  onlyCL R=0.1  : C_L 1.459( -8.0%) hddot 11.505( -50.5%) a 0.3489(-29.0%) flap 7.2
+  onlyCL R=0.01 : C_L 1.894(-40.2%) hddot 16.427(-114.9%) a 0.7547(-179.1%) flap 5.1
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

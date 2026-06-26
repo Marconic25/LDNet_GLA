@@ -1,0 +1,56 @@
+=== ROLLOUT train start @ Thu 11 Jun 01:43:03 CEST 2026 ===
+2026-06-11 01:43:16.430262: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-11 01:43:17.831647: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-11 01:43:17.834427: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-11 01:43:17.844705: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-11 01:43:18.702378: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+WARMSTART=/work/u10677113/LDNet_GLA/clean/models_damped_l003_full/latent_10 LAMBDA=0.003 ROLLOUT_LEN=800 W_LOAD=1.0
+Loading data...
+  train (100, 1592, 6)  valid (23, 1592, 6)
+  warm-start weights loaded
+  TF-vs-numpy structure step max err = 0.00e+00  OK
+  [warmstart rollout] state NRMSE per dof:
+      h: 0.090
+      hd: 0.105
+      a: 0.108
+      ad: 0.111
+  any NaN in rollout: False
+  warm-start valid rollout loss = 3.7335e-02
+Tracing functions with autograph...
+Tracing completed.
+epoch    0   -   training loss: 2.232e-02   -   validation loss 3.733e-02
+  [ckpt] init warm-start valid=3.7335e-02 SAVED
+  Adam...
+  BFGS...
+epoch   10   -   training loss: 1.383e-02   -   validation loss 1.899e-02
+  [ckpt] iter 10 valid=1.8991e-02 SAVED (best)
+epoch   20   -   training loss: 1.137e-02   -   validation loss 1.250e-02
+  [ckpt] iter 20 valid=1.2502e-02 SAVED (best)
+epoch   30   -   training loss: 1.070e-02   -   validation loss 1.224e-02
+  [ckpt] iter 30 valid=1.2236e-02 SAVED (best)
+epoch   40   -   training loss: 1.028e-02   -   validation loss 1.193e-02
+  [ckpt] iter 40 valid=1.1932e-02 SAVED (best)
+epoch   50   -   training loss: 9.957e-03   -   validation loss 1.167e-02
+  [ckpt] iter 50 valid=1.1671e-02 SAVED (best)
+epoch   60   -   training loss: 9.593e-03   -   validation loss 1.253e-02
+  [ckpt] iter 60 valid=1.2529e-02 (no improve, best=1.1671e-02)
+epoch   70   -   training loss: 9.267e-03   -   validation loss 1.187e-02
+  [ckpt] iter 70 valid=1.1866e-02 (no improve, best=1.1671e-02)
+epoch   80   -   training loss: 8.952e-03   -   validation loss 1.144e-02
+  [ckpt] iter 80 valid=1.1441e-02 SAVED (best)
+epoch   90   -   training loss: 8.598e-03   -   validation loss 1.681e-02
+  [ckpt] iter 90 valid=1.6809e-02 (no improve, best=1.1441e-02)
+epoch  100   -   training loss: 8.132e-03   -   validation loss 1.293e-01
+  [ckpt] iter 100 valid=1.2931e-01 (no improve, best=1.1441e-02)
+epoch  110   -   training loss: 7.609e-03   -   validation loss 1.849e-02
+  [ckpt] iter 110 valid=1.8487e-02 (no improve, best=1.1441e-02)
+epoch  120   -   training loss: 7.390e-03   -   validation loss 1.826e-01
+  [ckpt] iter 120 valid=1.8257e-01 (no improve, best=1.1441e-02)
+epoch  130   -   training loss: 7.071e-03   -   validation loss 4.088e-01
+  [ckpt] iter 130 valid=4.0885e-01 (no improve, best=1.1441e-02)
+epoch  140   -   training loss: 6.937e-03   -   validation loss 1.025e-01
+  [ckpt] iter 140 valid=1.0254e-01 (no improve, best=1.1441e-02)
+Done. Best valid rollout loss = 1.1441e-02. Best-valid model in /work/u10677113/LDNet_GLA/clean/models_rollout/latent_10
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort
+=== ROLLOUT train done @ Thu 11 Jun 02:04:16 CEST 2026 ===
