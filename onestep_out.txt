@@ -1,0 +1,13 @@
+# onestep vs proportional  TEND=2.5 RW=0.001 NGRID=25 DAMULT=3
+# CLTRIM=0.86834
+
+cell       kind    |   open |    prop:CLred pitch (g*) |  1step:CLred pitch
+W10/T1.0   linear  |  0.219 | g*=  -160    83.2%  0.91 |    68.5%  0.92
+W20/T1.0   linear  |  0.463 | g*=   -80    77.1%  1.13 |    71.9%  1.06
+W10/T2.0   nonlin  |  0.071 | g*=  -160    68.5%  1.09 |    32.7%  1.03
+W30/T1.0   nonlin  |  0.575 | g*=   -40    58.7%  1.24 |    60.1%  1.25
+W30/T0.5   nonlin  |  0.496 | g*=   -10     3.7%  1.08 |    36.3%  1.19
+
+# saved results/onestep_traces.npz (for money plot)
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

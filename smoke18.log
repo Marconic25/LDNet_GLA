@@ -1,0 +1,10 @@
+=PLOT_W30T2_new=
+2026-06-30 10:58:41.923339: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-30 10:58:43.551998: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-30 10:58:43.555436: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-30 10:58:43.564476: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-30 10:58:44.457275: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+W0=30.0 Tg=2.00 Qad=100 R=0.01 DLPF=0.85 ng=15 | CLexc 0.456->0.305 (+33%) | flap_max=6.0 de@2.5=0.00 | adot_RMS deg/s open=0.105 closed=0.157 stable
+  saved results/mpc_gust_W30_Tg200.png
+=DONE=

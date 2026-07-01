@@ -1,0 +1,28 @@
+# perf_pd_vs_model  TEND=2.5  model={'NH': 6, 'NGRID': 15, 'QAD': 100.0, 'RW': 0.01, 'DLPF': 0.95, 'SCHED': False}  DAMULT=3
+  [tune pd1] g1=  -10.0  mean J/Jopen=158.2678  <-- best
+  [tune pd1] g1=  -20.0  mean J/Jopen=319.5366
+  [tune pd1] g1=  -40.0  mean J/Jopen=439.2151
+  [tune pd1] g1=  -60.0  mean J/Jopen=471.7022
+  [tune pd1] g1=  -80.0  mean J/Jopen=482.6824
+  [tune pd1] g1= -120.0  mean J/Jopen=492.0765
+  [tune pd1] g1= -160.0  mean J/Jopen=495.8295
+# best PD1: g1=-10.0  mean J/Jopen=158.2678
+# best PD2: g1=-20.0 g2=-12.0  mean J/Jopen=316.8558
+
+## per-cell  (J/Jopen: lower=better;  CLred%: higher=better;  adot_RMS deg/s)
+cell       |                 model |            PD1 (lift) |      PD2 (lift+pitch)
+           |   J/Jo  CLred     ad |   J/Jo  CLred     ad |   J/Jo  CLred     ad
+W10/T0.5   |  0.962      8   0.20 |  1.117     17   0.21 |  1.623     30   0.23
+W10/T1.0   |  1.255     39   0.11 |  0.837     35   0.11 |  1.024     56   0.11
+W10/T2.0   |  1.000      0   0.03 |  1.203     10   0.03 |  2.094     18   0.03
+W20/T0.5   |  1.008      1   0.38 |  1.205      9   0.41 |  1.799     18   0.46
+W20/T1.0   |  0.866     28   0.21 |  0.811     40   0.22 |  1.162     54   0.24
+W20/T2.0   |  0.959     50   0.06 |  0.672     41   0.06 |  0.787     60   0.06
+W30/T0.5   |  1.017      0   0.66 |  1.602      2   0.71 |  1.908      6   0.83
+W30/T1.0   |  1.064      6   0.30 |  1.480     16   0.34 |  1.720     36   0.34
+W30/T2.0   |  2.094     24   0.14 |  1.159     20   0.13 |  1.927     33   0.15
+design     |  1.167     38   0.11 |  0.829     34   0.11 |  0.991     55   0.11
+MEAN       |  1.139               |  1.091               |  1.503
+
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

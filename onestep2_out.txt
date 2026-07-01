@@ -1,0 +1,5 @@
+# onestep(R-swept) vs proportional  TEND=2.5 NGRID=15 DAMULT=3
+# CLTRIM=0.86834  R_GRID=[0.01, 0.003, 0.001, 0.0003, 0.0001]
+
+cell       kind    |   open |   prop: CLred pitch (g*) |    1step: CLred pitch (R*)
+W10/T1.0   linear  |  0.219 | g*=  -160    83.2%  0.91 | R*=   1e-04    89.5%  0.89

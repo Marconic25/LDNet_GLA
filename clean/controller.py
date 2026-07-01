@@ -124,7 +124,8 @@ class Controller:
         z_save = aero._z.copy()
         x = np.asarray(state, dtype=float)
         W = float(W_hat); dt = self.dt
-        J = self.R * delta_deg**2
+        J = self.R * delta_deg**2 + self.R_du * (delta_deg - self._delta_prev)**2
+        x_prev_ad = float(state[3])
         try:
             for _ in range(self.mpc_horizon):
                 C_L, C_M = aero.predict(x, delta_deg, W, self.U)
@@ -134,8 +135,10 @@ class Controller:
                 def f(ss): return np.array(structural_rhs(ss, Fy, Mz))
                 k1=f(x); k2=f(x+0.5*dt*k1); k3=f(x+0.5*dt*k2); k4=f(x+dt*k3)
                 x = x + (dt/6.0)*(k1+2*k2+2*k3+k4)
-                J += (self.Q_h*x[0]**2 + self.Q_alpha*x[2]**2 + self.Q_alpha_dot*x[3]**2
+                J += (self.Q_h*x[0]**2 + self.Q_alpha*x[2]**2
+                      + self.Q_alpha_dot*(x[3]-x_prev_ad)**2
                       + self.Q_CL*(float(C_L)-self._C_L_trim)**2)
+                x_prev_ad = float(x[3])
         finally:
             aero._z = z_save
         return J
@@ -159,14 +162,17 @@ class Controller:
         z_b=np.tile(np.asarray(aero._z).reshape(1,-1),(B,1))
         x_b=np.tile(np.asarray(state,dtype=float).reshape(1,-1),(B,1))
         d_b=np.asarray(deltas,dtype=float)
-        J=self.R*d_b**2
+        J=self.R*d_b**2+self.R_du*(d_b-self._delta_prev)**2
+        x_prev_ad=float(state[3])
         for _ in range(self.mpc_horizon):
             CL,CM,z_b=aero.batch_step(z_b,x_b,d_b,float(W_hat),self.U,self.dt)
             Fy=self._q_dyn*CL-self._Fy_trim
             Mz=self._q_dyn*CM*C_REF-self._Mz_trim
             x_b=self._rk4_batch(x_b,Fy,Mz,self.dt)
             J=J+(self.Q_h*x_b[:,0]**2+self.Q_alpha*x_b[:,2]**2
-                 +self.Q_alpha_dot*x_b[:,3]**2+self.Q_CL*(CL-self._C_L_trim)**2)
+                 +self.Q_alpha_dot*(x_b[:,3]-x_prev_ad)**2
+                 +self.Q_CL*(CL-self._C_L_trim)**2)
+            x_prev_ad=x_b[:,3].copy()
         return J
 
     # ------------------------------------------------------------------
@@ -175,7 +181,7 @@ class Controller:
         x_next, C_L = self._predict_next(state, delta_deg, W_hat)
         return (  self.Q_h         * x_next[0]**2
                 + self.Q_alpha     * x_next[2]**2
-                + self.Q_alpha_dot * x_next[3]**2
+                + self.Q_alpha_dot * (x_next[3] - state[3])**2
                 + self.Q_CL        * (C_L - self._C_L_trim)**2
                 + self._R_eff      * delta_deg**2
                 + self.R_du        * (delta_deg - self._delta_prev)**2)
@@ -200,9 +206,10 @@ class Controller:
         ub = min( self.delta_max, self._delta_prev + reach)
 
         # Causal-basin: restrict to the flap-sign half that reduces the lift
-        # excursion (to reduce C_L above trim the lift-reducing flap deflects
-        # positive, and vice-versa). Avoids the non-causal "nulling" basin that
-        # destabilizes the non-monotone LDNet C_L(delta).
+        # excursion. In this model dC_L/ddelta>0 (cf. mpc_gust: a *negative* gain
+        # reduces a positive C_L excursion), so to reduce C_L above trim the
+        # lift-reducing flap deflects NEGATIVE, and vice-versa. Avoids the
+        # non-causal "nulling" basin that destabilizes the non-monotone C_L(delta).
         if self.causal_basin or self.e_ref > 0.0:
             cl0 = float(self.aero_predict(state, 0.0, float(W_hat), self.U)[0])
         else:
@@ -216,9 +223,9 @@ class Controller:
             self._R_eff = self.R
         if self.causal_basin:
             if cl0 >= self._C_L_trim:
-                g_lo, g_hi = 0.0, self.delta_max
+                g_lo, g_hi = -self.delta_max, 0.0   # reduce C_L>trim with negative flap
             else:
-                g_lo, g_hi = -self.delta_max, 0.0
+                g_lo, g_hi = 0.0, self.delta_max
         else:
             g_lo, g_hi = -self.delta_max, self.delta_max
         lb = max(lb, g_lo); ub = min(ub, g_hi)

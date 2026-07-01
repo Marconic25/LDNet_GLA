@@ -1,0 +1,16 @@
+# diag_collapse  W0=20.0 Tg=0.5 k=0.079  R=0.001 QAD=0.0  DAMULT=3
+# open: clexc=0.3373 pitchpeak=0.00209  (gust peak at t=0.250s)
+
+variant                       CLred%  pitch  |d|max  t(dmax)
+MPC baseline (smooth+gate)      -1.1   0.96    1.57    0.316
+MPC no-smooth                   28.1   1.12    6.00    0.164
+MPC no-gate                     -1.1   0.96    1.58    0.752
+MPC both stripped               72.9   1.12    6.00    0.164
+Traceback (most recent call last):
+  File "/work/u10677113/LDNet_GLA/clean/diag_collapse.py", line 110, in <module>
+    main()
+  File "/work/u10677113/LDNet_GLA/clean/diag_collapse.py", line 82, in main
+    rpd = best[2]; ce, pk, dmax, tpk = stats(rpd)
+  File "/work/u10677113/LDNet_GLA/clean/diag_collapse.py", line 31, in stats
+    mw = M._win(r['_t'], Tg)
+TypeError: 'NoneType' object is not subscriptable

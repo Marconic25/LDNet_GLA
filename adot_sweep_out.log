@@ -1,0 +1,77 @@
+2026-06-29 11:14:05.785390: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-29 11:14:07.241205: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-29 11:14:07.244103: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-29 11:14:07.255788: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-29 11:14:08.002557: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== Design A: Q_alpha_ddot sweep (NH=1) ===
+
+########## sim_A_025_test  trim=0.868 ##########
+  open: CLexc=0.2409 ad=0.003913 add=1.478 hdd=0.2751
+  --- Q_ad=5e+00 ---
+  R=0.0005 CLexc=0.059(+75%) dmax=2.5 | ad=0.009663 add=1.45 hdd=0.258  stable
+  R=0.001  CLexc=0.073(+70%) dmax=2.2 | ad=0.004981 add=1.45 hdd=0.258  stable
+  R=0.005  CLexc=0.164(+32%) dmax=1.2 | ad=0.004086 add=1.47 hdd=0.268  stable
+  R=0.01   CLexc=0.202(+16%) dmax=0.7 | ad=0.004022 add=1.47 hdd=0.272  stable
+  --- Q_ad=1e+01 ---
+  R=0.0005 CLexc=0.069(+71%) dmax=2.6 | ad=0.01034 add=1.42 hdd=0.278  stable
+  R=0.001  CLexc=0.079(+67%) dmax=2.2 | ad=0.005304 add=1.44 hdd=0.253  stable
+  R=0.005  CLexc=0.163(+32%) dmax=1.2 | ad=0.004054 add=1.46 hdd=0.269  stable
+  R=0.01   CLexc=0.201(+16%) dmax=0.7 | ad=0.003995 add=1.47 hdd=0.272  stable
+  --- Q_ad=3e+01 ---
+  R=0.0005 CLexc=0.097(+60%) dmax=3.5 | ad=0.00821 add=1.32 hdd=0.244  stable
+  R=0.001  CLexc=0.113(+53%) dmax=2.3 | ad=0.006927 add=1.35 hdd=0.26  stable
+  R=0.005  CLexc=0.155(+36%) dmax=1.2 | ad=0.004138 add=1.43 hdd=0.274  stable
+  R=0.01   CLexc=0.197(+18%) dmax=0.7 | ad=0.003862 add=1.45 hdd=0.275  stable
+  --- Q_ad=1e+02 ---
+  R=0.0005 CLexc=0.119(+50%) dmax=4.2 | ad=0.02626 add=2.18 hdd=0.272  EXPLODE: ad!! 
+  R=0.001  CLexc=0.141(+41%) dmax=2.9 | ad=0.01543 add=1.28 hdd=0.292  EXPLODE: ad!! 
+  R=0.005  CLexc=0.165(+31%) dmax=0.8 | ad=0.006265 add=1.32 hdd=0.294  stable
+  R=0.01   CLexc=0.175(+27%) dmax=0.6 | ad=0.004478 add=1.39 hdd=0.286  stable
+  --- Q_ad=3e+02 ---
+  R=0.0005 CLexc=0.283(-17%) dmax=5.8 | ad=0.1086 add=8.87 hdd=0.864  EXPLODE: ad!! add!! hdd!! 
+  R=0.001  CLexc=0.233(+3%) dmax=3.9 | ad=0.06042 add=4.96 hdd=0.352  EXPLODE: ad!! add!! 
+  R=0.005  CLexc=0.205(+15%) dmax=1.1 | ad=0.01552 add=1.06 hdd=0.487  EXPLODE: ad!! 
+  R=0.01   CLexc=0.204(+15%) dmax=0.6 | ad=0.008971 add=1.22 hdd=0.319  stable
+  --- Q_ad=1e+03 ---
+  R=0.0005 CLexc=0.292(-21%) dmax=7.2 | ad=0.08461 add=6.59 hdd=2.62  EXPLODE: ad!! add!! hdd!! 
+  R=0.001  CLexc=0.281(-17%) dmax=5.9 | ad=0.09498 add=7.55 hdd=2.32  EXPLODE: ad!! add!! hdd!! 
+  R=0.005  CLexc=0.296(-23%) dmax=2.0 | ad=0.03628 add=2.93 hdd=0.627  EXPLODE: ad!! 
+  R=0.01   CLexc=0.265(-10%) dmax=1.0 | ad=0.02323 add=1.6 hdd=0.581  EXPLODE: ad!! 
+
+########## sim_A_027_test  trim=0.868 ##########
+  open: CLexc=0.5842 ad=0.04439 add=3.214 hdd=2.193
+  --- Q_ad=5e+00 ---
+  R=0.0005 CLexc=0.523(+11%) dmax=11.5 | ad=0.1549 add=13 hdd=3.58  EXPLODE: ad!! add!! 
+  R=0.001  CLexc=0.485(+17%) dmax=13.9 | ad=0.1528 add=12.8 hdd=2.67  EXPLODE: ad!! add!! 
+  R=0.005  CLexc=0.514(+12%) dmax=4.0 | ad=0.04049 add=2.1 hdd=1.89  stable
+  R=0.01   CLexc=0.547(+6%) dmax=1.6 | ad=0.05107 add=3.66 hdd=1.92  stable
+  --- Q_ad=1e+01 ---
+  R=0.0005 CLexc=0.543(+7%) dmax=10.7 | ad=0.1863 add=15.7 hdd=3.67  EXPLODE: ad!! add!! 
+  R=0.001  CLexc=0.497(+15%) dmax=13.2 | ad=0.1494 add=12.5 hdd=2.72  EXPLODE: ad!! add!! 
+  R=0.005  CLexc=0.514(+12%) dmax=3.9 | ad=0.04081 add=1.84 hdd=1.91  stable
+  R=0.01   CLexc=0.546(+6%) dmax=1.6 | ad=0.05085 add=3.64 hdd=1.93  stable
+  --- Q_ad=3e+01 ---
+  R=0.0005 CLexc=0.595(-2%) dmax=10.1 | ad=0.2277 add=19.1 hdd=3.87  EXPLODE: ad!! add!! 
+  R=0.001  CLexc=0.549(+6%) dmax=10.4 | ad=0.1258 add=10.5 hdd=3.14  EXPLODE: add!! 
+  R=0.005  CLexc=0.512(+12%) dmax=3.9 | ad=0.042 add=1.76 hdd=2.01  stable
+  R=0.01   CLexc=0.544(+7%) dmax=1.6 | ad=0.05006 add=3.58 hdd=1.98  stable
+  --- Q_ad=1e+02 ---
+  R=0.0005 CLexc=0.676(-16%) dmax=11.5 | ad=0.2471 add=20.4 hdd=4.59  EXPLODE: ad!! add!! 
+  R=0.001  CLexc=0.637(-9%) dmax=8.7 | ad=0.1436 add=11.9 hdd=3.97  EXPLODE: ad!! add!! 
+  R=0.005  CLexc=0.527(+10%) dmax=4.1 | ad=0.04671 add=3.39 hdd=2.4  stable
+  R=0.01   CLexc=0.535(+8%) dmax=1.6 | ad=0.04531 add=3.26 hdd=2.15  stable
+  --- Q_ad=3e+02 ---
+  R=0.0005 CLexc=0.731(-25%) dmax=12.8 | ad=0.1846 add=15.1 hdd=5.02  EXPLODE: ad!! add!! 
+  R=0.001  CLexc=0.702(-20%) dmax=9.1 | ad=0.1163 add=9.56 hdd=4.53  stable
+  R=0.005  CLexc=0.607(-4%) dmax=4.1 | ad=0.06354 add=3.1 hdd=3.05  stable
+  R=0.01   CLexc=0.574(+2%) dmax=1.9 | ad=0.04727 add=2.21 hdd=2.6  stable
+  --- Q_ad=1e+03 ---
+  R=0.0005 CLexc=0.739(-27%) dmax=11.8 | ad=0.1307 add=7.03 hdd=4.15  stable
+  R=0.001  CLexc=0.714(-22%) dmax=9.9 | ad=0.1281 add=7.94 hdd=4.02  stable
+  R=0.005  CLexc=0.667(-14%) dmax=5.4 | ad=0.1077 add=5.55 hdd=3.63  stable
+  R=0.01   CLexc=0.648(-11%) dmax=3.3 | ad=0.08307 add=3.74 hdd=3.24  stable
+
+SWEEP_DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort
+RUN_DONE

@@ -1,0 +1,50 @@
+2026-06-29 14:39:14.985661: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-29 14:39:16.336399: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-06-29 14:39:16.339161: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-06-29 14:39:16.347239: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-06-29 14:39:17.173836: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== Computing open-loop baselines ===
+  open W0=10.00 Tg=0.50 CLexc=0.202
+  open W0=10.00 Tg=1.00 CLexc=0.219
+  open W0=10.00 Tg=2.00 CLexc=0.071
+  open W0=20.00 Tg=0.50 CLexc=0.337
+  open W0=20.00 Tg=1.00 CLexc=0.463
+  open W0=20.00 Tg=2.00 CLexc=0.261
+  open W0=30.00 Tg=0.50 CLexc=0.496
+  open W0=30.00 Tg=1.00 CLexc=0.575
+  open W0=30.00 Tg=2.00 CLexc=0.456
+  open W0=11.46 Tg=1.12 CLexc=0.244
+
+=== Proportional gain selection ===
+  G= 10: 10/10 stable, median red=22.0%
+  G= 20: 9/10 stable, median red=47.4%
+  G= 40: 9/10 stable, median red=59.8%
+  G= 80: 9/10 stable, median red=51.8%
+==> Selected G=10 (gain=-10), median red=22.0%
+
+=== Full comparison grid ===
+  W0=10.00 Tg=0.50 | open CLexc=0.202 | prop +24%  | MPC +58% 61ms hdd!!
+  W0=10.00 Tg=1.00 | open CLexc=0.219 | prop +40%  | MPC +59% 61ms 
+  W0=10.00 Tg=2.00 | open CLexc=0.071 | prop +13%  | MPC +2% 61ms 
+  W0=20.00 Tg=0.50 | open CLexc=0.337 | prop +12%  | MPC +23% 61ms 
+  W0=20.00 Tg=1.00 | open CLexc=0.463 | prop +42%  | MPC +38% 62ms 
+  W0=20.00 Tg=2.00 | open CLexc=0.261 | prop +43%  | MPC +69% 63ms 
+  W0=30.00 Tg=0.50 | open CLexc=0.496 | prop +4%  | MPC +4% 59ms 
+  W0=30.00 Tg=1.00 | open CLexc=0.575 | prop +16%  | MPC +46% 59ms 
+  W0=30.00 Tg=2.00 | open CLexc=0.456 | prop +20%  | MPC +33% 60ms 
+  W0=11.46 Tg=1.12 | open CLexc=0.244 | prop +38%  | MPC +67% 60ms 
+Saved results/compare_grid.md and .csv
+Saved results/compare_grid_bars.png
+Saved results/compare_grid_overlay_design_W11-Tg112.png
+Saved results/compare_grid_overlay_strong_W30-Tg100.png
+Saved results/compare_grid_overlay_short_W10-Tg050.png
+
+=== Prop DLPF sensitivity ===
+  W0=11.5 Tg=1.12: with DLPF +37.8% flap=1.5d | no DLPF +51.7% flap=1.9d
+  W0=10.0 Tg=1.00: with DLPF +39.5% flap=1.3d | no DLPF +52.9% flap=1.6d
+  W0=30.0 Tg=1.00: with DLPF +16.2% flap=4.8d | no DLPF +28.2% flap=5.9d
+
+compare_grid.py DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort
+COMPARE_GRID_DONE

@@ -1,0 +1,7 @@
+# C_L(W) sweep at captured operating points (delta=0)  DAMULT=3
+rise(t=0.12)     Wtrue= 14.1  CL range [0.391,1.239]  MONOTONE-dn  sign-changes(dCL/dW)=0
+peak(t=0.25)     Wtrue= 30.0  CL range [0.379,1.619]  NON-MONOTONE  sign-changes(dCL/dW)=2
+decay(t=0.38)    Wtrue= 14.1  CL range [0.508,1.686]  MONOTONE-dn  sign-changes(dCL/dW)=0
+# saved results/clw_sweep.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

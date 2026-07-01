@@ -1,0 +1,10 @@
+# propw (equal info: both know W)  TEND=3.0 DAMULT=3
+
+cell       |        prop-CL |               prop-W |    opt-W(oracle)
+           |    CLred pitch |  CLred pitch (g1,gw) |      CLred pitch
+W30/T0.5   |    3.7%  1.08 |   46.0%  0.90 (-80,-0.60) |   51.1%  1.09
+W30/T2.0   |   20.3%  1.13 |   20.3%  1.13 (-10,0.00) |    3.4%  1.07
+W10/T2.0   |   68.3%  1.09 |   68.3%  1.09 (-160,0.00) |   78.1%  1.06
+
+# if prop-W ~= opt-W -> advantage was the INFORMATION (feedforward), not the model
+# DONE

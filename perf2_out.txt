@@ -1,0 +1,20 @@
+# perf2  TEND=2.5  LAMBDA=2.0  model={'NH': 6, 'NGRID': 15, 'QAD': 100.0, 'DLPF': 0.95, 'SCHED': False}  DAMULT=3
+# open-loop refs (clexc, pitchpeak) computed
+  [tune model] R= 5.0e-04  mean score=1.0118
+  [tune model] R= 1.0e-03  mean score=1.0113
+  [tune model] R= 3.0e-03  mean score=1.0058
+  [tune model] R= 1.0e-02  mean score=0.9905
+# best model R=1.0e-02  mean score=0.9905
+# best PD1 g1=-10.0  mean score=7.3582
+# best PD2 g1=-20.0 g2=-16.0  mean score=7.5825
+
+## per-cell  CLred% (higher=better) | pitch_ratio (>1.00 = torsion excited)
+cell       |   model(R=1e-02) |            PD1 |            PD2
+           |   CLred   pitch |  CLred  pitch |  CLred  pitch
+W30/T0.5   |       0    1.00 |      2   1.05 |      6   1.14
+W30/T1.0   |       6    1.01 |     16   1.18 |     35   1.20
+W10/T2.0   |       0    1.00 |     10   1.00 |     17   1.00
+MEAN       |       2    1.00 |      9   1.08 |     19   1.11
+
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

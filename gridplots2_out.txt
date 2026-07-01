@@ -1,0 +1,14 @@
+# gridplots2 (R-tuned, batched)  TEND=3.0 R_GRID=[0.01, 0.003, 0.001, 0.0003, 0.0001] G=161 DAMULT=3
+W10/T0.5  : prop g*=  -160 CLred= 77.7%  |  opt R*=   1e-04 CLred= 82.9%
+W10/T1.0  : prop g*=  -160 CLred= 83.2%  |  opt R*=   3e-04 CLred= 89.9%
+W10/T2.0  : prop g*=  -160 CLred= 68.5%  |  opt R*=   1e-04 CLred= 78.1%
+W20/T0.5  : prop g*=  -160 CLred= 81.3%  |  opt R*=   1e-04 CLred= 81.1%
+W20/T1.0  : prop g*=   -80 CLred= 77.1%  |  opt R*=   1e-03 CLred= 72.8%
+W20/T2.0  : prop g*=  -160 CLred= 84.5%  |  opt R*=   1e-04 CLred= 92.8%
+W30/T0.5  : prop g*=   -10 CLred=  3.7%  |  opt R*=   1e-03 CLred= 51.1%
+W30/T1.0  : prop g*=   -40 CLred= 58.7%  |  opt R*=   1e-02 CLred=  0.9%
+W30/T2.0  : prop g*=   -40 CLred= 41.9%  |  opt R*=   1e-02 CLred=  3.4%
+design    : prop g*=  -160 CLred= 84.2%  |  opt R*=   1e-04 CLred= 90.9%
+# saved results/gridplots.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

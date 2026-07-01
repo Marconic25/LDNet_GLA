@@ -1,0 +1,15 @@
+# W30/T0.5  open clexc=0.4959 pitchpeak=0.00314
+  prop g=   -10: CLred=   3.7% pitch=1.08
+  prop g=   -20: CLred= -36.4% pitch=1.76
+  prop g=   -40: CLred= -72.8% pitch=2.67
+  prop g=   -60: CLred= -75.3% pitch=2.72
+  prop g=   -80: CLred= -76.0% pitch=2.72
+  prop g=  -120: CLred= -77.7% pitch=2.75
+  prop g=  -160: CLred= -78.6% pitch=2.76
+  1step R=   3e-03: CLred=  29.5% pitch=1.02
+  1step R=   1e-03: CLred=  36.3% pitch=1.19
+  1step R=   3e-04: CLred=  30.0% pitch=0.84
+# BEST prop g*=-10.0 3.7%   |   1step R*=1e-03 36.3%
+# saved results/w30t05_traces.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

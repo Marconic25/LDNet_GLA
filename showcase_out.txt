@@ -1,0 +1,10 @@
+# showcase traces  TEND=3.0 DAMULT=3
+W10/T0.30 : prop-W CLred= 71.2%  opt-W CLred= 86.8%
+W20/T0.30 : prop-W CLred= 90.6%  opt-W CLred= 94.4%
+W30/T0.30 : prop-W CLred= 41.8%  opt-W CLred= 49.7%
+W10/T1.20 : prop-W CLred= 85.2%  opt-W CLred= 89.3%
+W20/T1.20 : prop-W CLred= 61.8%  opt-W CLred= 62.4%
+W30/T1.20 : prop-W CLred= 40.9%  opt-W CLred= 41.6%
+# saved results/showcase.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

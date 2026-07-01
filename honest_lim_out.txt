@@ -1,0 +1,7 @@
+# honest_grid (no gust oracle, anchored to measured C_L)  TEND=3.0 R_GRID=[0.01, 0.003, 0.001, 0.0003, 0.0001] G=161 DAMULT=3
+W30/T0.5  : prop g*=   -10 CLred=  3.7% pitch=1.00 | opt(honest) R*=   3e-03 CLred=  2.5% pitch=0.92
+W10/T2.0  : prop g*=  -160 CLred= 68.5% pitch=1.00 | opt(honest) R*=   1e-02 CLred= -2.1% pitch=1.16
+W30/T2.0  : prop g*=   -40 CLred= 41.9% pitch=1.00 | opt(honest) R*=   1e-02 CLred= 14.5% pitch=1.14
+# saved results/gridplots.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort
