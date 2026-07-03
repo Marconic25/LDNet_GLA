@@ -164,8 +164,10 @@ class Controller:
         d_b=np.asarray(deltas,dtype=float)
         J=self.R*d_b**2+self.R_du*(d_b-self._delta_prev)**2
         x_prev_ad=float(state[3])
+        lam=float(getattr(aero,'_z_leak',0.0))
         for _ in range(self.mpc_horizon):
-            CL,CM,z_b=aero.batch_step(z_b,x_b,d_b,float(W_hat),self.U,self.dt)
+            CL,CM,z_new=aero.batch_step(z_b,x_b,d_b,float(W_hat),self.U,self.dt)
+            z_b=z_new-lam*z_b   # latent-leak correction (batch_step omits the (1-lam) factor)
             Fy=self._q_dyn*CL-self._Fy_trim
             Mz=self._q_dyn*CM*C_REF-self._Mz_trim
             x_b=self._rk4_batch(x_b,Fy,Mz,self.dt)
