@@ -1,0 +1,22 @@
+#!/bin/bash
+#PBS -N fldrecon
+#PBS -q gpu
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -l walltime=01:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_recon.log
+#
+# Reconstruct LDNet fields for one sim and dump ROM/FOM npy (TF container).
+# Submit: qsub -v MODEL=models/latent_10,DATA=data/FIELDS_test.h5,INDEX=0,NAME=sim_A_025,OUT=recon_fields/rom_l10 recon.pbs
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+: "${MODEL:?}"; : "${DATA:?}"; : "${NAME:?}"; : "${OUT:?}"; INDEX="${INDEX:-0}"
+RECON=/work/u10677113/NACA2312/recon
+
+apptainer exec --nv --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; \
+             cd $RECON && python3 reconstruct_fields.py \
+               --model '$MODEL' --data '$DATA' --index $INDEX --name '$NAME' --out '$OUT'"
+echo "=== recon done ==="

@@ -1,0 +1,34 @@
+#!/bin/bash
+#PBS -N fldfinal
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_final.log
+#
+# FINAL corrected run: winning ablation config = linear output nonlinearity (the fix),
+# uniform sampling, restarts=2 (cheap basin insurance), full latent sweep {1,5,10}.
+# Writes to models/final/ so the broken baseline models/latent_* are preserved for before/after.
+# Then reconstructs all 3 latents on the test sim and dumps ROM/FOM npy for the viz step.
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+
+echo "=== final start $(date) ==="
+hostname
+
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      python3 -u train_fields.py --train data/FIELDS_train.h5 --valid data/FIELDS_valid.h5 \
+        --test data/FIELDS_A025.h5 --out models/final --latents 1,5,10 \
+        --adam 300 --bfgs 2000 --output-nl linear --restarts 2 > models/final/train.log 2>&1; \
+      for L in 1 5 10; do \
+        python3 -u reconstruct_fields.py --model models/final/latent_\$L \
+          --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+          --out results/final_rom_l\$L >> models/final/recon.log 2>&1; \
+      done; \
+      echo FINAL_DONE"
+
+echo "=== final done $(date) exit $? ==="

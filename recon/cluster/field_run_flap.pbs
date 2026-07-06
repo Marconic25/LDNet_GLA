@@ -1,0 +1,109 @@
+#!/bin/bash
+#PBS -N fldrunf
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_runf.log
+#
+# Field regeneration for a B (flap-only) or Cc (gust+flap) sim.
+# Replays the ORIGINAL run open-loop: gust params (W_g0,T_g) from sim_params.csv +
+# the EXACT recorded flap motion delta(t) from structural_trajectory.csv (subsampled to
+# knots and fed to cosim_driver as --delta-times/--delta-angles). Then extracts (Ux,Uy,p).
+#
+# Submit:  qsub -v SIM=sim_Cc_060_test field_run_flap.pbs
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+: "${SIM:?must pass -v SIM=sim_B_XXX or sim_Cc_XXX}"
+SRC_PARAMS="$WORK_BASE/dataset_v5/$SIM/sim_params.csv"
+SRC_TRAJ="$WORK_BASE/dataset_v5/$SIM/structural_trajectory.csv"
+SCRATCH="/scratch_local/$USER/fldrun_${SIM}"
+CONTAINER_ABS="/work/u10677113/of7.sif"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint"
+WRAPPER_DIR="$SCRATCH/bin_of7"
+OUT_PERSIST="$WORK_BASE/recon_fields/$SIM"
+EXTRACTOR="$WORK_BASE/recon/extract_fields.py"
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+# ── Authoritative gust params (sim_params.csv: T_g col8, W_g0 col9; 0 for family B) ──
+WG0=$(awk -F, 'NR==2{print $9}' "$SRC_PARAMS")
+TG=$(awk -F, 'NR==2{print $8}' "$SRC_PARAMS")
+
+# ── Flap schedule delta(t) from structural_trajectory.csv -> ~600 piecewise-linear knots ──
+python3 - "$SRC_TRAJ" "$SCRATCH/delta_knots.txt" <<'PY'
+import csv, sys
+src, out = sys.argv[1], sys.argv[2]
+t, d = [], []
+with open(src) as f:
+    for row in csv.DictReader(f):
+        t.append(float(row['t'])); d.append(float(row['delta']))
+N = len(t); step = max(1, N // 600)
+idx = list(range(0, N, step))
+if idx[-1] != N - 1: idx.append(N - 1)
+# fixed-point (not %g): scientific-notation negatives like -4.4e-05 are mis-parsed by
+# argparse nargs='+' as option flags; '%.6f' negatives match its negative-number regex.
+with open(out, 'w') as g:
+    g.write(' '.join('%.6f' % t[i] for i in idx) + '\n')
+    g.write(' '.join('%.6f' % d[i] for i in idx) + '\n')
+print("flap knots: %d  (delta range %.3f..%.3f deg)" % (len(idx), min(d), max(d)))
+PY
+DELTA_TIMES=$(sed -n '1p' "$SCRATCH/delta_knots.txt")
+DELTA_ANGLES=$(sed -n '2p' "$SCRATCH/delta_knots.txt")
+echo "=== $SIM  W_g0=$WG0  T_g=$TG  flap_knots=$(echo $DELTA_TIMES | wc -w) ==="
+
+# ── OpenFOAM wrappers (apptainer), per-job dir ──
+mkdir -p "$WRAPPER_DIR"
+for cmd in decomposePar pimpleFoam reconstructPar mapFields topoSet; do
+    cat > "$WRAPPER_DIR/$cmd" <<WRAPPER
+#!/bin/bash
+apptainer exec --bind /work --bind /scratch_local "$CONTAINER_ABS" /bin/bash -c "source /opt/openfoam7/etc/bashrc && $cmd \$*"
+WRAPPER
+    chmod +x "$WRAPPER_DIR/$cmd"
+done
+export PATH="$WRAPPER_DIR:$PATH"
+
+# ── Copy case + checkpoint to scratch ──
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename $proc)"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+# ── Keep all per-window field writes ──
+sed -i -E 's/purgeWrite[[:space:]]+[0-9]+/purgeWrite      0/' "$SCRATCH/system/controlDict"
+
+cd "$SCRATCH"
+source ~/cosim_env/bin/activate 2>/dev/null || \
+source "$WORK_BASE/my_venv/bin/activate" 2>/dev/null || true
+
+# ── Co-simulation (gust + recorded flap motion) ──
+echo "=== cosim_driver ($SIM) ... ==="
+python3 cosim_driver.py \
+    --np 16 --window 50 --dt 7e-05 --t-end 3.0 \
+    --from-checkpoint \
+    --gust-w0 "$WG0" \
+    --gust-t-start 0.0 \
+    --gust-t-end "$TG" \
+    --delta-times $DELTA_TIMES \
+    --delta-angles $DELTA_ANGLES \
+    2>&1 | tee log.cosim_driver
+
+echo "=== reconstructPar ... ==="
+reconstructPar -case "$SCRATCH" 2>&1 | tail -6 || echo "[warn] reconstructPar nonzero"
+echo "=== root time dirs after reconstruct: $(ls -d "$SCRATCH"/[0-9]* 2>/dev/null | wc -l) ==="
+
+echo "=== extract_fields.py ($SIM) ... ==="
+python3 "$EXTRACTOR" --case "$SCRATCH" --out "$OUT_PERSIST" --name "$SIM" --stride 1
+
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+echo "=== DONE $SIM -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

@@ -1,0 +1,51 @@
+#!/bin/bash
+#PBS -N flddiv
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_finaldiv.log
+#
+# Diverse-dataset FINAL: rebuild FIELDS with A+B+Cc, retrain the winning config
+# (linear output, restarts=2), and reconstruct on BOTH test sims (A_025 gust-only,
+# Cc_060 gust+flap) so we can plot two NRMSE-vs-latent curves.
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+RF=/work/u10677113/NACA2312/recon_fields
+
+echo "=== flddiv start $(date) ==="
+hostname
+
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      echo '##### build diverse FIELDS #####'; \
+      python3 -u build_fields_h5.py --out data/FIELDS_div_train.h5 --n-times 150 \
+        --sim $RF/sim_A_000_train:A --sim $RF/sim_A_002_train:A --sim $RF/sim_A_005_train:A \
+        --sim $RF/sim_A_010_train:A --sim $RF/sim_A_012_train:A --sim $RF/sim_A_017_train:A \
+        --sim $RF/sim_B_000_train:B --sim $RF/sim_B_001_train:B --sim $RF/sim_B_002_train:B \
+        --sim $RF/sim_Cc_000_train:Cc --sim $RF/sim_Cc_001_train:Cc --sim $RF/sim_Cc_002_train:Cc \
+        --sim $RF/sim_Cc_003_train:Cc --sim $RF/sim_Cc_004_train:Cc --sim $RF/sim_Cc_005_train:Cc \
+        > models/finaldiv_build.log 2>&1; \
+      python3 -u build_fields_h5.py --out data/FIELDS_div_valid.h5 --n-times 150 \
+        --sim $RF/sim_A_020_val:A >> models/finaldiv_build.log 2>&1; \
+      python3 -u build_fields_h5.py --out data/FIELDS_Cc060.h5 --n-times 150 \
+        --sim $RF/sim_Cc_060_test:Cc >> models/finaldiv_build.log 2>&1; \
+      echo '##### train on diverse set #####'; \
+      python3 -u train_fields.py --train data/FIELDS_div_train.h5 --valid data/FIELDS_div_valid.h5 \
+        --test data/FIELDS_Cc060.h5 --out models/final_div --latents 1,5,10 \
+        --adam 300 --bfgs 2000 --output-nl linear --restarts 2 > models/final_div/train.log 2>&1; \
+      echo '##### reconstruct on BOTH test sims #####'; \
+      for L in 1 5 10; do \
+        python3 -u reconstruct_fields.py --model models/final_div/latent_\$L \
+          --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 \
+          --out results/div_rom_cc_l\$L >> models/final_div/recon.log 2>&1; \
+        python3 -u reconstruct_fields.py --model models/final_div/latent_\$L \
+          --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+          --out results/div_rom_a_l\$L >> models/final_div/recon.log 2>&1; \
+      done; \
+      echo FINALDIV_DONE"
+
+echo "=== flddiv done $(date) exit $? ==="

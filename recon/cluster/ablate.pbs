@@ -1,0 +1,41 @@
+#!/bin/bash
+#PBS -N fldablate
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_ablate.log
+#
+# Ablation: one optimization lever at a time vs baseline (A0, already done).
+# Each run trains d_s in {1,10}: d_s=1 = control (must stay good), d_s=10 = broken case.
+#   A1 = linear output nonlinearity   (isolate the cubic-gradient-throttle hypothesis)
+#   A2 = 3 Adam restarts + 1000 Adam  (isolate the stuck-optimizer hypothesis)
+#   A3 = area-weighted point sampling (isolate the centerline-bias hypothesis)
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+TRI=/work/u10677113/NACA2312/recon_fields/sim_A_025_test_T0p05/mesh_triangles.npy
+
+echo "=== ablate start $(date) ==="
+hostname
+
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p models/ablation; \
+      echo '##### A1 linear-output #####'; \
+      python3 -u train_fields.py --train data/FIELDS_train.h5 --valid data/FIELDS_valid.h5 \
+        --test data/FIELDS_A025.h5 --out models/ablation/A1_linear --latents 1,10 \
+        --adam 200 --bfgs 2000 --output-nl linear > models/ablation/A1.log 2>&1; \
+      echo '##### A2 restarts #####'; \
+      python3 -u train_fields.py --train data/FIELDS_train.h5 --valid data/FIELDS_valid.h5 \
+        --test data/FIELDS_A025.h5 --out models/ablation/A2_restarts --latents 1,10 \
+        --adam 1000 --bfgs 2000 --restarts 3 > models/ablation/A2.log 2>&1; \
+      echo '##### A3 area-sampling #####'; \
+      python3 -u train_fields.py --train data/FIELDS_train.h5 --valid data/FIELDS_valid.h5 \
+        --test data/FIELDS_A025.h5 --out models/ablation/A3_area --latents 1,10 \
+        --adam 200 --bfgs 2000 --sampling area --tri $TRI > models/ablation/A3.log 2>&1; \
+      echo ALL_ABLATIONS_DONE"
+
+echo "=== ablate done $(date) exit $? ==="

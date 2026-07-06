@@ -1,0 +1,96 @@
+#!/bin/bash
+#PBS -N fldrun
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_run.log
+#
+# Generic field regeneration for ONE family-A sim (gust only, zero flap).
+# Reproduces the sim via cosim replay using its AUTHORITATIVE gust params from
+# dataset_v5/<SIM>/sim_params.csv (W_g0, T_g) -- NOT the stale metadata_v5.csv --
+# then extracts (Ux,Uy,p) snapshots to npy.
+#
+# Submit:  qsub -v SIM=sim_A_002_train field_run.pbs
+#
+# (Families B/Cc add a flap schedule and need different --delta-* args; handle later.)
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+: "${SIM:?must pass -v SIM=sim_A_XXX_split}"
+SRC_PARAMS="$WORK_BASE/dataset_v5/$SIM/sim_params.csv"
+SCRATCH="/scratch_local/$USER/fldrun_${SIM}"
+CONTAINER_ABS="/work/u10677113/of7.sif"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint"
+WRAPPER_DIR="$SCRATCH/bin_of7"     # per-job: avoid concurrent-write races across parallel jobs
+OUT_PERSIST="$WORK_BASE/recon_fields/$SIM"
+EXTRACTOR="$WORK_BASE/recon/extract_fields.py"
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+# persistent log (PBS -o spooling has been unreliable here)
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+# ── Authoritative gust params (sim_params.csv cols: ...,R(7),T_g(8),W_g0(9) 1-based) ──
+WG0=$(awk -F, 'NR==2{print $9}' "$SRC_PARAMS")
+TG=$(awk -F, 'NR==2{print $8}' "$SRC_PARAMS")
+echo "=== $SIM  W_g0=$WG0  T_g=$TG  SCRATCH=$SCRATCH ==="
+
+# ── OpenFOAM wrappers (apptainer), per-job dir ──
+mkdir -p "$WRAPPER_DIR"
+for cmd in decomposePar pimpleFoam reconstructPar mapFields topoSet; do
+    cat > "$WRAPPER_DIR/$cmd" <<WRAPPER
+#!/bin/bash
+apptainer exec --bind /work --bind /scratch_local "$CONTAINER_ABS" /bin/bash -c "source /opt/openfoam7/etc/bashrc && $cmd \$*"
+WRAPPER
+    chmod +x "$WRAPPER_DIR/$cmd"
+done
+export PATH="$WRAPPER_DIR:$PATH"
+
+# ── Copy case + checkpoint to scratch ──
+mkdir -p "$SCRATCH"
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename $proc)"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+# ── Keep all per-window field writes ──
+sed -i -E 's/purgeWrite[[:space:]]+[0-9]+/purgeWrite      0/' "$SCRATCH/system/controlDict"
+
+cd "$SCRATCH"
+source ~/cosim_env/bin/activate 2>/dev/null || \
+source "$WORK_BASE/my_venv/bin/activate" 2>/dev/null || true
+
+# ── Co-simulation (gust only, zero flap) ──
+echo "=== cosim_driver ($SIM) ... ==="
+python3 cosim_driver.py \
+    --np 16 --window 50 --dt 7e-05 --t-end 3.0 \
+    --from-checkpoint \
+    --gust-w0 "$WG0" \
+    --gust-t-start 0.0 \
+    --gust-t-end "$TG" \
+    --delta-times 0.0 3.0 \
+    --delta-angles 0.0 0.0 \
+    2>&1 | tee log.cosim_driver
+
+echo "=== root time dirs before reconstruct: $(ls -d "$SCRATCH"/[0-9]* 2>/dev/null | wc -l) ==="
+echo "=== processor0 time dirs: $(ls -d "$SCRATCH"/processor0/[0-9]* 2>/dev/null | wc -l) ==="
+
+# ── Reconstruct all written times (matches the validated pilot job) ──
+echo "=== reconstructPar ... ==="
+reconstructPar -case "$SCRATCH" 2>&1 | tail -6 || echo "[warn] reconstructPar nonzero"
+echo "=== root time dirs after reconstruct: $(ls -d "$SCRATCH"/[0-9]* 2>/dev/null | wc -l) ==="
+
+# ── Extract fields -> npy ──
+echo "=== extract_fields.py ($SIM) ... ==="
+python3 "$EXTRACTOR" --case "$SCRATCH" --out "$OUT_PERSIST" --name "$SIM" --stride 1
+
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+echo "=== DONE $SIM -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

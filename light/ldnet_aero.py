@@ -1,0 +1,257 @@
+"""
+Stateful LDNet aerodynamic model wrapper for use in clean/.
+
+Loads NNdyn and NNrec from a model directory (NNdyn_weights.weights.h5,
+NNrec_weights.weights.h5, config.json) and exposes the same interface as
+clean/aero.py:
+
+    predict(state, delta_deg, W, U) -> (C_L, C_M)
+
+The latent state z is maintained internally. predict() is read-only
+(does not modify z) so the controller's scalar optimizer can call it
+repeatedly without corrupting state. advance() steps z forward once
+with the true delta and true gust — call it once per timestep in run.py.
+"""
+import json
+import shutil
+import tempfile
+import os
+import numpy as np
+
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
+import tensorflow as tf
+from pathlib import Path
+
+tf.config.set_visible_devices([], 'GPU')
+tf.keras.backend.set_floatx('float64')
+
+
+class LDNetAero:
+    def __init__(self, model_dir):
+        model_dir = Path(model_dir)
+        with open(model_dir / 'config.json', 'r') as f:
+            config = json.load(f)
+
+        self._norm = config['normalization']
+        self._problem = config['problem']
+        self._num_z = config['num_latent_states']
+        self._cfg_leak = float(config.get('lambda_damp', 0.0))  # damped-ODE leak (0 = original model)
+        self._dt_ref = self._norm['time']['time_constant']
+
+        # Detect output type: forces (F_y/M_z) or coefficients (C_L/C_M)
+        out_names = [s if isinstance(s, str) else s['name']
+                     for s in self._problem['output_signals']]
+        self._output_is_forces = ('F_y' in out_names)
+
+        n_signals = len(self._problem['input_signals'])      # 6
+        n_params  = len(self._problem['input_parameters'])   # 1 (U_inf)
+        n_space   = self._problem['space']['dimension']       # 2 spatial coords (always 0,0 at eval)
+
+        dyn_in = self._num_z + n_params + n_signals
+        self.NNdyn = tf.keras.Sequential([
+            tf.keras.layers.Dense(7, activation='tanh', input_shape=(dyn_in,)),
+            tf.keras.layers.Dense(7, activation='tanh'),
+            tf.keras.layers.Dense(self._num_z),
+        ])
+
+        # NNrec expects 4-D input (batch, x, y, features) to support spatial fields;
+        # for scalar C_L/C_M we pass a single point at (0, 0).
+        rec_in = self._num_z + n_signals + n_space
+        self.NNrec = tf.keras.Sequential([
+            tf.keras.layers.Dense(24, activation='tanh', input_shape=(None, None, rec_in)),
+            tf.keras.layers.Dense(24, activation='tanh'),
+            tf.keras.layers.Dense(24, activation='tanh'),
+            tf.keras.layers.Dense(24, activation='tanh'),
+            tf.keras.layers.Dense(len(self._problem['output_signals'])),
+        ])
+
+        self._load_weights(model_dir)
+        self._z      = np.zeros(self._num_z)
+        self._dt     = 0.01   # set by reset(dt) or advance(); default matches run.py DT
+        self._dt_sub = self._dt_ref  # sub-step size for latent integration (= training dt)
+        self._z_leak = self._cfg_leak  # damped-ODE leak from config (0 = original model)
+        # Spatial eval point (0,0) must be normalized exactly as training did
+        # (utils.dataset_normalize -> normalize_forw with space min/max).
+        sp = self._norm['space']
+        smin = np.asarray(sp['min'], dtype=float); smax = np.asarray(sp['max'], dtype=float)
+        self._pts_n = ((2.0 * 0.0 - smin - smax) / (smax - smin)).tolist()  # e.g. [-1.0, -1.0]
+
+    def _load_weights(self, model_dir):
+        try:
+            self.NNdyn.load_weights(model_dir / 'NNdyn_weights.weights.h5')
+            self.NNrec.load_weights(model_dir / 'NNrec_weights.weights.h5')
+        except OSError as e:
+            if 'lock' in str(e).lower() or 'Unable to synchronously open' in str(e):
+                print('  [WARNING] h5py lock detected, using tempdir workaround...')
+                with tempfile.TemporaryDirectory() as tmp:
+                    tmp_path = Path(tmp)
+                    shutil.copy(model_dir / 'NNdyn_weights.weights.h5',
+                                tmp_path / 'NNdyn_weights.weights.h5')
+                    shutil.copy(model_dir / 'NNrec_weights.weights.h5',
+                                tmp_path / 'NNrec_weights.weights.h5')
+                    self.NNdyn.load_weights(str(tmp_path / 'NNdyn_weights.weights.h5'))
+                    self.NNrec.load_weights(str(tmp_path / 'NNrec_weights.weights.h5'))
+                    print('  [OK] weights loaded from temp location')
+            else:
+                raise
+
+    def _normalize_signals(self, h, hd, a, ad, delta, W):
+        s = self._norm['input_signals']
+        def n(v, key):
+            lo, hi = s[key]['min'], s[key]['max']
+            return (2.0 * v - lo - hi) / (hi - lo)
+        return np.array([n(h,'h'), n(hd,'hd'), n(a,'a'),
+                         n(ad,'ad'), n(delta,'delta'), n(W,'W_gust')])
+
+    def _normalize_U(self, U):
+        p = self._norm['input_parameters']['U_inf']
+        return (2.0 * U - p['min'] - p['max']) / (p['max'] - p['min'])
+
+    def _denorm_output(self, v0_n, v1_n):
+        """Denormalize first two output signals, return physical values."""
+        o = self._norm['output_signals']
+        keys = list(o.keys())
+        def dn(v_n, key):
+            lo, hi = o[key]['min'], o[key]['max']
+            return 0.5 * float(v_n) * (hi - lo) + 0.5 * (hi + lo)
+        return dn(v0_n, keys[0]), dn(v1_n, keys[1])
+
+    def _step_z(self, z, sigs_n, U_n, sub_dt):
+        """Advance z by one sub-step of size sub_dt."""
+        dyn_inp = np.reshape(
+            np.concatenate([z, [U_n], sigs_n]),
+            (1, self._num_z + 1 + len(sigs_n))
+        )
+        dz = self.NNdyn(dyn_inp, training=False)
+        return (1.0 - self._z_leak) * z + (sub_dt / self._dt_ref) * dz.numpy().flatten()
+
+    def _reconstruct(self, z, sigs_n, U):
+        """Reconstruct (C_L, C_M) from the CURRENT latent state z and signals.
+        Matches training rollout: output_i = NNrec(z_i, sig_i) — no z stepping here."""
+        rec_inp = np.reshape(
+            np.concatenate([z, sigs_n, self._pts_n]),
+            (1, 1, 1, self._num_z + len(sigs_n) + 2)
+        )
+        out_n = self.NNrec(rec_inp, training=False)
+        if self._output_is_forces:
+            alpha = 0.05
+            o0 = out_n[0, 0, 0, 0]
+            o1 = out_n[0, 0, 0, 1]
+            o0 = (o0**3 + alpha * o0) / (1 + alpha)
+            o1 = (o1**3 + alpha * o1) / (1 + alpha)
+        else:
+            o0 = out_n[0, 0, 0, 0]
+            o1 = out_n[0, 0, 0, 1]
+        v0, v1 = self._denorm_output(o0, o1)
+        if self._output_is_forces:
+            q_dyn = 0.5 * 1.225 * float(U)**2 * 0.05
+            C_L = v0 / q_dyn
+            C_M = v1 / (q_dyn * 1.0)
+        else:
+            C_L, C_M = v0, v1
+        return float(C_L), float(C_M)
+
+    def _advance_z(self, z, sigs_n, U_n, dt):
+        """Advance z by dt with forward-Euler sub-steps of size <= dt_sub."""
+        n_sub = max(1, round(dt / self._dt_sub))
+        sub_dt = dt / n_sub
+        z_new = z
+        for _ in range(n_sub):
+            z_new = self._step_z(z_new, sigs_n, U_n, sub_dt)
+        return z_new
+
+    def predict(self, state, delta_deg, W, U):
+        """Predict (C_L, C_M) from the CURRENT z — read-only, does NOT update z."""
+        h, hd, a, ad = state
+        sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
+        return self._reconstruct(self._z, sigs_n, U)
+
+    def advance(self, state, delta_deg, W, U, dt):
+        """Advance latent state z one step using true (state, delta, W, U, dt)."""
+        dt = float(dt)
+        h, hd, a, ad = state
+        sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
+        U_n    = self._normalize_U(U)
+        self._z = self._advance_z(self._z, sigs_n, U_n, dt)
+
+    def predict_step(self, state, delta_deg, W, U, dt):
+        """(C_L, C_M) that result AFTER advancing a COPY of z one step with this
+        delta (z-aware one-step prediction). Does NOT mutate self._z. Lets a
+        model-based controller see delta's effect through the latent dynamics,
+        not just the frozen-z reconstruction."""
+        dt = float(dt)
+        h, hd, a, ad = state
+        sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
+        U_n    = self._normalize_U(U)
+        z_next = self._advance_z(self._z, sigs_n, U_n, dt)
+        return self._reconstruct(z_next, sigs_n, U)
+
+    def batch_step(self, z_b, x_b, delta_b, W, U, dt):
+        """Vectorized one-step forward for a BATCH of B candidates (e.g. MPC grid).
+        z_b: (B,num_z), x_b: (B,4) [h,hd,a,ad], delta_b: (B,) deg, W,U scalars.
+        Returns (C_L_b, C_M_b, z_new_b) as numpy arrays. Reconstruct uses the current
+        z_b; z is advanced one step (assumes dt == training dt_ref, n_sub=1). Does NOT
+        touch self._z."""
+        B = z_b.shape[0]
+        s = self._norm['input_signals']
+        def n(v, key):
+            lo, hi = s[key]['min'], s[key]['max']
+            return (2.0 * v - lo - hi) / (hi - lo)
+        sigs = np.stack([n(x_b[:,0],'h'), n(x_b[:,1],'hd'), n(x_b[:,2],'a'),
+                         n(x_b[:,3],'ad'), n(delta_b,'delta'),
+                         n(np.full(B, float(W)),'W_gust')], axis=1)           # (B,6)
+        U_n = self._normalize_U(U)
+        pts = np.broadcast_to(np.asarray(self._pts_n), (B, 2))
+        # reconstruct C_L/C_M from current z_b
+        rec_in = np.concatenate([z_b, sigs, pts], axis=1).reshape(B, 1, 1, -1)
+        out = self.NNrec(rec_in, training=False).numpy()[:, 0, 0, :]          # (B,2)
+        if self._output_is_forces:
+            alpha = 0.05
+            out = (out**3 + alpha * out) / (1 + alpha)
+        o = self._norm['output_signals']; keys = list(o.keys())
+        lo0, hi0 = o[keys[0]]['min'], o[keys[0]]['max']
+        lo1, hi1 = o[keys[1]]['min'], o[keys[1]]['max']
+        v0 = 0.5 * out[:,0] * (hi0 - lo0) + 0.5 * (hi0 + lo0)
+        v1 = 0.5 * out[:,1] * (hi1 - lo1) + 0.5 * (hi1 + lo1)
+        if self._output_is_forces:
+            q_dyn = 0.5 * 1.225 * float(U)**2 * 0.05
+            C_L_b = v0 / q_dyn; C_M_b = v1 / q_dyn
+        else:
+            C_L_b, C_M_b = v0, v1
+        # advance z one step (factor dt/dt_ref; n_sub=1 when dt==dt_ref)
+        dyn_in = np.concatenate([z_b, np.full((B,1), U_n), sigs], axis=1)      # (B,1+num_z+6)
+        dz = self.NNdyn(dyn_in, training=False).numpy()
+        z_new = z_b + (float(dt) / self._dt_ref) * dz
+        return C_L_b, C_M_b, z_new
+
+    def reset(self, dt=None, warmup_csv=None):
+        """Reset latent state. If warmup_csv is given, drive z through that trajectory."""
+        self._z = np.zeros(self._num_z)
+        if dt is not None:
+            self._dt = float(dt)
+        if warmup_csv is not None:
+            self._warmup_from_csv(warmup_csv)
+
+    def _warmup_from_csv(self, csv_path):
+        """Drive z through a real trajectory CSV to pre-load the latent state.
+
+        The CSV raw dt (~2.8e-4 s) is much finer than the training dt (dt_ref).
+        We subsample to the nearest stride so each step is exactly dt_ref,
+        matching the integration rate the model was trained with.
+        """
+        import csv as _csv
+        with open(csv_path) as f:
+            rows = list(_csv.reader(f))
+        data = np.array([[float(v) for v in r] for r in rows[1:]])
+        # columns: t, h, hd, alpha, ad, Fy, Mz, W_gust, delta
+        raw_dt = float(data[1, 0] - data[0, 0])
+        stride = max(1, round(self._dt_ref / raw_dt))  # e.g. 0.002/2.8e-4 ≈ 7
+        indices = range(0, len(data) - stride, stride)
+        for i in indices:
+            h, hd, a, ad = data[i, 1], data[i, 2], data[i, 3], data[i, 4]
+            W, delta     = data[i, 7], data[i, 8]
+            sigs_n = self._normalize_signals(h, hd, a, ad, delta, W)
+            U_n    = self._normalize_U(80.0)
+            self._z = self._step_z(self._z, sigs_n, U_n, self._dt_ref)
+        print(f"  [LDNetAero] warmup done ({len(indices)} steps, stride={stride}): z_norm={np.linalg.norm(self._z):.3f}")

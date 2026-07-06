@@ -1,0 +1,33 @@
+#!/bin/bash
+#PBS -N fldviz
+#PBS -q cpu
+#PBS -l select=1:ncpus=2
+#PBS -l walltime=01:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_viz.log
+#
+# Generate FOM-vs-LDNet comparison figures for all 3 latent sizes.
+# No GPU needed; uses apptainer for numpy/matplotlib only.
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+TRI=/work/u10677113/NACA2312/recon_fields/sim_A_025_test_T0p05/mesh_triangles.npy
+
+echo "=== fldviz start $(date) ==="
+hostname
+
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q matplotlib 2>/dev/null; cd $RECON && python3 -u viz_fields.py \
+      compare --recon results/rom_l1  --name sim_A_025 --tri '$TRI' --latent 1  --out results/compare_l1.png  && \
+      python3 -u viz_fields.py \
+      compare --recon results/rom_l5  --name sim_A_025 --tri '$TRI' --latent 5  --out results/compare_l5.png  && \
+      python3 -u viz_fields.py \
+      compare --recon results/rom_l10 --name sim_A_025 --tri '$TRI' --latent 10 --out results/compare_l10.png && \
+      python3 -u viz_fields.py \
+      compare-video --recon results/rom_l10 --name sim_A_025 --tri '$TRI' \
+        --channel vy --stride 1 --fps 12 --out results/compare_video_l10_vy.gif \
+    > $RECON/results/viz.log 2>&1"
+
+echo "=== fldviz done $(date) exit $? ==="

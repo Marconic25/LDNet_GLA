@@ -1,0 +1,33 @@
+#!/bin/bash
+#PBS -N fldrecon
+#PBS -q cpu
+#PBS -l select=1:ncpus=4
+#PBS -l walltime=02:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_recon.log
+#
+# Reconstruct LDNet fields for all 3 latent sizes on CPU queue (/work is mounted here).
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+
+echo "=== fldrecon cpu start $(date) ==="
+hostname
+
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; \
+             cd $RECON && \
+             python3 -u reconstruct_fields.py \
+               --model models/latent_1 --data data/FIELDS_A025.h5 \
+               --index 0 --name sim_A_025 --out results/rom_l1 && \
+             python3 -u reconstruct_fields.py \
+               --model models/latent_5 --data data/FIELDS_A025.h5 \
+               --index 0 --name sim_A_025 --out results/rom_l5 && \
+             python3 -u reconstruct_fields.py \
+               --model models/latent_10 --data data/FIELDS_A025.h5 \
+               --index 0 --name sim_A_025 --out results/rom_l10 \
+             > $RECON/results/recon.log 2>&1"
+
+echo "=== fldrecon done $(date) exit $? ==="

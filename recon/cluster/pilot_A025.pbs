@@ -1,0 +1,101 @@
+#!/bin/bash
+#PBS -N fld_A025
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=06:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_fld_A025.log
+#
+# Regenerate CFD fields for sim_A_025_test via the validated cosim replay, then
+# extract (Ux,Uy,p) snapshots to npy. Parametric via -v T_END (smoke: 0.05, full: 3.0).
+#
+# Submit (smoke):  qsub -v T_END=0.05 pilot_A025.pbs
+# Submit (full):   qsub -v T_END=3.0  pilot_A025.pbs
+#
+# Authoritative gust/flap params from dataset_v5/sim_A_025_test/job.pbs (NOT metadata_v5.csv,
+# which is stale): gust-w0 11.4599, gust-t-end 1.120581, zero flap.
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+SIM="sim_A_025_test"
+T_END="${T_END:-0.05}"
+TAG=$(echo "$T_END" | tr '.' 'p')
+SCRATCH="/scratch_local/$USER/fld_${SIM}_${TAG}"
+CONTAINER_ABS="/work/u10677113/of7.sif"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint"
+WRAPPER_DIR="$HOME/bin_of7"
+OUT_PERSIST="$WORK_BASE/recon_fields/${SIM}_T${TAG}"
+EXTRACTOR="$WORK_BASE/recon/extract_fields.py"
+
+echo "=== fld_A025  T_END=$T_END  SCRATCH=$SCRATCH ==="
+mkdir -p "$OUT_PERSIST"
+
+# ── OpenFOAM wrappers (apptainer) ──
+mkdir -p "$WRAPPER_DIR"
+for cmd in decomposePar pimpleFoam reconstructPar mapFields topoSet; do
+    cat > "$WRAPPER_DIR/$cmd" <<WRAPPER
+#!/bin/bash
+apptainer exec --bind /work --bind /scratch_local "$CONTAINER_ABS" /bin/bash -c "source /opt/openfoam7/etc/bashrc && $cmd \$*"
+WRAPPER
+    chmod +x "$WRAPPER_DIR/$cmd"
+done
+export PATH="$WRAPPER_DIR:$PATH"
+
+# ── Copy case to scratch_local ──
+echo "=== Copying case to scratch... ==="
+mkdir -p "$SCRATCH"
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+
+# ── Copy checkpoint ──
+echo "=== Copying checkpoint... ==="
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename $proc)"
+    mkdir -p "$dst"
+    rsync -a "$proc" "$dst/"
+done
+
+# ── KEY: keep all per-window field writes (default purgeWrite 2 discards them) ──
+sed -i -E 's/purgeWrite[[:space:]]+[0-9]+/purgeWrite      0/' "$SCRATCH/system/controlDict"
+echo "purgeWrite now: $(grep -E 'purgeWrite' "$SCRATCH/system/controlDict")"
+
+cd "$SCRATCH"
+source ~/cosim_env/bin/activate 2>/dev/null || \
+source "$WORK_BASE/my_venv/bin/activate" 2>/dev/null || true
+
+# ── Co-simulation (sim_A_025_test authoritative params) ──
+echo "=== cosim_driver (t-end=$T_END) ... ==="
+python3 cosim_driver.py \
+    --np 16 --window 50 --dt 7e-05 --t-end "$T_END" \
+    --from-checkpoint \
+    --gust-w0 11.4599 \
+    --gust-t-start 0.0 \
+    --gust-t-end 1.120581 \
+    --delta-times 0.0 3.0 \
+    --delta-angles 0.0 0.0 \
+    2>&1 | tee log.cosim_driver
+
+# ── Diagnostics: what time dirs survived ──
+echo "=== root time dirs ==="; ls -d "$SCRATCH"/[0-9]* 2>/dev/null | wc -l
+echo "=== processor0 time dirs ==="; ls -d "$SCRATCH"/processor0/[0-9]* 2>/dev/null | wc -l
+
+# ── Reconstruct all written times (cosim reconstructs per-window; ensure complete) ──
+echo "=== reconstructPar ... ==="
+reconstructPar -case "$SCRATCH" 2>&1 | tail -8 || echo "[warn] reconstructPar returned nonzero"
+echo "=== reconstructed root time dirs ==="; ls -d "$SCRATCH"/[0-9]* 2>/dev/null | wc -l
+
+# ── Extract fields -> npy ──
+echo "=== extract_fields.py ... ==="
+python3 "$EXTRACTOR" --case "$SCRATCH" --out "$OUT_PERSIST" --name "$SIM" --stride 1
+
+# ── Persist inputs alongside fields ──
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+
+echo "=== DONE -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

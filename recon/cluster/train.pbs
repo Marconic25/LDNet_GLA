@@ -1,0 +1,33 @@
+#!/bin/bash
+#PBS -N fldtrain
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/pbs_train.log
+#
+# Field-LDNet training on CPU queue (/work IS mounted here, unlike gpu nodes).
+# TF runs on CPU (no --nv needed); network is tiny so CPU is acceptable.
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+
+RECON=/work/u10677113/NACA2312/recon
+
+echo "=== fldtrain cpu start $(date) ==="
+hostname
+
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; \
+             mkdir -p $RECON/models; \
+             cd $RECON && python3 -u train_fields.py \
+               --train data/FIELDS_train.h5 \
+               --valid data/FIELDS_valid.h5 \
+               --test  data/FIELDS_A025.h5 \
+               --out   models \
+               --latents 1,5,10 \
+               --adam 200 --bfgs 2000 \
+             > $RECON/models/train.log 2>&1"
+
+echo "=== fldtrain done $(date) exit $? ==="

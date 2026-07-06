@@ -321,6 +321,7 @@ CFD ground truth (0.106 vs 0.105 deg/s) -- the visible wiggle is the LDNet C_M r
 forced, not resonant, artifact: 4x structural damping changes RMS by <7%), and the controller
 adds only ~8%. Plots: clean/results/mpc_plots/gust_W{10,20,30}_Tg{50,100,200}.png + W11_Tg112.
 
+<<<<<<< Updated upstream
 
 ## Design A -- one-step Q_alpha_ddot (2026-06-29)
 
@@ -369,3 +370,126 @@ Conclusions:
    within the saturation limit is decisive. Q_Delta-adot captures pitch excitation
    mechanism and is sufficient for moderate gusts.
 4. Best cross-gust setting: Q_ad=5-10, R=5e-3. Design-gust optimum: Q_ad=5, R=5e-4.
+=======
+## Design A — one-step Q_alpha_ddot (2026-06-29)
+
+**Question:** is MPC necessary, or does a one-step controller with the same cost structure
+but penalising Δα̇ = (α̇(t+1) − α̇(t))² instead of α̇(t+1)² suffice?
+
+**Rationale:** Phase 3 (one-step Q_alpha_dot = Q·α̇²) failed because it penalises the
+absolute pitch rate, which rises naturally during a gust → huge weights needed → flap
+saturates → C_L alleivation lost. The Δα̇ = α̈·dt term penalises only the controller-
+induced pitch angular acceleration (directly proportional to the flap moment arm), not
+the natural gust response. Theoretical mechanism: frena il primo anello della cascata
+risonante (δ → Mz → α̈ → α̇ → ΔC_L → δ) senza combattere la risposta naturale al gust.
+
+**Implementation:** one line in controller._cost():
+    - before: self.Q_alpha_dot * x_next[3]**2
+    + after:  self.Q_alpha_dot * (x_next[3] - state[3])**2
+(clean/controller.py:178; clean/adot_sweep.py for the sweep harness)
+
+**Results — single-process sweep (clean/adot_sweep.py, NH=1, NGRID=7, NSTEPS=800):**
+
+sim_A_025 (design gust, CLexc_open=0.241, ad_open=0.0039):
+| Q_ad | R    | CLexc red. | ad/open | status |
+|------|------|-----------|---------|--------|
+|    5 | 5e-4 | +75%      | 2.5x    | stable |
+|    5 | 1e-3 | +70%      | 1.3x    | stable |
+|   10 | 1e-3 | +67%      | 1.4x    | stable |
+|   30 | 1e-3 | +53%      | 1.8x    | stable |
+|  100 | 5e-3 | +31%      | 1.6x    | stable |
+| ≥100 | ≤1e-3| —         | —       | EXPLODE |
+
+sim_A_027 (strong gust, CLexc_open=0.584, ad_open=0.044):
+| Q_ad | R    | CLexc red. | status  |
+|------|------|-----------|---------|
+|  5   | 5e-3 | +12%      | stable  |
+| 10   | 5e-3 | +12%      | stable  |
+| 30   | 5e-3 | +12%      | stable  |
+|  5–30| ≤1e-3| —         | EXPLODE |
+| ≥100 | any  | -10..+10% | worsens |
+
+**Controller comparison (rollout model, z=0, C_L excursion reduction):**
+| controller                         | A_025 (design) | A_027 (strong) |
+|------------------------------------|----------------|----------------|
+| Proportional G=20                  | -59%           | modest         |
+| 1-step Q_CL+R (Phase 1, R=1e-3)   | -73% stable    | EXPLODE        |
+| 1-step Q_alpha_dot (Phase 3)       | -29% unstable  | worsens        |
+| **Design A (Q_ad=5, R=1e-3)**      | **-70% stable**| -12% stable    |
+| MPC H=6 (Q_ad=100, R=1e-2)        | -46% stable    | -20% stable    |
+
+**Conclusions:**
+1. Design A REPLACES MPC for the design gust: +70% vs MPC +46%, simpler by construction.
+2. Design A PARTIALLY covers strong gusts (+12% vs MPC +20%). The gap is not the cost
+   formulation — it is flap authority saturation. At CLexc_open=0.584 the authority limit
+   (dC_L/dδ~0.014/deg, δ_max=14°) caps any one-step controller; MPC gains only 8% more
+   by sequencing commands across the horizon to delay saturation.
+3. MPC is theoretically justified ONLY for strong gusts where the multi-step pitch cascade
+   cannot be inferred from the one-step Δα̇ cost. For a clean theoretical treatment:
+   — Q_Δα̇ captures pitch excitation mechanism → sufficient for moderate gusts
+   — Horizon needed only when flap saturation makes multi-step sequencing decisive
+4. Best single setting across both gusts: Q_ad=5–10, R=5e-3 (stable everywhere, moderate
+   alleviation). For design-gust optimality: Q_ad=5, R=5e-4 (+75%, ad=2.5x open).
+
+## Confronto open / prop / MPC — CS-25.341 discrete gust envelope (2026-06-29)
+
+Rollout model (models_rollout/latent_10), z=0 start, FULL loads, DAMULT=3.
+Synthetic 1-cos gusts W(t)=(W0/2)(1-cos(2πt/Tg)); CFD pre-gust trim IC.
+Script: clean/compare_grid.py; results in clean/results/compare_grid.{md,csv,png}.
+
+**Proportional gain selection (cross-validation on 10 cells):**
+Only G=10 keeps all 10 cells stable; G=20/40/80 lose ≥1 cell (likely W30/Tg0.5 where
+flap authority is exhausted and the feedback loop over-drives). G=10 median CLred=22%
+(conservative; higher gains give +48..60% but require excluding unstable cells).
+
+Both controllers use the same 2nd-order DLPF chain (α=0.85, scheduled) for fair comparison.
+MPC: RQUIET scheduling (R ramps up from 0.1 to tuned value as gust grows), H=6, NGRID=15.
+
+**C_L excursion reduction vs open loop:**
+
+| W0 [m/s] | Tg [s] | H [m] | H [ft] | CLexc open | Prop G=10 | MPC H=6  | MPC ms/step |
+|----------|--------|-------|--------|-----------|-----------|----------|-------------|
+| 10       | 0.50   | 20    | 66     | 0.202     | +24%      | +58%*    | 61          |
+| 10       | 1.00   | 40    | 131    | 0.219     | +40%      | +59%     | 61          |
+| 10       | 2.00   | 80    | 262    | 0.071     | +13%      | +2%      | 61          |
+| 20       | 0.50   | 20    | 66     | 0.337     | +12%      | +23%     | 62          |
+| 20       | 1.00   | 40    | 131    | 0.463     | +42%      | +38%     | 62          |
+| 20       | 2.00   | 80    | 262    | 0.261     | +43%      | +69%     | 63          |
+| 30       | 0.50   | 20    | 66     | 0.496     | +4%       | +4%      | 59          |
+| 30       | 1.00   | 40    | 131    | 0.575     | +16%      | +46%     | 59          |
+| 30       | 2.00   | 80    | 262    | 0.456     | +20%      | +33%     | 60          |
+| 11.46    | 1.12   | 45    | 147    | 0.244     | +38%      | +67%     | 60          |
+
+*W10/Tg0.5 MPC has hdd!! flag (structural load amplification — see caveat).
+
+**Key observations:**
+1. **MPC dominates on moderate-to-strong, medium-length gusts** (W30/Tg1: +46% vs +16%;
+   design W11/Tg1.12: +67% vs +38%; W20/Tg2: +69% vs +43%). Multi-step lookahead pays off.
+2. **Prop wins W20/Tg1** (+42% vs +38%) and **both equal on W30/Tg0.5** (+4%). At these
+   operating points the gust is either perfectly tuned for the proportional feedback or
+   the flap is saturated for both.
+3. **Short gusts (Tg=0.5, H=20m=66ft, lower CS-25.341 boundary):** both controllers limited
+   to +4..24% — the gust is shorter than the flap time-constant, authority saturates early.
+4. **W10/Tg2 (very mild gust, CLexc=0.071):** MPC barely acts (+2%), prop is more
+   useful (+13%). MPC is over-regularized at small excursion (RQUIET schedule).
+5. **Compute cost:** MPC ~60ms/step vs DT=2ms → 30× real-time on CPU; prop ~8ms/step → 4×.
+   Neither is real-time without dedicated hardware or code optimization.
+
+**DLPF sensitivity (same smoothing applied to prop for fairness):**
+| Cell          | Prop + DLPF | Prop no DLPF | flap Δ    |
+|---------------|-------------|--------------|-----------|
+| Design W11/Tg1.12 | +38%   | +52%         | 1.5→1.9 d |
+| W10/Tg1.0    | +40%        | +53%         | 1.3→1.6 d |
+| W30/Tg1.0    | +16%        | +28%         | 4.8→5.9 d |
+
+DLPF costs prop ~12–14% CLred but reduces flap travel (~0.4–1.1 deg). Without DLPF prop
+outperforms MPC on most moderate cells, confirming the smoothing (not the horizon) is the
+main penalty on the proportional arm.
+
+**Caveats:**
+- LDNet under-predicts strong gusts (A_027: model 0.59 vs CFD 0.99) → saturation earlier
+  in reality, all CLred values conservative for W0≥25.
+- DAMULT=3 compensates LDNet aero under-damping; physical DAMULT=1 would require re-tuning.
+- W10/Tg0.5 MPC `hdd!!`: peak heave acceleration >3× open-loop; structural loads amplified.
+  Probably a resonance excited by the fast flap at the 5.8 Hz heave mode; needs investigation.
+>>>>>>> Stashed changes
