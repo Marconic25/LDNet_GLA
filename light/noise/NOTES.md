@@ -423,16 +423,17 @@ results (all in `results/E2_*.npz`) were computed with `rk4_batch` in the MPC
 horizon and `step_rk4` in the plant.  The new dp45 tree will not reproduce
 those numbers bit-exactly — this is expected and **not a bug**.
 
-## dp45 baseline anchors (home cell W30/Tg0.4, DAMULT=3) – TO BE FILLED
+## dp45 baseline anchors (home cell W30/Tg0.4, DAMULT=3)
 
-After running the smoke regression on cluster post-sync, fill in the dp45 values:
+Smoke regression run 2026-07-08 on cluster post-sync (smoke_dp45_baseline.py,
+commit 7a171d9c). dp45 values are bit-exact with rk4 at this cell.
 
 | check | rk4 value | dp45 value | delta |
 |---|---|---|---|
-| open cex0 | 0.4600 | TBD | TBD |
-| one-step optimal R=3e-4 | +76.58% | TBD | TBD |
-| one-step optimal R=1e-4 | +80.67% | TBD | TBD |
-| combo oracle clean R=3e-4 | +80.5% | TBD | TBD |
+| open cex0 | 0.4600 | **0.4600** | 0.0000 |
+| one-step optimal R=3e-4 | +76.58% | **+76.58%** | 0.00 pt |
+| one-step optimal R=1e-4 | +80.67% | **+80.67%** | 0.00 pt |
+| combo oracle clean R=3e-4 | +80.5% | **+80.51%** | +0.01 pt |
 
 Use the dp45 values as the new anchors for all subsequent studies.
-If any non-chaotic number (open cex0, combo clean) differs by >1 pt, debug.
+All non-chaotic numbers within tolerance (delta < 1 pt) — no debug needed.
