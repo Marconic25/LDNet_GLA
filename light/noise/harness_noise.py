@@ -96,6 +96,9 @@ def rollout(ctrl, W0, Tg, wc_fun=None, TEND=3.0):
     if wc_fun is None:
         wc_fun = lambda i, Wt, N: Wt[min(i + 1, N - 1)]
 
+    # f92d8975: step_rk4 removed locally; guard for cluster trees that still have it
+    _step_struct = getattr(structure, 'step_rk4', structure.step_dp45)
+
     x = X0.copy()
     rec = {k: [] for k in ['h','hd','al','ad','hdd','add','de','CL','CM','Fy']}
     Wc_seen = np.zeros(N)
@@ -115,7 +118,7 @@ def rollout(ctrl, W0, Tg, wc_fun=None, TEND=3.0):
         Fy = q * cl; Mz = q * cm * C
         der = structure.rhs(x, Fy, Mz)
         aero.advance(x, de, Wi, U, DT)
-        x = structure.step_dp45(x, Fy, Mz, DT)
+        x = _step_struct(x, Fy, Mz, DT)
         for k, v in zip(['h','hd','al','ad','hdd','add','de','CL','CM','Fy'],
                         [x[0], x[1], x[2], x[3], der[1], der[3], de,
                          float(cl), float(cm), Fy]):

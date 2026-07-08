@@ -411,3 +411,28 @@ mean [min,max] flags/6; sigma_del in m/s.
   MPC horizon; the local tree's dp45_batch variant is handled by a defensive
   import in e2_mpc/e2_combo/e2_combo_cells but was not used for any recorded
   number).
+
+---
+
+# Integrator migration note (f92d8975 → dp45, 2026-07-08)
+
+`structure.py` at commit f92d8975 replaced `step_rk4` with `step_dp45`
+(Dormand-Prince RK45 via scipy.integrate.solve_ivp).  After syncing the local
+tree to the cluster the cluster also uses dp45; the recorded E2/E2CC/E2-combo
+results (all in `results/E2_*.npz`) were computed with `rk4_batch` in the MPC
+horizon and `step_rk4` in the plant.  The new dp45 tree will not reproduce
+those numbers bit-exactly — this is expected and **not a bug**.
+
+## dp45 baseline anchors (home cell W30/Tg0.4, DAMULT=3) – TO BE FILLED
+
+After running the smoke regression on cluster post-sync, fill in the dp45 values:
+
+| check | rk4 value | dp45 value | delta |
+|---|---|---|---|
+| open cex0 | 0.4600 | TBD | TBD |
+| one-step optimal R=3e-4 | +76.58% | TBD | TBD |
+| one-step optimal R=1e-4 | +80.67% | TBD | TBD |
+| combo oracle clean R=3e-4 | +80.5% | TBD | TBD |
+
+Use the dp45 values as the new anchors for all subsequent studies.
+If any non-chaotic number (open cex0, combo clean) differs by >1 pt, debug.
