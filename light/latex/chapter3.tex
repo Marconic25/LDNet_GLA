@@ -1,0 +1,287 @@
+\section{Optimal controller built around LDNet}
+\label{sec:controller}
+
+The control objective is to ensure compliance with the structural requirements of the \emph{Certification Specifications CS-25}, mitigating the loads induced by discrete gusts and continuous atmospheric turbulence such that wing and fuselage stresses remain within the limits of strength, elastic deformation, and structural integrity prescribed by \mbox{CS~25.341} and \mbox{CS~25.305}, while preserving flight safety margins without compromising the airframe fatigue endurance. Since the vertical gust induces a pronounced peak in the lift coefficient resulting in increased bending moment at the root, in order to simplify the analysis the objective function was defined to penalize exclusively the lift deviation $\Delta C_L = C_L - C_{L,\text{trim}}$ and the control effort $\delta$, thereby avoiding the excitation of undesirable pitch oscillations with the flap deployment. Mathematically it is expressed as following:
+
+\begin{equation}
+\min_{\delta(t)} \; J\bigl(\delta(t)\bigr) = \Bigl(C_L\bigl(t+\Delta t; \delta(t)\bigr) - C_{L,\text{trim}}\Bigr)^2 + R\,\delta(t)^2
+\end{equation}
+
+subject to
+
+\begin{equation}
+\bigl|\delta(t)\bigr| \leq \delta_{\max}, \qquad \frac{\bigl|\delta(t) - \delta(t-\Delta t)\bigr|}{\Delta t} \leq \dot{\delta}_{\max},
+\end{equation}
+
+where $C_L\bigl(t+\Delta t; \delta(t)\bigr)$ denotes the lift coefficient predicted at the end of the time interval $[t, t+\Delta t]$ when the constant flap deflection $\delta(t)$ is applied over that interval, obtained by advancing the aerodynamic model and the structural dynamics by one step. As highlighted in the objective function, the predicted lift coefficient $C_L\bigl(t+\Delta t; \delta(t)\bigr)$ is obtained from the internal aerodynamic model, which evaluates the candidate flap deflection $\delta(t)$ together with the preview gust velocity ${W}(t+\Delta t)$.  Since the gust profile follows a deterministic 1-cosine
+shape, the value ${W}(t+\Delta t)$ is known one step ahead and constitutes a minimal
+feedforward preview of the incoming disturbance. By sampling this predicted response over the admissible control interval, the optimizer is able to compute the optimal deflection $\delta^*(t)$ that minimizes the cost while satisfying the actuator constraints.
+
+\subsection{Control loop architecture}
+To keep the treatment as focused as possible on the role of the data-driven model in the control loop, it was decided to assume direct access to both the current structural state and the gust velocity, without the need for a state observer. The gust is measured via feedforward sensing (Livne et al., 2001; Regan \& Jutras, 2018), while the structural state vector can be reconstructed through integration of accelerometer measurements---a well-established procedure that adds no value to the present discussion. 
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.9, transform shape,
+    font=\small,
+    block/.style={draw, very thick, fill=white, minimum height=1.4cm,
+                  minimum width=2.6cm, align=center, rounded corners=3pt},
+    arrow/.style={->, very thick, >=Stealth},
+    node distance=1.8cm and 2.0cm
+]
+
+% --- References (left) ---
+\node (cltrim) {$C_{L,\text{trim}}$, $\mathbf{x}_{\text{trim}}$};
+
+% --- Controller ---
+\node [block, right=1.6cm of cltrim, yshift=-0.25cm] (ctrl)
+      {One-step Optimal\\Controller};
+
+% --- NN (Aerodynamic Model) ---
+\node [block, right=2.0cm of ctrl] (nn)
+      {$\mathcal{N}\mathcal{N}$\\(rollout chain )};
+
+% --- Struct ---
+\node [block, right=2.0cm of nn] (struct) {Structural dynamics};
+
+% --- Output x(t) ---
+\node [right=1.0cm of struct] (outx) {$\mathbf{x}(t)$};
+
+% --- Gust nodes: preview to controller, current to plant --- % PREVIEW
+\node [above=1.2cm of ctrl] (wpreview) {$W(t{+}\Delta t)$}; % PREVIEW
+\node [above=1.2cm of nn]   (wt)       {$W(t)$};
+
+% --- References to controller ---
+\draw [arrow] (cltrim) -- (ctrl);
+
+% --- Preview gust to controller --- % PREVIEW
+\draw [arrow] (wpreview) -- (ctrl.north); % PREVIEW
+
+% --- True gust to NN (plant advancement) ---
+\draw [arrow] (wt) -- (nn);
+
+% --- Controller to NN ---
+\draw [arrow] (ctrl) -- node[above] {$\delta^*(t)$} (nn);
+
+% --- NN to Struct ---
+\draw [arrow] (nn) -- node[above] {$F_y(t),\,M_z(t)$} (struct);
+
+% --- Struct to output ---
+\draw [arrow] (struct) -- (outx);
+
+% --- State feedback x(t) to NN ---
+\coordinate (Sx) at ($(struct.east)!0.5!(outx.west)$);
+\draw [arrow] (Sx) -- ++(0,-1.2)
+              -| node[pos=0.25,below] {$\mathbf{x}(t)$} (nn.south);
+
+% --- State feedback x(t) to controller ---
+\draw [arrow] (Sx) -- ++(0,-2.4)
+              -| node[pos=0.25,below] {$\mathbf{x}(t)$} (ctrl.south);
+
+% --- Fy(t) feedback to controller ---
+\coordinate (Fy) at ($(nn.east)!0.25!(struct.west)$);
+\draw [arrow] (Fy) -- ++(0,-1.8)
+              -| node[pos=0.25,below] {$F_y(t), M_z(t)$} (ctrl.south);
+
+\end{tikzpicture}
+\caption{Block diagram of the one-step optimal control loop with one-step gust
+preview. The controller receives the trim references $C_{L,\text{trim}}$ and
+$\mathbf{x}_{\text{trim}}$, the structural state $\mathbf{x}(t)$, the
+aerodynamic force $F_y(t)$, and the preview gust velocity $W(t+\Delta t)$, and
+outputs the optimal flap deflection $\delta^*(t)$. The aerodynamic model
+(LDNet) uses the true gust $W(t)$ during candidate evaluation and plant
+advancement, while $W(t+\Delta t)$ is used exclusively within the optimisation
+to define the causal gate and the cost landscape.}
+\label{fig:control_loop}
+\end{figure}
+
+
+At each sampling instant $t$, the one-step optimal controller executes the following sequence:
+
+\begin{enumerate}
+    \item Reference lift evaluation: the lift coefficient is evaluated with zero flap deflection using the current structural state $\mathbf{x}(t)$, the latent state $\mathbf{z}(t)$ updated from the previous controller iteration, and the preview gust velocity $W(t+\Delta t)$:
+    \begin{equation}
+    C_L^{(0)}(t) = \mathcal{N}\mathcal{N}_{\text{rec}}\bigl(\mathbf{z}(t), \mathbf{x}(t), \delta=0, W(t+\Delta t)\bigr).
+    \end{equation}
+    This value determines the sign of the lift excursion relative to trim and defines the deflection sign rule.Using the one-step preview here allows the
+    causal gate to anticipate the incoming gust by one time step, initiating the corrective deflection before the disturbance reaches its current value.
+    
+    \item Candidate grid generation and aerodynamic prediction: A uniform grid of $G$ candidate deflections $\{\delta_1,\dots,\delta_G\}$ spanning $[-\delta_{\max},+\delta_{\max}]$ is generated. For each candidate $\delta_j$, the aerodynamic coefficients at the next step are predicted by advancing the latent dynamics
+\begin{equation}
+\dot{\mathbf{z}}(t) = \mathcal{N}\mathcal{N}_{\text{dyn}}\bigl(\mathbf{z}(t), \mathbf{x}(t), \delta_j, W(t+\Delta t)\bigr),
+\end{equation}
+and reconstructing
+\begin{equation}
+\bigl(C_L(t+\Delta t;\delta_j),\, C_M(t+\Delta t;\delta_j)\bigr) = \mathcal{N}\mathcal{N}_{\text{rec}}\bigl(\mathbf{z}(t+\Delta t), \mathbf{x}(t), \delta_j, W(t+\Delta t)\bigr).
+\end{equation}
+The corresponding perturbation forces
+\begin{equation}
+F_y(t+\Delta t;\delta_j) = q_{\infty}\,C_L(t+\Delta t;\delta_j) - F_{y,\text{trim}}, \quad
+M_z(t+\Delta t;\delta_j) = q_{\infty}\,C_M(t+\Delta t;\delta_j)\,c_{\text{ref}} - M_{z,\text{trim}},
+\end{equation}
+with $q_{\infty}=\tfrac{1}{2}\rho U^2 S_{\text{ref}}$, are used to advance the structural state by one Runge--Kutta 4 step, yielding the predicted state $\mathbf{x}(t+\Delta t;\delta_j)$ and the predicted lift $C_L(t+\Delta t;\delta_j)$.
+    
+    \item Cost evaluation: the cost is evaluated for every candidate $\delta_j$:
+    \begin{equation}
+    J(\delta_j) = \bigl(C_L(t+\Delta t;\delta_j) - C_{L,\text{trim}}\bigr)^2 + R\,\delta_j^2.
+    \end{equation}
+    
+    \item Masking of inadmissible candidates: the physical deflection mask restricts the search to deflections that reduce the lift excursion:
+    \begin{equation}
+    \mathcal{M}_{\text{causal}} = \begin{cases}
+    \{\delta_j \leq 0\} & \text{if } C_L^{(0)}(t) \geq C_{L,\text{trim}}, \\[4pt]
+    \{\delta_j \geq 0\} & \text{if } C_L^{(0)}(t) < C_{L,\text{trim}},
+    \end{cases}
+    \end{equation}
+    while the rate limit mask enforces actuator bandwidth:
+    \begin{equation}
+    \mathcal{M}_{\text{rate}} = \bigl\{\delta_j : |\delta_j - \delta(t-\Delta t)| \leq \dot{\delta}_{\max}\,\Delta t\bigr\}.
+    \end{equation}
+    Candidates violating either constraint are assigned infinite cost:
+    \begin{equation}
+    J(\delta_j; ) \leftarrow \infty \quad \text{if } \delta_j \notin \mathcal{M}_{\text{causal}} \cap \mathcal{M}_{\text{rate}}.
+    \end{equation}
+    
+    \item Optimal deflection selection: the minimizer over the masked grid is selected:
+    \begin{equation}
+    \delta^* = \arg\min_{\delta_j} J(\delta_j).
+    \end{equation}
+    
+    
+   \item Command application and system advancement: The optimal command is applied to advance the true aerodynamic and structural states by one time step:
+\begin{equation}
+\bigl(C_L(t+\Delta t),\, C_M(t+\Delta t)\bigr) = \mathcal{N}\mathcal{N}_{\text{rec}}\bigl(\mathbf{z}(t+\Delta t),\, \mathbf{x}(t),\, \delta^*(t),\, W(t)\bigr),
+\end{equation}
+\begin{equation}
+F_y(t+\Delta t) = q_{\infty}\,C_L(t+\Delta t) - F_{y,\text{trim}}, \quad
+M_z(t+\Delta t) = q_{\infty}\,C_M(t+\Delta t)\,c_{\text{ref}} - M_{z,\text{trim}},
+\end{equation}
+followed by the RK4 structural integration yielding $\mathbf{x}(t+\Delta t)$. The latent state $\mathbf{z}(t)$ is updated with the leak term for the next control cycle:
+\begin{equation}
+\mathbf{z}(t+\Delta t) = \mathbf{z}_{\text{new}} - \lambda\,\mathbf{z}(t),
+\end{equation}
+where $\lambda$ is the latent leak coefficient and $\mathbf{z}_{\text{new}}$ is the state returned by the aerodynamic model.
+
+
+
+\subsection{Numerical optimization methods}
+
+The optimal flap deflection is computed by solving a scalar bounded optimization
+problem in two stages: a coarse global search on a uniform grid, followed by a
+parabolic sub-cell refinement.
+
+A uniform grid of $G = 161$ candidate deflections is generated over the full
+actuator range:
+\begin{equation}
+    \Delta_G = \left\{\delta_j = -\bar\delta_{\max} + \frac{j-1}{G-1}\,
+    2\bar\delta_{\max} \;\Big|\; j = 1,\dots,G \right\},
+    \qquad \bar\delta_{\max} = 14^{\circ}.
+\end{equation}
+Each candidate is assigned a cost of $+\infty$ if it violates either of two
+feasibility constraints explained in the previous subsection.
+
+The aerodynamic response of all $G$ admissible candidates is evaluated
+simultaneously in a single batched call to the LDNet reconstruction network,
+with the latent state $\mathbf{z}(t)$ held fixed:
+\begin{equation}
+    \bigl[C_{L,j}\bigr]_{j=1}^{G}
+    = \mathcal{N}\mathcal{N}_{\text{rec}}\!\bigl(
+      [\mathbf{z}(t)]^{\times G},\;
+      [\mathbf{x}(t)]^{\times G},\;
+      \boldsymbol{\delta}_G,\;
+      W_{\mathrm{used}},\; U_\infty\bigr).
+\end{equation}
+The cost assigned to each candidate is
+\begin{equation}
+    J(\delta_j) = \bigl(C_{L,j} - C_{L,\mathrm{trim}}\bigr)^2 + R\,\delta_j^2,
+    \qquad R = 3\times 10^{-4},
+\end{equation}
+and the grid minimiser is $\delta^*_{\mathrm{grid}} = \delta_{j^*}$, where
+$j^* = \arg\min_j J(\delta_j)$.
+
+The resolution of the grid search is $\Delta = 2\bar\delta_{\max}/(G-1)
+\approx 0.175^{\circ}$, which introduces a discrete staircase in the control
+output. A continuous minimum is recovered by quadratic interpolation: whenever
+$j^*$ is an interior grid point and both neighbours carry a finite cost, a
+quadratic polynomial $\hat{J}(\delta) = a\delta^2 + b\delta + c$ is fitted to
+the three points
+$(\delta_{j^*-1}, J_{j^*-1})$, $(\delta_{j^*}, J_{j^*})$,
+$(\delta_{j^*+1}, J_{j^*+1})$, and its minimum is located analytically by
+setting $\hat{J}'(\delta^*) = 0$:
+\begin{equation}
+    \delta^* = \delta^*_{\mathrm{grid}}
+    + \frac{J_{j^*-1} - J_{j^*+1}}
+           {2\bigl(J_{j^*-1} - 2J_{j^*} + J_{j^*+1}\bigr)}\,\Delta,
+\end{equation}
+provided the denominator exceeds a numerical threshold of $10^{-30}$, ensuring
+the curvature of the fitted quadratic is genuine.
+This step requires no additional cost evaluations and preserves the branch
+selected by the grid search. The result is finally clipped to enforce both
+the rate and magnitude limits:
+\begin{equation}
+    \delta(t) = \mathrm{clip}\!\left(\delta^*,\;
+    \bigl[\delta(t-\Delta t) - \dot\delta_{\max}\Delta t,\;
+           \delta(t-\Delta t) + \dot\delta_{\max}\Delta t\bigr]\right)
+    \cap \bigl[-\bar\delta_{\max},\,\bar\delta_{\max}\bigr].
+\end{equation}
+
+\subsection{Results}
+
+The controller is evaluated over an 18-cell parametric grid that spans the
+CS-25.341 discrete gust envelope: gust amplitude $W_0 \in \{10,\,20,\,30\}$~m/s
+and gust duration $T_g \in \{0.3,\,0.4,\,0.5,\,0.7,\,1.0,\,1.2\}$~s.
+Each cell is characterised by the gust gradient distance
+$H = U_\infty T_g / 2$ and the reduced frequency
+$k = \pi / (U_\infty T_g)$, which together locate the cell in the
+aerodynamically relevant parameter space.
+
+The primary performance metric is the fractional reduction of the peak
+lift-coefficient excursion with respect to the open-loop reference:
+\begin{equation}
+    \mathrm{CLred} = \frac{\max_t |C_L^{\mathrm{OL}}(t) - C_{L,\mathrm{trim}}|
+                         - \max_t |C_L^{\mathrm{CL}}(t) - C_{L,\mathrm{trim}}|}
+                         {\max_t |C_L^{\mathrm{OL}}(t) - C_{L,\mathrm{trim}}|}
+                    \times 100\%,
+\end{equation}
+where the maximum is taken over the gust window $t \in [0,\, T_g + 0.5\,\mathrm{s}]$.
+A secondary stability check excludes any tuning that causes any of
+$\dot\alpha$, $\ddot\alpha$, or $\ddot h$ to exceed three times the
+corresponding open-loop peak; the effort weight $R$ is selected per cell
+as the value maximising CLred subject to this constraint.
+The pitch ratio, defined as the ratio of the closed-loop to open-loop peak
+pitch excursion, is reported alongside CLred to make explicit any structural
+load trade-off introduced by the flap.
+
+Figure~\ref{fig:summary_lines} shows CLred as a function of $T_g$ for each
+gust amplitude. For all three amplitudes the curves
+share a common trend: CLred peaks near $T_g \approx 0.7$~s and falls at both
+extremes, with the sharpest degradation at the shortest durations ($T_g = 0.3$~s,
+high $k$) where the aerodynamic nonlinearity is most pronounced and the gust
+energy is concentrated at frequencies that are harder to track with a single
+flap step.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/summary_lines.png}
+    \caption{CLred as a function of gust duration $T_g$ for $W_0 \in \{10, 20, 30\}$~m/s.
+             Each point corresponds to the $R^*$ that maximises CLred without
+             triggering the structural explosion constraint.}
+    \label{fig:summary_lines}
+\end{figure}
+
+Figure~\ref{fig:traj_W10_Tg04} shows the closed-loop trajectories for
+$W_0 = 10$~m/s, $T_g = 0.4$~s ($H = 52$~ft, $k = 0.098$, CLred $= +93.2\%$).
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.70\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/traj_W10_Tg040.png}
+    \caption{Closed-loop trajectories for $W_0 = 10$~m/s, $T_g = 0.4$~s
+             ($H = 52$~ft, $k = 0.098$, $R^* = 10^{-4}$, DAMULT$=3$).
+             From top to bottom: lift coefficient $C_L$, flap deflection $\delta$,
+             gust profile $W$, and pitch rate $\dot\alpha$.
+             The shaded region marks the gust window $[0,\, T_g]$.}
+    \label{fig:traj_W10_Tg04}
+\end{figure}
+

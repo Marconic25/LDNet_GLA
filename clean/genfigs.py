@@ -46,7 +46,7 @@ def sim(mode,W0=10.0):
         dprev=d;D[i]=d
         cl,cm=a.predict(x,d,W,U);a.advance(x,d,W,U,DT);clm=float(cl)
         Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;_,hdd,_,_=structure.rhs(x,Fy,Mz)
-        CL[i]=cl;HD[i]=hdd;AD[i]=np.rad2deg(x[3]);x=structure.step_rk4(x,Fy,Mz,DT)
+        CL[i]=cl;HD[i]=hdd;AD[i]=np.rad2deg(x[3]);x=structure.step_dp45(x,Fy,Mz,DT)
     return tt,CL,HD,AD,D
 R={m:sim(m) for m in ['open','prop','opt']}
 sty={'open':('gray','-','Open loop'),'prop':('steelblue','-','Proportional'),'opt':('crimson','--','One-step optimal')}

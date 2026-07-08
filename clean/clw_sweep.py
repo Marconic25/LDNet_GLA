@@ -21,7 +21,7 @@ for i in range(N):
         if i == ii:
             snaps[lab] = (x.copy(), np.array(a._z, float).copy(), float(Wt[i]))
     cl, cm = a.predict(x, 0.0, Wt[i], U)
-    a.advance(x, 0.0, Wt[i], U, DT); x = M.structure.step_rk4(x, q * cl, q * cm * C, DT)
+    a.advance(x, 0.0, Wt[i], U, DT); x = M.structure.step_dp45(x, q * cl, q * cm * C, DT)
 
 Wg = np.linspace(0.0, 40.0, 81)
 print(f'# C_L(W) sweep at captured operating points (delta=0)  DAMULT={os.environ.get("DAMULT","1")}', flush=True)

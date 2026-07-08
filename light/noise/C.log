@@ -1,0 +1,34 @@
+2026-07-07 17:46:59.209803: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 17:47:01.629269: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 17:47:01.634140: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 17:47:01.647268: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 17:47:02.809673: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis C | W30/Tg0.4 DAMULT=3 | open cex0=0.4600
+
+=== optimal wnext+refine R=0.0003 ===
+  bias     R=0.0003 beta=+0.05 :    -6.5% [  -6.5,  -6.5] std= 0.00 flags=1/1
+  bias     R=0.0003 beta=-0.05 :   +17.4% [ +17.4, +17.4] std= 0.00 flags=0/1
+  bias     R=0.0003 beta=+0.10 :   -26.0% [ -26.0, -26.0] std= 0.00 flags=1/1
+  bias     R=0.0003 beta=-0.10 :   +19.1% [ +19.1, +19.1] std= 0.00 flags=0/1
+  scale    R=0.0003 scale=0.80 :   +46.2% [ +46.2, +46.2] std= 0.00 flags=0/1
+  scale    R=0.0003 scale=0.90 :   +68.0% [ +68.0, +68.0] std= 0.00 flags=0/1
+  scale    R=0.0003 scale=1.10 :   +78.2% [ +78.2, +78.2] std= 0.00 flags=0/1
+  scale    R=0.0003 scale=1.20 :   +64.5% [ +64.5, +64.5] std= 0.00 flags=1/1
+  latency  R=0.0003 latency    :   +16.9% [ +16.9, +16.9] std= 0.00 flags=0/1
+  jitter   R=0.0003 k=U(0..2)  :   +56.6% [ +17.0, +76.4] std=27.88 flags=0/6
+
+=== optimal wnext+refine R=0.0001 ===
+  bias     R=0.0001 beta=+0.05 :    -6.3% [  -6.3,  -6.3] std= 0.00 flags=1/1
+  bias     R=0.0001 beta=-0.05 :    +1.7% [  +1.7,  +1.7] std= 0.00 flags=1/1
+  bias     R=0.0001 beta=+0.10 :   -33.3% [ -33.3, -33.3] std= 0.00 flags=1/1
+  bias     R=0.0001 beta=-0.10 :    +2.7% [  +2.7,  +2.7] std= 0.00 flags=1/1
+  scale    R=0.0001 scale=0.80 :   +46.8% [ +46.8, +46.8] std= 0.00 flags=0/1
+  scale    R=0.0001 scale=0.90 :   +72.2% [ +72.2, +72.2] std= 0.00 flags=0/1
+  scale    R=0.0001 scale=1.10 :   +77.4% [ +77.4, +77.4] std= 0.00 flags=0/1
+  scale    R=0.0001 scale=1.20 :   +59.2% [ +59.2, +59.2] std= 0.00 flags=1/1
+  latency  R=0.0001 latency    :    +2.8% [  +2.8,  +2.8] std= 0.00 flags=0/1
+  jitter   R=0.0001 k=U(0..2)  :   +54.1% [  +1.3, +80.6] std=37.13 flags=0/6
+# saved 24 records -> /work/u10677113/LDNet_GLA/light/noise/results/C_struct.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

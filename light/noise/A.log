@@ -1,0 +1,28 @@
+2026-07-07 17:46:49.539047: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 17:46:51.977835: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 17:46:51.981205: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 17:46:51.996334: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 17:46:53.355496: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis A | W30/Tg0.4 DAMULT=3 | open cex0=0.4600
+
+=== optimal wnext+refine R=0.0003 ===
+  optimal  R=0.0003 frac=0.00:   +76.6% [ +76.6, +76.6] std= 0.00 flags=0/1
+  optimal  R=0.0003 frac=0.01:   +16.3% [ -27.8, +80.4] std=31.44 flags=7/12
+  optimal  R=0.0003 frac=0.02:    -3.2% [ -27.3, +25.7] std=19.27 flags=8/12
+  optimal  R=0.0003 frac=0.05:   -12.5% [ -38.2, +20.8] std=17.41 flags=8/12
+  optimal  R=0.0003 frac=0.10:   -24.8% [ -43.2, -16.3] std= 7.10 flags=8/12
+
+=== optimal wnext+refine R=0.0001 ===
+  optimal  R=0.0001 frac=0.00:   +80.7% [ +80.7, +80.7] std= 0.00 flags=0/1
+  optimal  R=0.0001 frac=0.01:   +11.2% [ -24.1, +82.2] std=32.16 flags=7/12
+  optimal  R=0.0001 frac=0.02:    -9.2% [ -26.3, +17.0] std=13.38 flags=8/12
+  optimal  R=0.0001 frac=0.05:   -16.8% [ -44.5,  +1.4] std=11.74 flags=8/12
+  optimal  R=0.0001 frac=0.10:   -20.7% [ -33.3,  +0.4] std= 8.54 flags=8/12
+
+=== prop-W (g_CL=-60, g_W=-0.5), same noisy preview ===
+  prop     R=- frac=0.00:   +32.0% [ +32.0, +32.0] std= 0.00 flags=0/1
+  prop     R=- frac=0.02:   -57.5% [ -94.5, +33.0] std=51.75 flags=9/12
+  prop     R=- frac=0.05:   -61.8% [ -94.5, +31.3] std=52.57 flags=10/12
+# saved 27 records -> /work/u10677113/LDNet_GLA/light/noise/results/A_white.npz
+# DONE

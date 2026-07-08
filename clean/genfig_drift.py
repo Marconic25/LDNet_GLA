@@ -17,7 +17,7 @@ def run(wf):
     for t in tt:
         W=wf(t); cl,cm=a.predict(x,0.,W,U); a.advance(x,0.,W,U,DT)
         Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;_,hdd,_,_=structure.rhs(x,Fy,Mz)
-        CL.append(cl);HD.append(hdd);ZN.append(np.linalg.norm(a._z));WW.append(W); x=structure.step_rk4(x,Fy,Mz,DT)
+        CL.append(cl);HD.append(hdd);ZN.append(np.linalg.norm(a._z));WW.append(W); x=structure.step_dp45(x,Fy,Mz,DT)
     return tt,np.array(CL),np.array(HD),np.array(ZN),np.array(WW)
 tg,CLg,HDg,ZNg,WW=run(gust)
 tn,CLn,HDn,ZNn,_=run(lambda t:0.0)

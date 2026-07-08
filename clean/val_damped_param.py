@@ -25,7 +25,7 @@ for MD in _os.environ.get('MODELS','models/latent_10,models_damped/latent_10').s
     def openrun(wf):
         a._z=zsave.copy(); x=x0.copy(); tt=np.arange(0,1.6+DT,DT); CL=[];HD=[]
         for t in tt:
-            W=wf(t); cl,cm=a.predict(x,0.,W,U); a.advance(x,0.,W,U,DT); Fy=q*cl-Fyt; Mz=q*cm*C-Mzt; _,hdd,_,_=structure.rhs(x,Fy,Mz); CL.append(cl);HD.append(hdd); x=structure.step_rk4(x,Fy,Mz,DT)
+            W=wf(t); cl,cm=a.predict(x,0.,W,U); a.advance(x,0.,W,U,DT); Fy=q*cl-Fyt; Mz=q*cm*C-Mzt; _,hdd,_,_=structure.rhs(x,Fy,Mz); CL.append(cl);HD.append(hdd); x=structure.step_dp45(x,Fy,Mz,DT)
         return np.array(CL),np.array(HD)
     CLg,HDg=openrun(lambda t:gust(t)); CLn,HDn=openrun(lambda t:0.0)
     print('  trim C_L=%.3f  gust C_L excursion=%.3f'%(CLt,np.max(np.abs(CLg-CLt))),flush=True)

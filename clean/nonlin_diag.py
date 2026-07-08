@@ -70,7 +70,7 @@ def run_cell(W0, Tg, TEND, NH, NGRID, QAD, RW, DLPF, DMAX, FINE):
         rec['t'].append(tg[i]); rec['W'].append(Wt[i])
         rec['h'].append(x[0]); rec['hd'].append(x[1]); rec['al'].append(x[2]); rec['ad'].append(x[3])
         rec['CL'].append(float(cl)); rec['dfree'].append(dfree); rec['de'].append(de)
-        a.advance(x, de, Wt[i], U, DT); x = M.structure.step_rk4(x, M.q * cl, M.q * cm * M.C, DT)
+        a.advance(x, de, Wt[i], U, DT); x = M.structure.step_dp45(x, M.q * cl, M.q * cm * M.C, DT)
     out = {k: np.array(v) for k, v in rec.items()}
     out['_win'] = out['t'] <= (Tg + 0.5)
     return out

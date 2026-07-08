@@ -1,0 +1,31 @@
+2026-07-07 22:49:50.099565: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 22:49:52.212192: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 22:49:52.215820: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 22:49:52.233326: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 22:49:53.309135: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E2-KF | W30/Tg0.4 DAMULT=3 | open cex0=0.4600
+
+=== frac=0 anchors (KF pure lag; plain clean anchor is +76.58%) ===
+  kf     q=10000  frac=0.00:   +76.5% [ +76.5, +76.5] std= 0.00 flags=0/1 | sigma_del=0.015 m/s
+  kf     q=100000 frac=0.00:   +76.5% [ +76.5, +76.5] std= 0.00 flags=0/1 | sigma_del=0.004 m/s
+  kf     q=1e+06  frac=0.00:   +76.5% [ +76.5, +76.5] std= 0.00 flags=0/1 | sigma_del=0.001 m/s
+  kf     q=1e+07  frac=0.00:   +76.6% [ +76.6, +76.6] std= 0.00 flags=0/1 | sigma_del=0.000 m/s
+
+=== frac=0.02 (raw sigma=0.60 m/s) ===
+  none            frac=0.02:    -0.1% [ -26.3, +19.2] std=19.94 flags=3/6 | sigma_del=0.487 m/s
+  kf     q=10000  frac=0.02:    +8.2% [  -5.2, +22.2] std=13.30 flags=3/6 | sigma_del=0.395 m/s
+  kf     q=100000 frac=0.02:    +7.4% [  -4.8, +20.0] std=11.94 flags=3/6 | sigma_del=0.262 m/s
+  kf     q=1e+06  frac=0.02:    +2.9% [ -29.1, +19.2] std=17.67 flags=3/6 | sigma_del=0.299 m/s
+  kf     q=1e+07  frac=0.02:    -0.9% [ -29.1, +19.2] std=20.85 flags=3/6 | sigma_del=0.365 m/s
+
+=== frac=0.05 (raw sigma=1.50 m/s) ===
+  none            frac=0.05:    -7.3% [ -25.0, +20.8] std=19.80 flags=3/6 | sigma_del=1.207 m/s
+  kf     q=10000  frac=0.05:    +8.9% [  -6.3, +25.5] std=15.09 flags=3/6 | sigma_del=0.873 m/s
+  kf     q=100000 frac=0.05:    +6.6% [ -17.1, +23.4] std=16.21 flags=3/6 | sigma_del=0.557 m/s
+  kf     q=1e+06  frac=0.05:    -6.9% [ -31.5, +21.0] std=21.30 flags=3/6 | sigma_del=0.621 m/s
+  kf     q=1e+07  frac=0.05:   -11.0% [ -30.2, +18.7] std=15.68 flags=3/6 | sigma_del=0.770 m/s
+# best kf frac=0.02: q=10000 mean +8.2% (sigma_del=0.395 m/s)
+# best kf frac=0.05: q=10000 mean +8.9% (sigma_del=0.873 m/s)
+# saved 39 records -> /work/u10677113/LDNet_GLA/light/noise/results/E2_kalman.npz
+# DONE

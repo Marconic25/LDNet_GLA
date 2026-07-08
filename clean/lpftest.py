@@ -19,14 +19,14 @@ def run(W0,lpf):
         W=gust(t);d=ctrl.compute(x,W)
         cl,cm=a.predict(x,d,W,U);a.advance(x,d,W,U,DT)
         Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;_,hdd,_,_=structure.rhs(x,Fy,Mz)
-        CL[i]=cl;HD[i]=hdd;AD[i]=x[3];x=structure.step_rk4(x,Fy,Mz,DT)
+        CL[i]=cl;HD[i]=hdd;AD[i]=x[3];x=structure.step_dp45(x,Fy,Mz,DT)
     gw=tt<=1.6;return np.max(np.abs(CL[gw])),np.max(np.abs(HD[gw])),np.rad2deg(np.max(np.abs(AD[gw])))
 # open-loop refs
 def openrun(W0):
     def gust(t): return (W0/2)*(1-np.cos(2*np.pi*t/1.0)) if 0<=t<=1.0 else 0.0
     a.reset(dt=DT);x=x0.copy();tt=np.arange(0,TE+DT,DT);CL=np.zeros(len(tt));HD=np.zeros(len(tt));AD=np.zeros(len(tt))
     for i,t in enumerate(tt):
-        W=gust(t);cl,cm=a.predict(x,0.,W,U);a.advance(x,0.,W,U,DT);Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;_,hdd,_,_=structure.rhs(x,Fy,Mz);CL[i]=cl;HD[i]=hdd;AD[i]=x[3];x=structure.step_rk4(x,Fy,Mz,DT)
+        W=gust(t);cl,cm=a.predict(x,0.,W,U);a.advance(x,0.,W,U,DT);Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;_,hdd,_,_=structure.rhs(x,Fy,Mz);CL[i]=cl;HD[i]=hdd;AD[i]=x[3];x=structure.step_dp45(x,Fy,Mz,DT)
     gw=tt<=1.6;return np.max(np.abs(CL[gw])),np.max(np.abs(HD[gw])),np.rad2deg(np.max(np.abs(AD[gw])))
 for W0 in [20,30]:
     oc,oh,oa=openrun(W0)

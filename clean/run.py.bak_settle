@@ -186,7 +186,7 @@ def simulate(ctrl=None):
         _, hddot, _, _ = structure.rhs(x, Fy, Mz)
         hddot_arr[i]   = hddot
 
-        x = structure.step_rk4(x, Fy, Mz, DT)
+        x = structure.step_dp45(x, Fy, Mz, DT)
 
         # Sensors: h_ddot from accelerometer, α and α̇ from encoder/gyro.
         if _use_observer:

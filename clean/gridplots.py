@@ -37,7 +37,7 @@ def sim_opt(W0, Tg):
     for i in range(N):
         d = ctrl.compute(x, W_hat=float(Wt[i]))
         cl, cm = a.predict(x, d, Wt[i], U)
-        a.advance(x, d, Wt[i], U, DT); x = M.structure.step_rk4(x, q * cl, q * cm * C, DT)
+        a.advance(x, d, Wt[i], U, DT); x = M.structure.step_dp45(x, q * cl, q * cm * C, DT)
         R['h'].append(x[0]); R['al'].append(x[2]); R['ad'].append(x[3])
         R['CL'].append(float(cl)); R['CM'].append(float(cm)); R['de'].append(d)
     o = {k: np.array(v) for k, v in R.items()}; o['_t'] = t; o['_Wt'] = Wt

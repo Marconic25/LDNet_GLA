@@ -16,7 +16,7 @@ def openrun(Wt, lpf=0.0):
             Mzf = Mz if Mzf is None else lpf*Mzf+(1-lpf)*Mz
             Fy,Mz=Fyf,Mzf
         d=structure.rhs(x,Fy,Mz); AD.append(d[3])
-        a.advance(x,0.,W,U,DT); x=structure.step_rk4(x,Fy,Mz,DT)
+        a.advance(x,0.,W,U,DT); x=structure.step_dp45(x,Fy,Mz,DT)
     return np.array(AD)
 def ring(ad,t0,t1):
     m=(t>=t0)&(t<=t1); s=ad[m]

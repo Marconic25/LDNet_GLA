@@ -147,10 +147,18 @@ class MPCConst:
 
 
 class PropW:
-    """Proportional + gust feedforward (equal-info baseline, == light/proportional.py)."""
-    def __init__(self, gain_CL=-40.0, gain_W=0.0,
+    """
+    Proportional + gust feedforward (equal-info baseline, == light/proportional.py).
+
+    use_wnext=True feeds the feedforward term the next-step gust W(t+dt) instead of
+    W(t) — the SAME one-step preview the wnext optimal uses, so the two laws see an
+    identical information set {x(t), C_L measurement, W(t), W(t+dt)}. The C_L
+    measurement stays at time t (it is a sensor reading, not a prediction).
+    """
+    def __init__(self, gain_CL=-40.0, gain_W=0.0, use_wnext=False,
                  delta_max=14.0, delta_dot_max=H.DDOT_MAX):
         self.gain_CL = float(gain_CL); self.gain_W = float(gain_W)
+        self.use_wnext = bool(use_wnext)
         self.delta_max = float(delta_max); self.delta_dot_max = float(delta_dot_max)
         self._prev = 0.0
 
@@ -159,7 +167,8 @@ class PropW:
 
     def compute(self, aero, state, prev, Wi, Wn):
         clm = float(aero.predict(state, prev, Wi, H.U)[0])   # measure with applied flap
-        d = self.gain_CL * (clm - H.CLTRIM) + self.gain_W * float(Wi)
+        Wff = float(Wn) if self.use_wnext else float(Wi)
+        d = self.gain_CL * (clm - H.CLTRIM) + self.gain_W * Wff
         d = float(np.clip(d, -self.delta_max, self.delta_max))
         rate = self.delta_dot_max * H.DT
         d = float(np.clip(d, prev - rate, prev + rate))

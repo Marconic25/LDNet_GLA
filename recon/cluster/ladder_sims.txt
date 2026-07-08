@@ -1,0 +1,97 @@
+# Extraction ladder for the H-DATA learning-curve study (2026-07-07).
+# Order = priority: eval sims first, then rung N=30, N=60, N=100.
+# Rungs are supersets; families interleaved so partial progress stays diverse.
+# Already extracted (excluded): A 000/002/005/010/012/017 train, A_020_val, A_025_test,
+#   B 000-002 train, Cc 000-005 train, Cc_060_test.
+# --- EVAL (one val+test per missing family) ---
+sim_B_030_val
+sim_Cc_050_val
+sim_B_038_test
+# --- RUNG N=30 (+2A +5B +8Cc -> totals 8A/8B/14Cc) ---
+sim_Cc_006_train
+sim_B_003_train
+sim_A_001_train
+sim_Cc_007_train
+sim_B_004_train
+sim_Cc_008_train
+sim_B_005_train
+sim_A_003_train
+sim_Cc_009_train
+sim_B_006_train
+sim_Cc_010_train
+sim_B_007_train
+sim_Cc_011_train
+sim_Cc_012_train
+sim_Cc_013_train
+# --- RUNG N=60 (+4A +9B +17Cc -> totals 12A/17B/31Cc) ---
+sim_Cc_014_train
+sim_B_008_train
+sim_A_004_train
+sim_Cc_015_train
+sim_B_009_train
+sim_Cc_016_train
+sim_B_010_train
+sim_A_006_train
+sim_Cc_017_train
+sim_B_011_train
+sim_Cc_018_train
+sim_B_012_train
+sim_A_007_train
+sim_Cc_019_train
+sim_B_013_train
+sim_Cc_020_train
+sim_B_014_train
+sim_A_008_train
+sim_Cc_021_train
+sim_B_015_train
+sim_Cc_022_train
+sim_B_016_train
+sim_Cc_023_train
+sim_Cc_024_train
+sim_Cc_025_train
+sim_Cc_026_train
+sim_Cc_027_train
+sim_Cc_028_train
+sim_Cc_029_train
+sim_Cc_030_train
+# --- RUNG N=100 (+8A +13B +19Cc -> totals 20A/30B/50Cc = all train) ---
+sim_Cc_031_train
+sim_B_017_train
+sim_A_009_train
+sim_Cc_032_train
+sim_B_018_train
+sim_Cc_033_train
+sim_B_019_train
+sim_A_011_train
+sim_Cc_034_train
+sim_B_020_train
+sim_Cc_035_train
+sim_B_021_train
+sim_A_013_train
+sim_Cc_036_train
+sim_B_022_train
+sim_Cc_037_train
+sim_B_023_train
+sim_A_014_train
+sim_Cc_038_train
+sim_B_024_train
+sim_Cc_039_train
+sim_B_025_train
+sim_A_015_train
+sim_Cc_040_train
+sim_B_026_train
+sim_Cc_041_train
+sim_B_027_train
+sim_A_016_train
+sim_Cc_042_train
+sim_B_028_train
+sim_Cc_043_train
+sim_B_029_train
+sim_A_018_train
+sim_Cc_044_train
+sim_A_019_train
+sim_Cc_045_train
+sim_Cc_046_train
+sim_Cc_047_train
+sim_Cc_048_train
+sim_Cc_049_train

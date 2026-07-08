@@ -1,0 +1,32 @@
+#!/bin/bash
+#PBS -N hopt10
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon/models/pbs_hopt10.log
+#
+# H-OPT probe: can d_s=10 reach d_s=1's train loss (8.28e-3) on the SAME 15-sim
+# diverse data, given a much bigger optimization budget? (final_div used
+# restarts=2, adam=300, bfgs=2000 -> d_s=10 train 1.02e-2, worse than d_s=1.)
+# Also serves as an empirical probe of whether the scheduler tolerates a 3rd
+# concurrent job (8-core) alongside the 2-wide 16-core extraction chain.
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+
+echo "=== hopt10 start $(date) ==="
+hostname
+
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p models/hopt_ds10; \
+      python3 -u train_fields.py --train data/FIELDS_div_train.h5 --valid data/FIELDS_div_valid.h5 \
+        --test data/FIELDS_Cc060.h5 --out models/hopt_ds10 --latents 10 \
+        --adam 800 --bfgs 4000 --output-nl linear --restarts 4 \
+        > models/hopt_ds10/train.log 2>&1; \
+      echo HOPT_DONE"
+
+echo "=== hopt10 done $(date) exit $? ==="

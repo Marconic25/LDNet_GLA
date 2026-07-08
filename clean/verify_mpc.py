@@ -14,7 +14,7 @@ ctrl=Controller(a.predict,U=U,dt=DT,Q_h=0,Q_alpha=0,Q_alpha_dot=3e5,Q_CL=1e3,R=0
 a.reset(dt=DT);x=x0.copy()
 for k in range(150):
     W=(20/2)*(1-np.cos(2*np.pi*(k*DT)/1.0)); cl,cm=a.predict(x,0.,W,U);a.advance(x,0.,W,U,DT)
-    Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;x=structure.step_rk4(x,Fy,Mz,DT)
+    Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;x=structure.step_dp45(x,Fy,Mz,DT)
 W=(20/2)*(1-np.cos(2*np.pi*(150*DT)/1.0))
 grid=np.linspace(0.,20.,9)
 t0=time.time(); Jb=ctrl._rollout_cost_batch(grid,x,W); tb=time.time()-t0

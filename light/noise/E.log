@@ -1,0 +1,47 @@
+2026-07-07 17:47:16.516898: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 17:47:18.443708: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 17:47:18.447085: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 17:47:18.458628: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 17:47:19.352694: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E | W30/Tg0.4 DAMULT=3 | open cex0=0.4600
+
+=== frac=0.02 (sigma=0.60 m/s) ===
+  none                frac=0.02:    -0.1% [ -26.3, +19.2] std=19.94 flags=3/6
+  lpf    tau=5ms      frac=0.02:   +31.4% [  -5.7, +75.6] std=28.49 flags=2/6
+  lpf    tau=10ms     frac=0.02:   +38.4% [ +17.3, +65.9] std=21.53 flags=3/6
+  R      R=0.001      frac=0.02:    +9.4% [ -28.3, +32.9] std=24.17 flags=3/6
+  R      R=0.003      frac=0.02:    +2.9% [ -53.8, +28.2] std=29.70 flags=3/6
+  R      R=0.01       frac=0.02:   -23.1% [ -63.3, +17.1] std=40.04 flags=3/6
+  Rdu    Rdu=0.0001   frac=0.02:    -0.2% [ -26.2, +19.0] std=19.87 flags=3/6
+  Rdu    Rdu=0.001    frac=0.02:    -5.8% [ -33.2, +18.1] std=19.91 flags=3/6
+  Rdu    Rdu=0.01     frac=0.02:   -25.9% [ -30.4, -21.2] std= 2.81 flags=0/6
+  avgK   K=3          frac=0.02:    +8.8% [  -5.0, +76.0] std=30.05 flags=6/6
+  avgK   K=5          frac=0.02:   +15.8% [  -4.8, +62.4] std=28.09 flags=6/6
+  avgK   K=9          frac=0.02:    -2.8% [  -4.7,  +5.4] std= 3.70 flags=6/6
+  mpc    N4-none      frac=0.02:   +37.0% [  -4.4, +79.3] std=41.30 flags=4/6
+
+=== frac=0.05 (sigma=1.50 m/s) ===
+  none                frac=0.05:    -7.3% [ -25.0, +20.8] std=19.80 flags=3/6
+  lpf    tau=5ms      frac=0.05:    +3.5% [ -26.7, +20.2] std=17.61 flags=3/6
+  lpf    tau=10ms     frac=0.05:    +6.3% [ -26.5, +19.4] std=16.40 flags=3/6
+  R      R=0.001      frac=0.05:    +2.7% [ -31.4, +34.5] std=27.12 flags=3/6
+  R      R=0.003      frac=0.05:   -14.8% [ -64.4, +27.8] std=42.54 flags=3/6
+  R      R=0.01       frac=0.05:   -27.2% [ -79.3, +16.7] std=43.80 flags=3/6
+  Rdu    Rdu=0.0001   frac=0.05:    -7.4% [ -25.0, +20.8] std=19.75 flags=3/6
+  Rdu    Rdu=0.001    frac=0.05:   -12.5% [ -23.5, +19.5] std=14.63 flags=3/6
+  Rdu    Rdu=0.01     frac=0.05:   -18.1% [ -24.4, -10.0] std= 4.62 flags=2/6
+  avgK   K=3          frac=0.05:   -13.5% [ -22.8,  -4.4] std= 8.53 flags=6/6
+  avgK   K=5          frac=0.05:    -4.8% [  -5.1,  -4.4] std= 0.21 flags=6/6
+  avgK   K=9          frac=0.05:    -8.6% [ -26.8,  -4.8] std= 8.16 flags=6/6
+  mpc    N4-none      frac=0.05:   +35.4% [  -5.3, +76.6] std=40.51 flags=4/6
+
+=== combo frac=0.02: avgK K=5 + Rdu=0.01 ===
+  combo  K=5+Rdu=0.01 frac=0.02:    +8.1% [ -26.5, +74.1] std=46.66 flags=0/6
+
+=== combo frac=0.05: avgK K=5 + R=0.001 ===
+  combo  K=5+R=0.001  frac=0.05:   -10.0% [ -18.5,  -6.3] std= 4.92 flags=6/6
+# best mitigation frac=0.02: combo K=5+Rdu=0.01 mean +8.1%
+# best mitigation frac=0.05: lpf tau=10ms mean +6.3%
+# saved 53 records -> /work/u10677113/LDNet_GLA/light/noise/results/E_mitigation.npz
+# DONE

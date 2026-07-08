@@ -1,0 +1,17 @@
+2026-07-08 07:58:44.971277: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-08 07:58:46.725119: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-08 07:58:46.728006: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-08 07:58:46.737912: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-08 07:58:47.645813: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E2-combo [dlr] N=8 | W30/Tg0.4 DAMULT=3 | open cex0=0.4600
+
+=== combo: dlr raw 1-3 m/s, Jmax=50, N=8 ===
+  combo  dlr lam=1 Rdu=0       :   +81.1% [ +80.3, +83.7] std= 1.19 flags=0/6  sig_del=0.179 m/s
+  combo  dlr lam=1 Rdu=0.01    :   +71.5% [ +29.5, +79.9] std=18.76 flags=0/6  sig_del=0.179 m/s
+  combo  dlr lam=1 Rdu=0.1     :   +19.9% [ +19.5, +20.3] std= 0.28 flags=0/6  sig_del=0.179 m/s
+  combo  dlr lam=0 Rdu=0       :   +81.8% [ +80.5, +84.1] std= 1.51 flags=1/6  sig_del=0.2 m/s
+# best combo [dlr]: dlr lam=1 Rdu=0 mean +81.1% flags 0/6
+# saved 11 records -> /work/u10677113/LDNet_GLA/light/noise/results/E2_combo_dlr.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

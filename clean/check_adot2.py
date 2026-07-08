@@ -8,7 +8,7 @@ a=LDNetAero(MD)
 def openrun(Wt):                 # returns alpha_dot STATE (x[3]) trajectory
     a.reset(dt=DT); x=X0.copy(); AD=[]
     for W in Wt:
-        cl,cm=a.predict(x,0.,W,U); a.advance(x,0.,W,U,DT); x=structure.step_rk4(x,q*cl,q*cm*C,DT)
+        cl,cm=a.predict(x,0.,W,U); a.advance(x,0.,W,U,DT); x=structure.step_dp45(x,q*cl,q*cm*C,DT)
         AD.append(x[3])
     return np.array(AD)
 def ring(ad,t,t0,t1):

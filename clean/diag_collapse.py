@@ -47,7 +47,7 @@ def sim_pd2(g1, g2, DLPF=0.95, DMAX=14.):
         d = float(np.clip(d, -DMAX, DMAX)); d = float(np.clip(d, prev - rate, prev + rate)); prev = d
         de_f = DLPF * de_f + (1 - DLPF) * d; de_f2 = DLPF * de_f2 + (1 - DLPF) * de_f
         cl, cm = a.predict(x, de_f2, Wt[i], U)
-        a.advance(x, de_f2, Wt[i], U, DT); x = M.structure.step_rk4(x, q * cl, q * cm * C, DT)
+        a.advance(x, de_f2, Wt[i], U, DT); x = M.structure.step_dp45(x, q * cl, q * cm * C, DT)
         R['al'].append(x[2]); R['ad'].append(x[3]); R['de'].append(de_f2); R['CL'].append(float(cl))
     out = {k: np.array(v) for k, v in R.items()}; out['_t'] = tg; out['_Wt'] = Wt
     return out

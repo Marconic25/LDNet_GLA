@@ -1,0 +1,17 @@
+2026-07-08 07:52:53.946507: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-08 07:52:55.328645: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-08 07:52:55.332190: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-08 07:52:55.341306: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-08 07:52:56.077462: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E2-combo [flat] N=4 | W30/Tg0.4 DAMULT=3 | open cex0=0.4600 | SMOKE
+
+=== anchors: sigma=1e-6 through fusion+MPC (mpcp N=8 white-clean anchor is +80.51%) ===
+  anchor Rdu=0                 :   +79.6% [ +79.6, +79.6] std= 0.00 flags=0/1  sig_del=1.21e-07 m/s
+
+=== combo: fused flat sigma frac=0.02, lam=0, N=4 ===
+  combo  flat Rdu=0            :   +79.6% [ +79.6, +79.7] std= 0.03 flags=0/2  sig_del=0.0717 m/s
+# best combo [flat]: flat Rdu=0 mean +79.6% flags 0/2
+# saved 5 records -> /work/u10677113/LDNet_GLA/light/noise/results/E2_combo_flat.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

@@ -36,6 +36,6 @@ for n in [0,100,400,800,len(idxs)]:
     tt=np.arange(0,1.6+DT,DT); CL=[]
     for t in tt:
         W=gust(t); cl,cm=a.predict(x,0.,W,U); a.advance(x,0.,W,U,DT); CL.append(float(cl))
-        Fy=q*cl-Fyt; Mz=q*cm*C; x=structure.step_rk4(x,Fy,Mz,DT)
+        Fy=q*cl-Fyt; Mz=q*cm*C; x=structure.step_dp45(x,Fy,Mz,DT)
     CL=np.array(CL); exc=CL.max()-float(clt)
     print('  warm=%4d steps  z_init=%6.1f  C_L_trim=%.3f  C_L_peak=%.3f  excursion=%.3f'%(n,zinit,float(clt),CL.max(),exc),flush=True)

@@ -1,0 +1,664 @@
+\section{Latent Dynamics Networks: problem formulation}
+
+The modelling of systems with spatio-temporal dynamics --- typical, for instance, of
+aeroelasticity --- traditionally relies on the numerical solution of partial differential
+equations (PDEs). Although rigorous, this physics-based approach entails high computational
+costs and assumes complete knowledge of the governing physical principles and boundary
+conditions. In many-query contexts --- such as sensitivity analysis, uncertainty
+quantification, or real-time control --- this burden can become prohibitive.
+
+Data-driven methods offer an alternative paradigm: the system evolution is learned directly
+from a dataset of observations, without requiring the explicit form of the underlying
+governing equations. Consider an output field $\mathbf{y}: \Omega \times [0,T] \to
+\mathbb{R}^{d_{\mathbf{y}}}$, defined over a spatial domain $\Omega \subset \mathbb{R}^d$
+and a time horizon $[0,T]$, whose evolution is driven by an input $\mathbf{u}: [0,T] \to
+\mathbb{R}^{d_{\mathbf{u}}}$ (time-dependent signals and/or scalar parameters). The
+objective is to learn the map $\mathbf{u} \mapsto \mathbf{y}$, i.e.\ to infer
+$\mathbf{y}(\mathbf{x},t)$ for inputs not observed during training.
+
+Latent Dynamics Networks (LDNets) address this need through a latent-state representation
+of the system. Rather than operating in a high-dimensional space --- as required by
+classical reduction techniques (POD, convolutional auto-encoders) --- LDNets automatically
+discover a compact encoding of the state in terms of a latent variable vector $\mathbf{s}(t)
+\in \mathbb{R}^{d_s}$. These variables are not defined a priori, but emerge during training
+as a representation functional to both the spatial field reconstruction and its temporal
+evolution.
+
+The latent-state dynamics are governed by a system of ordinary differential equations
+coupled with a meshless reconstruction network:
+\begin{equation}
+\begin{cases}
+\dot{\mathbf{s}}(t) = \mathcal{NN}_{\mathrm{dyn}}\big(\mathbf{s}(t), \mathbf{u}(t);
+    \mathbf{w}_{\mathrm{dyn}}\big), & t \in (0,T], \\[4pt]
+\mathbf{s}(0) = \mathbf{0}, \\[4pt]
+\widetilde{\mathbf{y}}(\mathbf{x},t) = \mathcal{NN}_{\mathrm{rec}}\big(\mathbf{s}(t),
+    \mathbf{u}(t), \mathbf{x}; \mathbf{w}_{\mathrm{rec}}\big), & \mathbf{x} \in \Omega,\;
+    t \in [0,T],
+\end{cases}
+\label{eq:LDNet_system}
+\end{equation}
+where $\mathcal{NN}_{\mathrm{dyn}}$ and $\mathcal{NN}_{\mathrm{rec}}$ are two
+fully-connected neural networks (FCNNs) with trainable parameters $\mathbf{w}_{\mathrm{dyn}}$
+and $\mathbf{w}_{\mathrm{rec}}$. The initial condition $\mathbf{s}(0)=\mathbf{0}$ is assumed
+without loss of generality, as the latent state is a hidden quantity learned by the model.
+
+The reconstruction network $\mathcal{NN}_{\mathrm{rec}}$ is queried independently for each
+spatial point $\mathbf{x} \in \Omega$, without resorting to a predefined grid. This enables
+weight sharing across all points in the domain, reducing the parameter count and mitigating
+overfitting. The absence of an explicit high-dimensional state representation keeps training
+lightweight and allows generalisation beyond training time horizons. When the output field
+depends instantaneously on the input, the reconstruction network can be extended to include
+$\mathbf{u}(t)$ among its arguments, as in equation~\eqref{eq:LDNet_system}; this choice is
+assessed through cross-validation and is particularly relevant when modelling aerodynamic
+forces that depend instantaneously on angle of attack or control surface deflections.
+
+
+\subsection{LDNet architecture: inputs, outputs, and latent variables}
+
+An LDNet is composed of two FCNNs: the dynamics network $\mathcal{NN}_{\mathrm{dyn}}$ and
+the reconstruction network $\mathcal{NN}_{\mathrm{rec}}$. Their interplay defines a map from
+time-dependent inputs to spatio-temporal output fields through a low-dimensional latent state
+$\mathbf{s}(t) \in \mathbb{R}^{d_s}$.
+
+Tables~\ref{tab:ldnet_inputs} and~\ref{tab:ldnet_outputs} list the quantities fed to and
+produced by each sub-network. The input signals $\mathbf{u}(t)$ collect all time-varying
+quantities; the input parameter $U_\infty$ is time-constant and characterises the operating
+condition. All inputs are independently normalised to the approximate range $[-1,1]$ via
+affine scaling based on their empirical or physical bounds.
+
+\begin{table}[htbp]
+\centering
+\caption{Input quantities of the LDNet at time $t$.}
+\label{tab:ldnet_inputs}
+\begin{tabular}{llcc}
+\toprule
+Symbol & Description & Space & Sub-network \\
+\midrule
+$\mathbf{s}(t)$ & latent state & $\mathbb{R}^{d_s}$ & dyn,\; rec \\
+$h(t),\;\dot{h}(t)$ & plunge displacement and rate & $\mathbb{R}^2$ & dyn,\; rec \\
+$\alpha(t),\;\dot{\alpha}(t)$ & pitch angle and rate & $\mathbb{R}^2$ & dyn,\; rec \\
+$\delta(t)$ & control surface deflection & $\mathbb{R}$ & dyn,\; rec \\
+$W_{\mathrm{gust}}(t)$ & vertical gust velocity & $\mathbb{R}$ & dyn,\; rec \\
+$U_\infty$ & freestream velocity (parameter) & $\mathbb{R}$ & dyn,\; rec \\
+$\mathbf{x}$ & spatial query point & $\mathbb{R}^{d}$ & rec only \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Output quantities of the LDNet at time $t$.}
+\label{tab:ldnet_outputs}
+\begin{tabular}{llcc}
+\toprule
+Symbol & Description & Space & Sub-network \\
+\midrule
+$\dot{\mathbf{s}}(t)$ & latent state rate & $\mathbb{R}^{d_s}$ & dyn \\
+$F_y(t)$ & sectional aerodynamic lift & $\mathbb{R}$ & rec \\
+$M_z(t)$ & sectional pitching moment & $\mathbb{R}$ & rec \\
+$u_x(\mathbf{x},t),\;u_y(\mathbf{x},t)$ & velocity field at query point & $\mathbb{R}^{d_f}$ & rec \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The system history is encoded in $\mathbf{s}(t)$, governed by the ODE
+\[
+\dot{\mathbf{s}}(t) = \Delta t_{\mathrm{ref}}^{-1} \,
+    \widetilde{\mathcal{NN}}_{\mathrm{dyn}}\big(\mathbf{s}(t), \mathbf{u}(t), \mathbf{p};
+    \mathbf{w}_{\mathrm{dyn}}\big),
+\]
+where $\widetilde{\mathcal{NN}}_{\mathrm{dyn}}$ is a FCNN with $\tanh$ activations
+(e.g.\ $7$--$7$--$d_s$ neurons) and $\Delta t_{\mathrm{ref}}$ is a characteristic time
+scale. The ODE is discretised by forward Euler with time step $\Delta t$. The initial
+condition is fixed to $\mathbf{s}(0) = \mathbf{0}$; the network learns an internal
+representation that makes this origin compatible with the initial state of the training
+trajectories. When data are generated about a steady trim condition $\mathbf{u}_{\mathrm{eq}}$,
+the network is centred so that $\mathbf{s}=\mathbf{0}$ is a fixed point by construction:
+\[
+\mathcal{NN}_{\mathrm{dyn}}(\mathbf{s}, \mathbf{u}) =
+    \widetilde{\mathcal{NN}}_{\mathrm{dyn}}(\mathbf{s}, \mathbf{u}) -
+    \widetilde{\mathcal{NN}}_{\mathrm{dyn}}(\mathbf{0}, \mathbf{u}_{\mathrm{eq}}).
+\]
+
+The reconstruction network is queried independently for each spatial point $\mathbf{x}$ and
+returns
+\[
+\widetilde{\mathbf{y}}(\mathbf{x},t) = \mathbf{y}_0 + \mathbf{y}_w \odot
+    \widetilde{\mathcal{NN}}_{\mathrm{rec}}\big(\mathbf{s}(t), \mathbf{u}(t), \mathbf{x};
+    \mathbf{w}_{\mathrm{rec}}\big),
+\]
+where $\widetilde{\mathcal{NN}}_{\mathrm{rec}}$ is a FCNN (e.g.\ four hidden layers of $24$
+neurons with $\tanh$), $\mathbf{y}_0$ and $\mathbf{y}_w$ are affine denormalisation
+parameters, and $\odot$ denotes the Hadamard product. Because $\mathcal{NN}_{\mathrm{rec}}$ shares weights across all spatial
+queries, the model never explicitly constructs a high-dimensional state vector, keeping the
+parameter count independent of the spatial resolution.
+
+
+
+
+
+\subsection{Dataset generation and preprocessing}
+
+The training of an LDNet requires a dataset of input--output pairs obtained from either
+high-fidelity numerical simulations or experimental measurements. In the present aeronautical
+context, the data are generated by a full-order model (FOM)---a coupled FSI
+solver---that resolves the spatio-temporal flowfield and the structural response for a finite
+set of operating conditions. Each sample consists of time-dependent input signals
+$\mathbf{u}(\tau)$, output signals $\mathbf{y}_{\mathrm{sig}}(\tau)$, and output fields
+$\mathbf{y}_{\mathrm{fld}}(\boldsymbol{\xi},\tau)$ sampled at discrete times and spatial
+points.
+
+The dataset is organised into three families of simulations, distinguished by the type of
+excitation applied to the aeroelastic system (Table~\ref{tab:dataset_families}):
+\begin{itemize}
+    \item Family A (gust only): 30 samples with varying gust amplitude $R$ and duration
+          $T_g$, but no actuation ($\delta \equiv 0$). The gust peak velocity $W_{g0}$
+          ranges from $8.7$ to $47.8$~m/s.
+    \item Family B (flap only): 46 samples with prescribed flap deflections (no gust). The
+          flap rate and maximum deflection are swept to cover the actuator envelope.
+    \item Family Cc (gust + flap): 70 samples combining both gust excitation and active flap
+          control, with coupled parameter sweeps.
+\end{itemize}
+The complete dataset comprises 146 simulations, partitioned into training (100), validation
+(23), and test (23) sets. The split is stratified by family to ensure that each excitation
+regime is represented in all subsets.
+
+Before training, the raw FOM data are resampled to a uniform time step $\Delta t = 0.002$~s.
+Each scalar quantity---input parameters, signals, and spatial coordinates---is independently
+normalised to the approximate interval $[-1,1]$ via affine scaling based on the physical
+bounds reported in the dataset metadata. The time step is scaled by a reference time constant
+$\Delta t_{\mathrm{ref}} = 0.002$~s, which enters the latent dynamics discretisation.
+
+\begin{table}[htbp]
+\centering
+\caption{Dataset overview: gust and flap families.}
+\label{tab:dataset_families}
+\begin{tabular}{l ccc cccc}
+\toprule
+Family & Train & Val & Test & $R$ & $T_g$ [s] & $W_{g0}$ [m/s] & Actuation \\
+\midrule
+A  & 20 & 5  & 5  & 0.11--0.60 & 0.30--1.17 & 8.66--47.77 & Gust only \\
+B  & 30 & 8  & 8  & ---        & ---        & ---         & Flap only \\
+Cc & 50 & 10 & 10 & 0.10--0.60 & 0.31--1.20 & 8.03--47.94 & Gust + flap \\
+\midrule
+Total & 100 & 23 & 23 & --- & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% ============================================================
+%%  LDNet aeroelastic surrogate -- methodology sections
+%%  (Normalisation · Training · Algorithm · Hyperparameters ·
+%%   Input selection · Rollout inference)
+%% ============================================================
+
+\subsection{Normalisation}
+
+Each scalar quantity entering the networks is mapped to the interval $[-1,1]$ by the
+affine transformation
+\begin{equation}
+\tilde{\alpha} = \frac{\alpha - \alpha_0}{\alpha_w}, \qquad
+\alpha_0 = \frac{\alpha_{\min}+\alpha_{\max}}{2}, \qquad
+\alpha_w  = \frac{\alpha_{\max}-\alpha_{\min}}{2},
+\label{eq:norm_affine}
+\end{equation}
+where $\alpha_{\min}$ and $\alpha_{\max}$ are the physical bounds computed from the training
+dataset. The transformation is applied independently to every input signal ($h$, $\dot{h}$,
+$\alpha$, $\dot{\alpha}$, $\delta$, $W_\mathrm{gust}$), to the input parameter $U_\infty$,
+and to the aerodynamic output signals ($F_y$, $M_z$). The spatial query coordinate
+$\mathbf{x}_\mathrm{query}$ is scaled using the bounds of the spatial domain. The
+integration time step is divided by the reference time constant
+$\Delta t_\mathrm{ref} = 0.002$~s before entering $\mathcal{NN}_\mathrm{dyn}$, which keeps
+the network output dimensionally consistent with the inverse of time. The latent states
+$\mathbf{s}$ are not pre-normalised; when the hyperparameters are well tuned the optimiser
+produces latent trajectories that remain approximately within a unit ball.
+
+The aerodynamic outputs $F_y$ and $M_z$ have skewed, long-tailed distributions across the
+training set, driven by the large steady trim loads relative to the gust-induced excursions.
+
+
+
+\subsection{Training and loss function}
+
+$\mathcal{NN}_\mathrm{dyn}$ and $\mathcal{NN}_\mathrm{rec}$ are trained simultaneously by
+empirical risk minimisation on the $|\mathcal{S}_\mathrm{train}| = 100$ training
+trajectories. Under teacher forcing, both networks receive the ground-truth structural state
+$\mathbf{x}_t^\mathrm{data}$ as input at every step. This means that during training the
+network never rolls out its own predictions: at each step $t$ the true state
+$\mathbf{x}_t^\mathrm{data}$ is fed into the network, the loss is computed on the
+one-step prediction, and then the process restarts from the next ground-truth state
+$\mathbf{x}_{t+\Delta t}^\mathrm{data}$. Consequently, the loss optimises only the
+one-step mapping $(\mathbf{s}_t,\, \mathbf{u}_t^\mathrm{data}) \mapsto \tilde{\mathbf{y}}_t$,
+where $\mathbf{u}_t^\mathrm{data} = [\mathbf{x}_t^\mathrm{data},\,\delta_t,\,W_t]^\mathsf{T}$
+contains the ground-truth structural states. Because the rollout chain is broken at every
+step, the gradient of this loss contains no information about how a load prediction error
+$\varepsilon_t = \tilde{F}_{y,t} - F_{y,t}^\mathrm{data}$ propagates through the structural
+ODE~\eqref{eq:struct_ode}: the chain $\tilde{\mathbf{y}}_t \to \mathbf{x}_{t+\Delta t}^\mathrm{rollout}$
+is absent from the computational graph because $\mathbf{x}_{t+\Delta t}$ is always replaced by
+$\mathbf{x}_{t+\Delta t}^\mathrm{data}$ before the next step. At inference, however, this feedback
+is no longer suppressed: the network must consume its own predictions (or the plant state
+evolved from them), so any prediction error $\varepsilon_t$ produces a structural state
+deviation $\Delta\mathbf{x}_{t+\Delta t} = \mathbf{x}_{t+\Delta t}^\mathrm{rollout} - \mathbf{x}_{t+\Delta t}^\mathrm{data}$,
+which shifts the network input at step $t+\Delta t$ outside the training distribution. This
+distribution shift generates a larger error at the next step, and the error compounds over
+time, destabilising the loop. This is the classical \emph{exposure bias} problem: the model
+is never trained on its own errors and therefore lacks the corrective feedback needed to
+stay on trajectory during closed-loop operation.
+
+A second, independent failure mode arises from the redundancy of $\delta_t$ and
+$W_{\mathrm{gust},t}$ as network inputs when ground-truth structural states are supplied.
+The CFD trajectory $\mathbf{x}_t^\mathrm{data}$ already encodes the integrated effect of
+gust and flap through the preceding aeroelastic history: the incidence
+$\alpha_t^\mathrm{data}$ and its rate $\dot\alpha_t^\mathrm{data}$ reflect the quasi-steady
+aerodynamic response to both $W_\mathrm{gust}$ and $\delta$ accumulated over all previous
+steps. In other words, the state vector is a sufficient statistic for the aerodynamic
+forces, so the reconstruction network can minimise the teacher-forced loss by learning
+$F_y \approx f(\mathbf{x}_t^\mathrm{data})$ alone, treating $\delta_t$ as a redundant
+input. Because the loss can be driven to a low value without using $\delta_t$, the
+gradients routed through the latent dynamics that should carry the causal effect of the
+control surface vanish. The network therefore never learns to attribute changes in load to
+changes in flap deflection. Models trained to low teacher-forced loss are consequently
+\emph{flap-blind} in closed-loop operation: their load predictions are insensitive to
+$\delta$, rendering GLA control ineffective, even though one-step replay on training data
+appears accurate.
+
+%% requires \usepackage{tikz} and \usetikzlibrary{arrows.meta} in preamble
+\begin{figure}[tb]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  box/.style     = {draw, rounded corners=2pt, inner sep=4pt,
+                    minimum height=1.8em, minimum width=1.5cm, align=center},
+  net/.style     = {box, fill=orange!12},
+  dat/.style     = {box, fill=cyan!10},
+  op/.style      = {box, fill=gray!10},
+  lossn/.style   = {box, fill=green!10},
+  arr/.style     = {-stealth, semithick},
+  looparr/.style = {-stealth, semithick, green!45!black, thick},
+]
+
+%%────────── PANEL 1 – Teacher forcing ───────────────────────
+\node[font=\small\bfseries] at (3.8, 1.3) {Teacher forcing training};
+
+\node[dat]   (xk)   at (0.0,  0.35) {$\mathbf{x}_t^{\mathrm{d}}$};
+\node[op]    (uk)   at (0.0, -0.35) {$\delta_t,\,W_t$};
+\node[net]   (dyn1) at (2.2,  0.0)  {$\mathcal{NN}_{\mathrm{dyn}}$};
+\node[net]   (sk1)  at (4.0,  0.0)  {$\mathbf{s}_{t+\Delta t}$};
+\node[net]   (rec1) at (5.8,  0.0)  {$\mathcal{NN}_{\mathrm{rec}}$};
+\node[op]    (yt1)  at (7.6,  0.0)  {$\tilde{\mathbf{y}}_t$};
+\node[lossn] (L1)   at (8.8, -1.0)  {$\mathcal{L}$};
+
+\draw[arr, cyan!55!black] (xk.north) -- +(0, 0.5)
+  node[above, font=\scriptsize, cyan!60!black]{dataset};
+\draw[arr] (xk)   -- (dyn1);
+\draw[arr] (uk)   -- (dyn1);
+\draw[arr] (dyn1) -- (sk1);
+\draw[arr] (sk1)  -- (rec1);
+\draw[arr] (rec1) -- (yt1);
+\draw[arr] (yt1)  -| (L1);
+
+%%────────── PANEL 2 – Rollout ───────────────────────────────
+\begin{scope}[yshift=-4.0cm]
+\node[font=\small\bfseries] at (3.8, 1.3) {Rollout training};
+
+\node[dat]   (xkr)  at (0.0,  0.35) {$\mathbf{x}_t^{\mathrm{ro}}$};
+\node[op]    (ukr)  at (0.0, -0.35) {$\delta_t,\,W_t$};
+\node[net]   (dyn2) at (2.2,  0.0)  {$\mathcal{NN}_{\mathrm{dyn}}$};
+\node[net]   (sk2)  at (4.0,  0.0)  {$\mathbf{s}_{t+\Delta t}$};
+\node[net]   (rec2) at (5.8,  0.0)  {$\mathcal{NN}_{\mathrm{rec}}$};
+\node[op]    (yt2)  at (7.6,  0.0)  {$\tilde{\mathbf{y}}_t$};
+\node[lossn] (L2)   at (8.8, -1.0)  {$\mathcal{L}$};
+\node[op]    (ode2) at (5.8, -2.0)  {Struct ODE};
+\node[dat]   (xk12) at (2.2, -2.0)  {$\mathbf{x}_{t+\Delta t}^{\mathrm{ro}}$};
+
+\draw[arr]     (xkr)  -- (dyn2);
+\draw[arr]     (ukr)  -- (dyn2);
+\draw[arr]     (dyn2) -- (sk2);
+\draw[arr]     (sk2)  -- (rec2);
+\draw[arr]     (rec2) -- (yt2);
+\draw[arr]     (yt2)  -| (L2);
+\draw[looparr] (yt2)  -- (ode2);
+\draw[looparr] (ode2) -- (xk12);
+\draw[looparr] (xk12.west) -- +(-3,0) |- (xkr.west);
+\end{scope}
+
+%%── panel separator ─────────────────────────────────────────
+\draw[gray!50, thin] (-0.5,-2.0) -- (9.2,-2.0);
+
+\end{tikzpicture}
+\caption{Computational graphs for teacher forcing (top) and rollout training (bottom).
+In teacher forcing, the structural state
+$\mathbf{x}_t^\mathrm{d} = [h_t,\,\dot{h}_t,\,\alpha_t,\,\dot{\alpha}_t]^\mathsf{T}$
+is drawn from the CFD dataset at every step $t$ and supplied directly to
+$\mathcal{NN}_\mathrm{dyn}$ (dynamics network) and $\mathcal{NN}_\mathrm{rec}$
+(reconstruction network). The reconstruction network outputs the predicted
+aerodynamic loads $\tilde{\mathbf{y}}_t = [\tilde{F}_y,\,\tilde{M}_z]^\mathsf{T}$,
+which are compared to the data to form the loss $\mathcal{L}$, but are never used
+to advance the structural state: the structural ODE and the next state
+$\mathbf{x}_{t+\Delta t}$ are absent from the computational graph. Because
+$\mathbf{x}_t^\mathrm{d}$ already encodes the integrated effect of $\delta_t$ and
+$W_t$ through the preceding CFD history, the control input $\delta_t$ carries no
+independent gradient signal through $\mathcal{NN}_\mathrm{dyn}$.
+In rollout training, the predicted loads drive the structural ODE~\eqref{eq:struct_ode},
+producing the rollout state $\mathbf{x}_{t+\Delta t}^\mathrm{ro}$, which feeds back as the
+network input at the next step (green loop).  The gradient of $\mathcal{L}_\mathrm{rollout}$ with respect to $\mathbf{w}_\mathrm{dyn}$
+propagates back through the ODE, carrying signal from the structural state error to the
+network weights and enforcing the causal dependence of the predicted loads on $\delta_t$.
+The latent state $\mathbf{s}_{t+\Delta t}$ is the internal representation advanced by
+$\mathcal{NN}_\mathrm{dyn}$ and decoded by $\mathcal{NN}_\mathrm{rec}$.}
+\label{fig:tf_vs_rollout}
+\end{figure}
+
+The loss is therefore formulated in rollout mode: the 2-DOF aeroelastic ODE is
+integrated from the network's own predicted loads $(F_y,\,M_z)$ over a horizon of
+$N_\mathrm{rollout} = 800$ steps, with $\delta$ and $W_\mathrm{gust}$ treated as exogenous
+signals taken from the data. The aerodynamic outputs $F_y$ and $M_z$ are scalars
+reconstructed at the single fixed query point $\mathbf{x}_\mathrm{query}$, so the spatial
+summation present in the general LDNet formulation collapses to one term per step. The
+per-step discrepancy is
+\begin{equation}
+\mathcal{E}(\tilde{\mathbf{y}}, \mathbf{y}) =
+    \frac{\|\tilde{\mathbf{y}} - \mathbf{y}\|^2}{y_\mathrm{norm}^2}
+    + w_\mathrm{dir}
+    \left\|
+        \frac{\tilde{\mathbf{y}}}{\epsilon + \|\tilde{\mathbf{y}}\|}
+        - \frac{\mathbf{y}}{\epsilon + \|\mathbf{y}\|}
+    \right\|^2,
+\label{eq:discrepancy}
+\end{equation}
+with $y_\mathrm{norm}$ a reference magnitude and $\epsilon = 10^{-4}$ to prevent division
+by zero. The first term controls magnitude accuracy; the second penalises angular deviation,
+relevant for vector outputs in regions of small magnitude. This goal-oriented extension of
+the standard quadratic metric follows the approach of Regazzoni et al.~\cite{Regazzoni2024};
+for the scalar outputs $F_y$ and $M_z$, setting $w_\mathrm{dir} = 0$ recovers the standard
+normalised mean-square error. The rollout loss is
+\begin{equation}
+\begin{split}
+\mathcal{L}_\mathrm{rollout} =
+    \frac{1}{|\mathcal{S}_\mathrm{train}|}
+    \sum_{i \in \mathcal{S}_\mathrm{train}}
+    \frac{1}{N_\mathrm{rollout}}
+    \sum_{t=0}^{T_\mathrm{rollout}}
+    \bigg(
+        \left\|\tilde{\mathbf{x}}_t^{\mathrm{ro},(i)} - \tilde{\mathbf{x}}_t^{\mathrm{data},(i)}\right\|^2
+        + \mathcal{E}\!\left(\tilde{\mathbf{y}}_t^{(i)},\, \mathbf{y}_t^{\mathrm{data},(i)}\right)
+    \bigg) \\
+    {}+ \alpha_\mathrm{dyn}\,\mathcal{R}(\mathbf{w}_\mathrm{dyn})
+    + \alpha_\mathrm{rec}\,\mathcal{R}(\mathbf{w}_\mathrm{rec}),
+\end{split}
+\label{eq:rollout_loss}
+\end{equation}
+
+where $\alpha_\mathrm{dyn}$ and $\alpha_\mathrm{rec}$ are $L_2$-regularisation weights
+and $\mathcal{R}$ denotes Tikhonov regularisation (mean of squared weights). Both the
+state and load errors are evaluated in their respective normalised coordinates
+(cf.~\eqref{eq:norm_affine}), which implicitly weights each degree of freedom by
+$\alpha_{w,i}^{-2}$ and places the physically disparate quantities
+$h$~[m], $\dot{h}$~[m\,s$^{-1}$], $\alpha$~[rad], $\dot{\alpha}$~[rad\,s$^{-1}$]
+on a common dimensionless scale. The superscript $\mathrm{data}$ labels quantities drawn
+from the CFD dataset; the superscript $\mathrm{ro}$ labels quantities produced by the
+closed-loop simulation. The rollout structural state
+$\mathbf{x}_t^{\mathrm{ro},(i)} = [h_t,\,\dot{h}_t,\,\alpha_t,\,\dot{\alpha}_t]^\mathsf{T}$
+is obtained by integrating the 2-DOF equations of motion
+\begin{equation}
+\mathbf{M}_\mathrm{aug}
+\begin{pmatrix}\ddot{h}\\\ddot{\alpha}\end{pmatrix}
++ \mathbf{D}
+\begin{pmatrix}\dot{h}\\\dot{\alpha}\end{pmatrix}
++ \mathbf{K}
+\begin{pmatrix}h\\\alpha\end{pmatrix}
+= \begin{pmatrix}-F_y\\M_z\end{pmatrix} + \mathbf{f}_\delta(\dot{\delta},\ddot{\delta}),
+\label{eq:struct_ode}
+\end{equation}
+with the Dormand--Prince fifth-order Runge--Kutta scheme (RK45)~\cite{dormand1980}
+driven by the loads $(F_y,\,M_z)$ predicted by the LDNet at each step.
+$\mathbf{M}_\mathrm{aug}$ is the $2\times 2$ augmented mass matrix
+accounting for the coupled wing--flap inertia; $\mathbf{D}$ and $\mathbf{K}$ are diagonal
+structural damping and stiffness matrices; $\mathbf{f}_\delta(\dot{\delta},\ddot{\delta})$
+collects the generalised forces arising from the prescribed flap kinematics (Coriolis and
+inertial coupling). The integrator matches the standalone solver used to generate the CFD
+data, which calls \texttt{scipy.integrate.solve\_ivp}~\cite{virtanen2020scipy} with
+method \texttt{'RK45'}, \texttt{rtol=1e-8}, \texttt{atol=1e-10}, and
+$\texttt{max\_step}=2\Delta t$; the aerodynamic loads are held constant over each step.
+
+The stepper $\boldsymbol{\Phi}$ integrates the 2-DOF equations of motion
+over one time interval $\Delta t$ using the Dormand--Prince
+RK45 scheme~\cite{dormand1980}.  Defining the first-order state
+$\mathbf{x} = [h,\,\dot{h},\,\alpha,\,\dot{\alpha}]^\mathsf{T}$, the
+structural right-hand side is
+\begin{equation}
+  \mathbf{f}(\mathbf{x},\,F_y,\,M_z)
+  = \begin{bmatrix} \dot{h} \\ \ddot{h} \\ \dot{\alpha} \\ \ddot{\alpha}
+    \end{bmatrix}, \qquad
+  \begin{bmatrix} \ddot{h} \\ \ddot{\alpha} \end{bmatrix}
+  = \mathbf{M}^{-1}
+    \begin{bmatrix}
+      -F_y - D_h\dot{h} - K_h h \\
+       M_z - D_\alpha\dot{\alpha} - K_\alpha\alpha
+    \end{bmatrix},
+\label{eq:struct_rhs}
+\end{equation}
+where $\mathbf{M} = \bigl[\begin{smallmatrix} M_{hh} & M_{h\alpha} \\
+M_{h\alpha} & M_{\alpha\alpha}\end{smallmatrix}\bigr]$ is the structural
+mass matrix and $D_h,\,D_\alpha,\,K_h,\,K_\alpha$ are the modal damping
+and stiffness coefficients.
+The stepper evaluates the six Dormand--Prince stages
+\begin{align}
+  \mathbf{k}_1 &= \mathbf{f}(\mathbf{x}_t,\;F_{y,t},\;M_{z,t}), \notag\\
+  \mathbf{k}_2 &= \mathbf{f}\!\left(\mathbf{x}_t
+                    + \tfrac{\Delta t}{5}\mathbf{k}_1,\;
+                    F_{y,t},\;M_{z,t}\right), \notag\\
+  \mathbf{k}_3 &= \mathbf{f}\!\left(\mathbf{x}_t
+                    + \Delta t\!\left(\tfrac{3}{40}\mathbf{k}_1
+                    + \tfrac{9}{40}\mathbf{k}_2\right),\;
+                    F_{y,t},\;M_{z,t}\right), \notag\\
+  \mathbf{k}_4 &= \mathbf{f}\!\left(\mathbf{x}_t
+                    + \Delta t\!\left(\tfrac{44}{45}\mathbf{k}_1
+                    - \tfrac{56}{15}\mathbf{k}_2
+                    + \tfrac{32}{9}\mathbf{k}_3\right),\;
+                    F_{y,t},\;M_{z,t}\right), \notag\\
+  \mathbf{k}_5 &= \mathbf{f}\!\left(\mathbf{x}_t
+                    + \Delta t\!\left(\tfrac{19372}{6561}\mathbf{k}_1
+                    - \tfrac{25360}{2187}\mathbf{k}_2
+                    + \tfrac{64448}{6561}\mathbf{k}_3
+                    - \tfrac{212}{729}\mathbf{k}_4\right),\;
+                    F_{y,t},\;M_{z,t}\right), \notag\\
+  \mathbf{k}_6 &= \mathbf{f}\!\left(\mathbf{x}_t
+                    + \Delta t\!\left(\tfrac{9017}{3168}\mathbf{k}_1
+                    - \tfrac{355}{33}\mathbf{k}_2
+                    + \tfrac{46732}{5247}\mathbf{k}_3
+                    + \tfrac{49}{176}\mathbf{k}_4
+                    - \tfrac{5103}{18656}\mathbf{k}_5\right),\;
+                    F_{y,t},\;M_{z,t}\right),
+\label{eq:dp45_stages}
+\end{align}
+and advances the state with the fifth-order update
+\begin{equation}
+  \boldsymbol{\Phi}(\mathbf{x}_t,\,F_{y,t},\,M_{z,t},\,\Delta t)
+  = \mathbf{x}_t
+    + \Delta t\!\left(
+        \tfrac{35}{384}\mathbf{k}_1
+      + \tfrac{500}{1113}\mathbf{k}_3
+      + \tfrac{125}{192}\mathbf{k}_4
+      - \tfrac{2187}{6784}\mathbf{k}_5
+      + \tfrac{11}{84}\mathbf{k}_6
+    \right).
+\label{eq:dp45}
+\end{equation}
+
+
+
+Two architectural choices encode prior information about the aeroelastic system. The
+latent state update incorporates an exponential decay term with coefficient $\lambda$,
+\begin{equation}
+\mathbf{s}_{t+\Delta t} = (1-\lambda)\,\mathbf{s}_t
+    + \frac{\Delta t}{\Delta t_\mathrm{ref}}\,
+    \widetilde{\mathcal{NN}}_\mathrm{dyn}\!\left(
+        \mathbf{s}_t,\, \mathbf{u}_t,\, \mathbf{p};\, \mathbf{w}_\mathrm{dyn}
+    \right),
+\label{eq:latent_dyn}
+\end{equation}
+where $\lambda = 0.003$. This damped formulation biases the latent trajectory towards the
+origin and prevents the unbounded drift that the undamped model ($\lambda = 0$) exhibits
+during autonomous propagation, encoding the prior that the system possesses a stable
+aeroelastic equilibrium. The approach differs from the exact equilibrium constraint of
+Regazzoni et al.~\cite{Regazzoni2024}, in which the right-hand side of the latent ODE is
+shifted by $-\widetilde{\mathcal{NN}}_\mathrm{dyn}(\mathbf{0},\,\mathbf{u}_\mathrm{eq};\,
+\mathbf{w}_\mathrm{dyn})$ so that $\mathbf{s} = \mathbf{0}$ is a strict fixed point for
+any weight value. The softer approach used here does not enforce an exact fixed point; a
+stable latent equilibrium emerges instead from the combined effect of the rollout loss and
+the decay regularisation. Rollout training and inference both start from the CFD trim state
+$\mathbf{x}_0 = [h_\mathrm{tr},\,0,\,\alpha_\mathrm{tr},\,0]^\mathsf{T}$ with
+$\mathbf{s}_0 = \mathbf{0}$; no artificial pre-settling of the latent state is applied,
+since doing so introduces spurious transients that disrupt the coupling between the latent
+dynamics and the structural response.
+
+
+\subsection{Training algorithm}
+The network weights $\mathbf{w} = (\mathbf{w}_\mathrm{dyn},\,\mathbf{w}_\mathrm{rec})$
+are found by minimising $\mathcal{L}_\mathrm{rollout}$~\eqref{eq:rollout_loss}. Defining
+the augmented state $\mathbf{z}_t = (\mathbf{s}_t,\,\mathbf{x}_t^\mathrm{ro})$, the
+rollout forward pass executes the recurrence
+\begin{equation}
+  \mathbf{z}_{t+\Delta t} = \mathcal{F}(\mathbf{z}_t,\,\delta_t,\,W_t;\,\mathbf{w}),
+  \qquad t = 0,\ldots,N_\mathrm{rollout},
+\label{eq:rollout_map}
+\end{equation}
+where $\mathcal{F}$ chains the latent update~\eqref{eq:latent_dyn}, the reconstruction
+network $\widetilde{\mathcal{NN}}_\mathrm{rec}$, and the structural stepper $\boldsymbol{\Phi}$.
+The gradient of $\mathcal{L}_\mathrm{rollout}$ with respect to $\mathbf{w}$ is obtained by
+back-propagation through time: the adjoint $\boldsymbol{\mu}_t$ is propagated
+backward from $t = T_\mathrm{rollout}$ to $t = 0$ via
+\begin{equation}
+  \boldsymbol{\mu}_{t} =
+      \left(\frac{\partial \mathcal{F}}{\partial \mathbf{z}_t}\right)^\mathsf{T}
+      \boldsymbol{\mu}_{t+\Delta t}
+      + \frac{\partial \ell_t}{\partial \mathbf{z}_t},
+  \qquad \boldsymbol{\mu}_{T_\mathrm{rollout}+1} = \mathbf{0},
+\label{eq:bptt}
+\end{equation}
+where $\ell_t$ is the $t$-th sum in~\eqref{eq:rollout_loss}, and the weight gradient
+accumulates as
+\[
+  \frac{\partial \mathcal{L}_\mathrm{rollout}}{\partial \mathbf{w}_\mathrm{dyn}} =
+      \sum_{t=0}^{T_\mathrm{rollout}}
+      \boldsymbol{\mu}_t^\mathsf{T}\,
+      \frac{\partial \mathcal{F}}{\partial \mathbf{w}_\mathrm{dyn}}.
+\]
+Because $\mathcal{F}$ contains the structural stepper $\boldsymbol{\Phi}$, the Jacobian
+$\partial\mathcal{F}/\partial\mathbf{z}_t$ has a non-zero block that links the load
+prediction at step $t$ to the next structural state $\mathbf{x}_{t+\Delta t}^\mathrm{ro}$.
+Under teacher forcing this block vanishes: $\mathbf{x}_{t+\Delta t}$ is read from the dataset
+and is independent of $\mathbf{w}$, so the adjoint receives no signal from structural
+state errors and $\mathbf{w}_\mathrm{dyn}$ cannot learn the causal influence of $\delta_t$
+on the predicted loads. The gradient with respect to $\mathbf{w}_\mathrm{rec}$ is computed
+by standard back-propagation without temporal unrolling.
+
+The weights are updated in two successive stages. The first stage applies the Adam
+algorithm, which tracks element-wise exponential moving averages of the gradient
+$\mathbf{g}_t = \nabla_\mathbf{w}\mathcal{L}$ and of its element-wise square,
+\begin{equation}
+  \mathbf{m}_t = \beta_1\,\mathbf{m}_{t-1} + (1-\beta_1)\,\mathbf{g}_t, \qquad
+  \mathbf{v}_t = \beta_2\,\mathbf{v}_{t-1} + (1-\beta_2)\,(\mathbf{g}_t \odot \mathbf{g}_t),
+\label{eq:adam_moments}
+\end{equation}
+and applies the bias-corrected parameter update
+\begin{equation}
+  \mathbf{w}_{t+1} = \mathbf{w}_t
+      - \eta\,\frac{\hat{\mathbf{m}}_t}{\sqrt{\hat{\mathbf{v}}_t}+\varepsilon},
+  \qquad
+  \hat{\mathbf{m}}_t = \frac{\mathbf{m}_t}{1-\beta_1^t}, \quad
+  \hat{\mathbf{v}}_t = \frac{\mathbf{v}_t}{1-\beta_2^t},
+\label{eq:adam}
+\end{equation}
+with $\varepsilon = 10^{-7}$ a numerical floor. The adaptive per-weight rescaling by
+$\sqrt{\hat{\mathbf{v}}_t}$ allows a large global learning rate $\eta = 10^{-2}$ without
+divergence, enabling rapid escape from poor initialisations over several hundred epochs.
+The second stage switches to limited-memory BFGS (L-BFGS), a quasi-Newton method that
+accumulates a low-rank approximation $\mathbf{H}_t^{-1}$ of the inverse Hessian from the
+$m$ most recent parameter increments $\Delta\mathbf{w}_j = \mathbf{w}_j - \mathbf{w}_{j-1}$
+and gradient increments $\Delta\mathbf{g}_j = \nabla\mathcal{L}_j - \nabla\mathcal{L}_{j-1}$,
+and performs the quasi-Newton update
+\begin{equation}
+  \mathbf{w}_{t+1} = \mathbf{w}_t - \alpha_t\,\mathbf{H}_t^{-1}\nabla\mathcal{L}_t
+\label{eq:lbfgs}
+\end{equation}
+with the step size $\alpha_t$ determined by a Wolfe line search. Incorporating curvature
+information allows L-BFGS to converge to higher accuracy than Adam in far fewer iterations
+on the smooth, deterministic full-batch loss.
+
+For the teacher-forced model the two stages are applied sequentially from random
+initialisation (Glorot uniform weights, zero biases). For the rollout model the Adam stage
+is replaced by a warm-start from the converged teacher-forced checkpoint, after which
+L-BFGS is applied exclusively; restarting Adam from the warm-start degrades performance by
+eroding the learned flap-aware feature representation.
+
+\subsection{Hyperparameter tuning}
+
+The hyperparameters subject to automatic selection are the number of layers and neurons
+of $\mathcal{NN}_\mathrm{dyn}$ and $\mathcal{NN}_\mathrm{rec}$, the regularisation weights
+$\alpha_\mathrm{dyn}$ and $\alpha_\mathrm{rec}$, the reference time constant
+$\Delta t_\mathrm{ref}$, the latent dimension $d_s$, and the leak coefficient $\lambda$.
+The search uses the Tree-structured Parzen Estimator (TPE) algorithm, which builds a
+probabilistic model of the objective and proposes new configurations by maximising the
+expected improvement. Unpromising configurations are terminated early by the Asynchronous
+Successive Halving (ASHA) scheduler, which allocates a larger training budget only to
+configurations competitive after a short initial phase. Hyperparameter quality is evaluated
+by $K$-fold cross-validation on the normalised prediction error over the validation set.
+
+The definitive model has $d_s = 10$ latent states and $\Delta t_\mathrm{ref} = 0.002$~s.
+The dynamics network $\mathcal{NN}_\mathrm{dyn}$ takes as input the concatenation of the
+latent state, the normalised parameter $U_\infty$, and the six input signals (total
+input dimension $d_s + 7 = 17$) and has two hidden layers of 7 neurons each. The
+reconstruction network $\mathcal{NN}_\mathrm{rec}$ takes the latent state, the six input
+signals, and the two spatial coordinates (total input dimension $d_s + 8 = 18$) and has
+four hidden layers of 24 neurons each. All activations are hyperbolic tangent.
+
++
+
+Study about number of inputs
+
+\subsection{Rollout for inference}
+
+Once trained, the LDNet operates in closed-loop rollout: the latent state $\mathbf{s}_t$
+and structural state $\mathbf{x}_t$ advance using only the model's own predictions and
+the exogenous inputs (flap deflection $\delta_t$ and gust velocity $W_{\mathrm{gust},t}$).
+
+At each time step $t$ the dynamics network advances the latent state through the damped
+forward-Euler scheme~(\ref{eq:latent_dyn}),
+\[
+\mathbf{s}_{t+\Delta t} = (1-\lambda)\,\mathbf{s}_t
+    + \frac{\Delta t}{\Delta t_\mathrm{ref}}\,
+    \widetilde{\mathcal{NN}}_\mathrm{dyn}\!\left(
+        \mathbf{s}_t,\, \mathbf{u}_t,\, \mathbf{p};\, \mathbf{w}_\mathrm{dyn}
+    \right),
+\]
+where $\mathbf{u}_t = [h_t,\,\dot{h}_t,\,\alpha_t,\,\dot{\alpha}_t,\,\delta_t,\,
+W_{\mathrm{gust},t}]^\mathsf{T}$ and $\mathbf{p}$ contains the parameter $U_\infty$.
+The reconstruction network then evaluates the aerodynamic loads,
+\[
+\begin{bmatrix} F_{y,t} \\ M_{z,t} \end{bmatrix}
+= \mathbf{y}_0 + \mathbf{y}_w \odot
+    g\!\left(
+        \widetilde{\mathcal{NN}}_\mathrm{rec}\!\left(
+            \mathbf{s}_t,\, \mathbf{u}_t,\, \mathbf{x}_\mathrm{query};\,
+            \mathbf{w}_\mathrm{rec}
+        \right)
+    \right),
+\]
+where $g(\tilde{y}) = (\tilde{y}^3 + \beta\tilde{y})/(1+\beta)$, with $\beta = 0.05$,
+is the nonlinear output layer~(\ref{eq:nl_layer}), satisfying $g(\pm 1)=\pm 1$ and
+$g(0)=0$. Its gradient $g'(\tilde{y}) = (3\tilde{y}^2+\beta)/(1+\beta)$ grows with
+$|\tilde{y}|$, so training errors on peak aerodynamic loads --- reached during strong
+gusts --- propagate a larger gradient signal than errors near the trim condition,
+biasing the network towards accurate prediction of load extremes. $\mathbf{y}_0$ and
+$\mathbf{y}_w$ are the affine denormalisation constants from~(\ref{eq:norm_affine}).
+The predicted loads advance the
+structural state through the 2-DOF aeroelastic ODE,
+\[
+\mathbf{x}_{t+\Delta t} = \boldsymbol{\Phi}(\mathbf{x}_t,\, F_{y,t},\, M_{z,t},\, \Delta t),
+\]
+where $\boldsymbol{\Phi}$ is the structural time stepper, implementing the same
+Dormand--Prince RK45 scheme~\eqref{eq:dp45} used during training.
+The initial conditions are $\mathbf{s}_0 = \mathbf{0}$ and
+$\mathbf{x}_0$ equal to the pre-gust CFD trim state.

@@ -132,7 +132,7 @@ def simulate(ctrl=None):
         for _ in range(_settle):
             cl_s, cm_s = _aero_module.predict(xs, 0., 0., U_INF)
             _aero_module.advance(xs, 0., 0., U_INF, DT)
-            xs = structure.step_rk4(xs, q_dyn * cl_s, q_dyn * cm_s * C_REF, DT)
+            xs = structure.step_dp45(xs, q_dyn * cl_s, q_dyn * cm_s * C_REF, DT)
         x0 = xs.copy()
         C_L_trim, C_M_trim = _aero_module.predict(x0, 0., 0., U_INF)
         # x0=xs is already a joint equilibrium at rest under ABSOLUTE loads
@@ -206,7 +206,7 @@ def simulate(ctrl=None):
         _, hddot, _, _ = structure.rhs(x, Fy, Mz)
         hddot_arr[i]   = hddot
 
-        x = structure.step_rk4(x, Fy, Mz, DT)
+        x = structure.step_dp45(x, Fy, Mz, DT)
 
         # Sensors: h_ddot from accelerometer, α and α̇ from encoder/gyro.
         if _use_observer:

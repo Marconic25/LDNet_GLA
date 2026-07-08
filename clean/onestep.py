@@ -46,7 +46,7 @@ def run_open(W0, Tg):
     al = []; CL = []; de = []
     for i in range(N):
         cl, cm = a.predict(x, 0.0, Wt[i], U)
-        a.advance(x, 0.0, Wt[i], U, DT); x = M.structure.step_rk4(x, q * cl, q * cm * C, DT)
+        a.advance(x, 0.0, Wt[i], U, DT); x = M.structure.step_dp45(x, q * cl, q * cm * C, DT)
         al.append(x[2]); CL.append(float(cl)); de.append(0.0)
     return t, Wt, np.array(al), np.array(CL), np.array(de), None
 
@@ -66,7 +66,7 @@ def run_onestep(W0, Tg, R, QAD=0.0, DMAX=14.):
         cl0 = float(a.predict(x, 0.0, Wt[i], U)[0])           # lift the controller sees (zero flap)
         d = ctrl.compute(x, W_hat=float(Wt[i]))                # rate-limited single-step optimum (DLPF=0)
         cl, cm = a.predict(x, d, Wt[i], U)
-        a.advance(x, d, Wt[i], U, DT); x = M.structure.step_rk4(x, q * cl, q * cm * C, DT)
+        a.advance(x, d, Wt[i], U, DT); x = M.structure.step_dp45(x, q * cl, q * cm * C, DT)
         e = cl0 - CLTRIM
         al.append(x[2]); CL.append(float(cl)); de.append(d)
         K.append(d / e if abs(e) > 1e-3 else np.nan)
@@ -86,7 +86,7 @@ def run_prop(W0, Tg, gain, DMAX=14.):
         clm = float(a.predict(x, de_prev, Wt[i], U)[0])       # measured lift with current flap
         d = ctrl.compute(clm)                                  # clip + rate limit, DLPF=0
         cl, cm = a.predict(x, d, Wt[i], U)
-        a.advance(x, d, Wt[i], U, DT); x = M.structure.step_rk4(x, q * cl, q * cm * C, DT)
+        a.advance(x, d, Wt[i], U, DT); x = M.structure.step_dp45(x, q * cl, q * cm * C, DT)
         de_prev = d; e = cl0 - CLTRIM
         al.append(x[2]); CL.append(float(cl)); de.append(d)
         K.append(d / e if abs(e) > 1e-3 else np.nan)

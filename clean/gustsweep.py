@@ -24,7 +24,7 @@ def run(mode,W0):
         dprev=d;D[i]=d
         cl,cm=a.predict(x,d,W,U);a.advance(x,d,W,U,DT);clm=float(cl)
         Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;_,hdd,_,_=structure.rhs(x,Fy,Mz)
-        CL[i]=cl;HD[i]=hdd;AD[i]=x[3];x=structure.step_rk4(x,Fy,Mz,DT)
+        CL[i]=cl;HD[i]=hdd;AD[i]=x[3];x=structure.step_dp45(x,Fy,Mz,DT)
     gw=tt<=1.6;return [np.max(np.abs(v[gw])) for v in (CL,HD,AD)]+[np.max(np.abs(D))]
 print('  W0  ctrl |  C_Lred  hddotred  adotred  flap', flush=True)
 for W0 in [5,10,15,20,30]:

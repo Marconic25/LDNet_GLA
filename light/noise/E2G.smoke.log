@@ -1,0 +1,17 @@
+2026-07-07 23:02:53.525198: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 23:02:55.303627: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 23:02:55.306954: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 23:02:55.317480: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 23:02:56.205501: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E2-gate | W30/Tg0.4 DAMULT=3 | open cex0=0.4600 | SMOKE
+
+=== frac=0 anchors (oracle preview) ===
+  hd     h=0.005+dw=5                   frac=0.00: clred= +76.58% flag=''  (plain clean anchor +76.58%)
+  wash   tau=500ms                      frac=0.00: clred= +73.81% flag=''  (plain clean anchor +76.58%)
+
+=== frac=0.02 (sigma=0.60 m/s) ===
+  none                                  frac=0.02:   +18.2% [ +18.0, +18.4] std= 0.19 flags=0/2
+  hd     h=0.005+dw=5                   frac=0.02:    -4.7% [ -27.5, +18.0] std=22.75 flags=0/2
+# saved 5 records -> /work/u10677113/LDNet_GLA/light/noise/results/E2_gate.npz
+# DONE

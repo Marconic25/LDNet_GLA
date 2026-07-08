@@ -18,7 +18,7 @@ def run(gain, lpf=0.0):
         dt_cmd=np.clip(dt_cmd, dprev-DDOT*DT, dprev+DDOT*DT)
         dt_cmd=float(np.clip(dt_cmd,-DMAX,DMAX))
         cl,cm=a.predict(x,dt_cmd,W[i],U)
-        a.advance(x,dt_cmd,W[i],U,DT); x=structure.step_rk4(x,q*cl,q*cm*C,DT)
+        a.advance(x,dt_cmd,W[i],U,DT); x=structure.step_dp45(x,q*cl,q*cm*C,DT)
         CL.append(float(cl));DD.append(dt_cmd);HH.append(x[0]); dprev=dt_cmd
     CL=np.array(CL);DD=np.array(DD);HH=np.array(HH)
     return CL[m].max()-CLTRIM, np.max(np.abs(HH[m])), np.abs(DD).max()

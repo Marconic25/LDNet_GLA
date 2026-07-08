@@ -18,7 +18,7 @@ hh=[];aa=[];CL=[]
 for i in range(len(d)):
     cl,cm=a.predict(x,delta[i],W[i],U); CL.append(float(cl))
     Fy=q*cl; Mz=q*cm*C
-    a.advance(x,delta[i],W[i],U,DT); x=structure.step_rk4(x,Fy,Mz,DT)
+    a.advance(x,delta[i],W[i],U,DT); x=structure.step_dp45(x,Fy,Mz,DT)
     hh.append(x[0]);aa.append(x[2])
 hh=np.array(hh);aa=np.array(aa);CL=np.array(CL)
 def nrmse(r,f): return np.sqrt(np.mean((r-f)**2))/(f.max()-f.min()+1e-12)

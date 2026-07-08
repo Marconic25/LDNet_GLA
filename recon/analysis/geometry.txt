@@ -1,0 +1,8 @@
+loop 0: 282 nodes, x [-0.9608,3.9596] y [-0.9658,0.9975]  -> OUTER(crop)
+loop 1: 292 nodes, x [-0.0000,0.7200] y [-0.0752,0.0655]  -> airfoil element
+loop 2: 95 nodes, x [0.7501,0.9776] y [-0.0938,-0.0225]  -> airfoil element
+nodes 11075, triangles 17989, boundary nodes 669, airfoil nodes 387
+domain x [-0.981,3.980] y [-0.966,0.998]
+airfoil x [-0.0000,0.9776] y [-0.0938,0.0655]  chord=0.9776 m
+region defs: near = dist(surface) < 0.5c; wake = ~near & TE_x < x < TE_x+3c & |y-TE_y| < 0.75c; far = rest
+node counts: near 6283 (56.7%), wake 2234 (20.2%), far 2558 (23.1%), surface 387

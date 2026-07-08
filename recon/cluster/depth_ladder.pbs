@@ -1,0 +1,27 @@
+#!/bin/bash
+#PBS -N depthlad
+#PBS -q cpu
+#PBS -l select=1:ncpus=8:mem=64gb
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#
+# H-ARCH depth-ladder chain link (Thread D). Each link runs depth_driver.py,
+# which resumes the ladder wherever the previous link left off and exits
+# cleanly before the walltime. Links are chained 1-wide with afterany
+# (queue politeness: never more than one depth-study job running).
+# mem=64gb because scipy full-BFGS holds a dense PxP float64 Hessian
+# (~13 GB at L=96/ds=10, ~50 GB peak with update temporaries).
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+
+echo "=== depth ladder link start $(date) ==="
+hostname
+
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      python3 -u depth_driver.py --budget-s 83000"
+
+echo "=== depth ladder link end $(date) exit $? ==="

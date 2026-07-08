@@ -16,7 +16,7 @@ Runs on the cluster GPU (TF / Keras 2.14 container). Example:
      --train recon/data/FIELDS_train.h5 --valid recon/data/FIELDS_valid.h5 \
      --test recon/data/FIELDS_test.h5 --out recon/models --latents 1,5,10
 """
-import argparse, json, sys
+import argparse, csv, json, sys, time
 from pathlib import Path
 
 import matplotlib
@@ -78,22 +78,96 @@ def compute_normalization(train, dt_base):
     return norm
 
 
-def build_networks(num_latent_states, problem, dt, dt_base):
+def build_networks(num_latent_states, problem, dt, dt_base,
+                   dyn_layers=2, dyn_width=7, rec_layers=4, rec_width=24):
+    """Defaults (2x7 dyn, 4x24 rec) reproduce the original hardcoded architecture
+    exactly (same layer order -> same weight-init RNG draws for a given seed)."""
     n_inp = num_latent_states + len(problem["input_parameters"]) + len(problem["input_signals"])
-    NNdyn = tf.keras.Sequential([
-        tf.keras.layers.Dense(7, activation=tf.nn.tanh, input_shape=(n_inp,)),
-        tf.keras.layers.Dense(7, activation=tf.nn.tanh),
-        tf.keras.layers.Dense(num_latent_states),
-    ])
+    dyn = [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh, input_shape=(n_inp,))]
+    dyn += [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh)
+            for _ in range(dyn_layers - 1)]
+    dyn += [tf.keras.layers.Dense(num_latent_states)]
+    NNdyn = tf.keras.Sequential(dyn)
     n_rec = num_latent_states + len(problem["input_signals"]) + problem["space"]["dimension"]
-    NNrec = tf.keras.Sequential([
-        tf.keras.layers.Dense(24, activation=tf.nn.tanh, input_shape=(None, None, n_rec)),
-        tf.keras.layers.Dense(24, activation=tf.nn.tanh),
-        tf.keras.layers.Dense(24, activation=tf.nn.tanh),
-        tf.keras.layers.Dense(24, activation=tf.nn.tanh),
-        tf.keras.layers.Dense(len(problem["output_fields"])),   # 3 = vx,vy,p
-    ])
+    rec = [tf.keras.layers.Dense(rec_width, activation=tf.nn.tanh, input_shape=(None, None, n_rec))]
+    rec += [tf.keras.layers.Dense(rec_width, activation=tf.nn.tanh)
+            for _ in range(rec_layers - 1)]
+    rec += [tf.keras.layers.Dense(len(problem["output_fields"]))]   # 3 = vx,vy,p
+    NNrec = tf.keras.Sequential(rec)
     return NNdyn, NNrec
+
+
+class RecordingOptimizationProblem(optimization.OptimizationProblem):
+    """OptimizationProblem that records loss histories for later plotting without
+    changing the optimization trajectory.
+
+    - `history` collects rows (phase, kind, step, train_loss, valid_loss, wall_s):
+        kind='iter' : per-iteration (Adam epoch / BFGS outer iteration), val loss included
+        kind='fev'  : per BFGS function evaluation (train loss only; free, cached)
+    - record_every=10 reproduces the base class cadence/printout exactly
+      (train loss at BFGS iterations is taken from the cached last function
+      evaluation = same weights, same value, one forward pass cheaper).
+    - optimize_BFGS additionally stores the scipy result (`bfgs_result`) so the
+      termination reason (maxiter vs line-search precision loss) is preserved.
+    """
+
+    def __init__(self, variables, loss_train, loss_valid,
+                 record_every=10, history=None, phase="opt", t0=None):
+        self.record_every = max(1, int(record_every))
+        self.history = history if history is not None else []
+        self.phase = phase
+        self.t0 = time.time() if t0 is None else t0
+        self._last_eval_loss = None
+        self._n_evals = 0
+        super().__init__(variables, loss_train, loss_valid)
+
+    def ag_train_loss_grad_numpy(self, params_1d):
+        loss, grad = self.ag_train_loss_grad(params_1d)
+        l = float(loss.numpy())
+        self._n_evals += 1
+        self._last_eval_loss = l
+        self.history.append((self.phase, "fev", self._n_evals, l, "", time.time() - self.t0))
+        return loss.numpy(), grad.numpy()
+
+    def iteration_callback(self):
+        if self.iteration % self.record_every == 0:
+            tl = self._last_eval_loss if self._last_eval_loss is not None \
+                else float(self.ag_train_loss().numpy())
+            vl = float(self.ag_valid_loss().numpy())
+            self.history.append((self.phase, "iter", self.iteration, tl, vl,
+                                 time.time() - self.t0))
+            self.iterations_history.append(self.iteration)
+            self.loss_train_history.append(tl)
+            self.loss_valid_history.append(vl)
+            if self.iteration % 10 == 0:
+                print('epoch% 5d   -   training loss: %1.3e   -   validation loss %1.3e' %
+                      (self.iteration, tl, vl))
+        if self.checkpoint_callback is not None and self.iteration > 0 \
+                and self.iteration % self.checkpoint_every == 0:
+            self.checkpoint_callback(self.iteration)
+        self.iteration += 1
+
+    def optimize_BFGS(self, num_epochs):
+        import scipy.optimize as sopt
+        options = {'maxiter': num_epochs, 'gtol': 1e-100}
+        init_params = self.stitcher.stitch(self.variables).numpy()
+
+        def callback(_):
+            self.iteration_callback()
+            return False
+
+        res = sopt.minimize(fun=self.ag_train_loss_grad_numpy, x0=init_params,
+                            method='BFGS', jac=True, tol=1e-100,
+                            options=options, callback=callback)
+        self.bfgs_result = {
+            "nit": int(res.nit), "nfev": int(res.nfev), "status": int(res.status),
+            "success": bool(res.success), "message": str(res.message),
+            "final_fun": float(res.fun),
+            "grad_inf_norm": float(np.max(np.abs(res.jac))),
+        }
+        # NOTE: like the base class, variables are deliberately left at the last
+        # evaluated point (not res.x) to keep behavior identical to src/optimization.py.
+        return self.bfgs_result
 
 
 def make_ldnet(NNdyn, NNrec, num_latent_states, problem, dt, dt_base, output_nl="cubic"):
@@ -208,6 +282,17 @@ def main():
     ap.add_argument("--sampling", choices=["uniform", "area"], default="uniform",
                     help="point subsampling: uniform-over-nodes (baseline) or area-weighted")
     ap.add_argument("--tri", default=None, help="mesh_triangles.npy for exact area weighting")
+    ap.add_argument("--dyn-layers", type=int, default=2,
+                    help="number of hidden layers in NNdyn (default 2 = original)")
+    ap.add_argument("--dyn-width", type=int, default=7,
+                    help="hidden width of NNdyn (default 7 = original)")
+    ap.add_argument("--rec-layers", type=int, default=4,
+                    help="number of hidden layers in NNrec (default 4 = original)")
+    ap.add_argument("--rec-width", type=int, default=24,
+                    help="hidden width of NNrec (default 24 = original)")
+    ap.add_argument("--log-every", type=int, default=10,
+                    help="record train/val loss every N iterations (10 = original cadence; "
+                         "1 = full per-epoch/per-iteration history for convergence studies)")
     args = ap.parse_args()
 
     latents = [int(x) for x in args.latents.split(",")]
@@ -247,21 +332,39 @@ def main():
         utils.process_dataset(d_te, problem, norm, dt=None)
 
         def fresh():
-            NNdyn, NNrec = build_networks(nls, problem, dt, dt_base)
+            NNdyn, NNrec = build_networks(nls, problem, dt, dt_base,
+                                          dyn_layers=args.dyn_layers, dyn_width=args.dyn_width,
+                                          rec_layers=args.rec_layers, rec_width=args.rec_width)
             ldnet, loss_fn = make_ldnet(NNdyn, NNrec, nls, problem, dt, dt_base,
                                         output_nl=args.output_nl)
             return NNdyn, NNrec, ldnet, loss_fn
+
+        history = []          # (phase, kind, step, train_loss, valid_loss, wall_s)
+        phase_wall = {}
+        t_run0 = time.time()
+        n_params = {}
 
         # --- Adam phase with restarts; keep the best init by validation loss ---
         best = None  # (val_loss, NNdyn_weights, NNrec_weights)
         for r in range(args.restarts):
             np.random.seed(r); tf.random.set_seed(r)
             NNdyn, NNrec, ldnet, loss_fn = fresh()
+            if not n_params:
+                n_params = {"NNdyn": int(NNdyn.count_params()),
+                            "NNrec": int(NNrec.count_params())}
+                n_params["total"] = n_params["NNdyn"] + n_params["NNrec"]
+                print(f"  arch: NNdyn {args.dyn_layers}x{args.dyn_width} "
+                      f"({n_params['NNdyn']} params), NNrec {args.rec_layers}x{args.rec_width} "
+                      f"({n_params['NNrec']} params), total {n_params['total']} params")
             loss_tr = lambda: loss_fn(d_tr, d_tr["output_fields"])
             loss_va = lambda: loss_fn(d_va, d_va["output_fields"])
-            opt = optimization.OptimizationProblem(NNdyn.variables + NNrec.variables, loss_tr, loss_va)
+            t_ph = time.time()
+            opt = RecordingOptimizationProblem(NNdyn.variables + NNrec.variables, loss_tr, loss_va,
+                                               record_every=args.log_every, history=history,
+                                               phase=f"adam_r{r}", t0=t_run0)
             print(f"  Adam (restart {r+1}/{args.restarts})..." if args.restarts > 1 else "  Adam...")
             opt.optimize_keras(args.adam, tf.keras.optimizers.Adam(learning_rate=1e-2))
+            phase_wall[f"adam_r{r}"] = time.time() - t_ph
             vl = float(opt.ag_valid_loss().numpy())
             if args.restarts > 1:
                 print(f"    restart {r}: val loss after Adam = {vl:.3e}")
@@ -273,15 +376,48 @@ def main():
         NNdyn.set_weights(best[1]); NNrec.set_weights(best[2])
         loss_tr = lambda: loss_fn(d_tr, d_tr["output_fields"])
         loss_va = lambda: loss_fn(d_va, d_va["output_fields"])
-        opt = optimization.OptimizationProblem(NNdyn.variables + NNrec.variables, loss_tr, loss_va)
-        print(f"  BFGS (best Adam val={best[0]:.3e})..."); opt.optimize_BFGS(args.bfgs)
+        t_ph = time.time()
+        opt = RecordingOptimizationProblem(NNdyn.variables + NNrec.variables, loss_tr, loss_va,
+                                           record_every=args.log_every, history=history,
+                                           phase="bfgs", t0=t_run0)
+        print(f"  BFGS (best Adam val={best[0]:.3e})...")
+        bfgs_result = opt.optimize_BFGS(args.bfgs)
+        phase_wall["bfgs"] = time.time() - t_ph
+        print(f"  BFGS done: nit={bfgs_result['nit']} nfev={bfgs_result['nfev']} "
+              f"message='{bfgs_result['message']}' final={bfgs_result['final_fun']:.3e}")
 
         md = out_dir / f"latent_{nls}"; md.mkdir(exist_ok=True)
         NNdyn.save_weights(str(md / "NNdyn_weights.weights.h5"))
         NNrec.save_weights(str(md / "NNrec_weights.weights.h5"))
         with open(md / "config.json", "w") as f:
             json.dump({"problem": problem, "normalization": norm,
-                       "num_latent_states": nls, "output_nl": args.output_nl}, f, indent=2)
+                       "num_latent_states": nls, "output_nl": args.output_nl,
+                       "architecture": {"dyn_layers": args.dyn_layers, "dyn_width": args.dyn_width,
+                                        "rec_layers": args.rec_layers, "rec_width": args.rec_width,
+                                        "n_params_dyn": n_params.get("NNdyn"),
+                                        "n_params_rec": n_params.get("NNrec")}}, f, indent=2)
+
+        # --- persist loss history + run info (plot-ready, no re-run needed) ---
+        with open(md / "loss_history.csv", "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["phase", "kind", "step", "train_loss", "valid_loss", "wall_s"])
+            for row in history:
+                w.writerow(row)
+        final_tr = next((h[3] for h in reversed(history) if h[1] == "iter"), None)
+        final_va = next((h[4] for h in reversed(history) if h[1] == "iter"), None)
+        with open(md / "run_info.json", "w") as f:
+            json.dump({"argv": sys.argv[1:],
+                       "num_latent_states": nls,
+                       "dyn_layers": args.dyn_layers, "dyn_width": args.dyn_width,
+                       "rec_layers": args.rec_layers, "rec_width": args.rec_width,
+                       "n_params": n_params,
+                       "restarts": args.restarts, "adam": args.adam, "bfgs": args.bfgs,
+                       "output_nl": args.output_nl, "log_every": args.log_every,
+                       "best_adam_val": best[0],
+                       "bfgs_result": bfgs_result,
+                       "final_train_loss": final_tr, "final_valid_loss": final_va,
+                       "phase_wall_s": phase_wall,
+                       "total_wall_s": time.time() - t_run0}, f, indent=2)
 
         print("  eval (test, full grid):")
         m = evaluate(ldnet, d_te, problem, norm)

@@ -1,0 +1,31 @@
+2026-07-07 22:49:52.389579: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 22:49:54.354729: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 22:49:54.359621: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 22:49:54.373550: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 22:49:55.516337: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E2-MPC | W30/Tg0.4 DAMULT=3 | open cex0=0.4600
+
+=== frac=0.00 anchors (clean preview; one-step clean anchor +76.58%) ===
+  mpcp    N=2    frac=0.00 (anchor): clred= +81.53% flap_max=  8.2 flag=''
+  mpcp    N=4    frac=0.00 (anchor): clred= +79.58% flap_max=  7.7 flag=''
+  mpcp    N=8    frac=0.00 (anchor): clred= +80.51% flap_max=  7.9 flag=''
+
+=== frac=0.02 (sigma=0.60 m/s) ===
+  none           frac=0.02:    -0.1% [ -26.3, +19.2] std=19.94 flags=3/6
+  mpc-cur N=4    frac=0.02:   +37.0% [  -4.4, +79.3] std=41.30 flags=4/6
+  mpcp    N=2    frac=0.02:    +9.0% [  -3.7, +25.2] std=12.75 flags=3/6
+  mpcp    N=4    frac=0.02:   +70.6% [ +45.8, +83.0] std=15.44 flags=3/6
+  mpcp    N=8    frac=0.02:   +75.1% [ +44.8, +82.9] std=13.58 flags=4/6
+
+=== frac=0.05 (sigma=1.50 m/s) ===
+  none           frac=0.05:    -7.3% [ -25.0, +20.8] std=19.80 flags=3/6
+  mpc-cur N=4    frac=0.05:   +35.4% [  -5.3, +76.6] std=40.51 flags=4/6
+  mpcp    N=2    frac=0.05:    +9.5% [  -5.4, +35.5] std=16.43 flags=3/6
+  mpcp    N=4    frac=0.05:   +19.9% [  +2.1, +31.8] std=11.18 flags=5/6
+  mpcp    N=8    frac=0.05:   +62.5% [ +33.0, +82.6] std=18.54 flags=5/6
+# best mpcp frac=0.02: N=8 mean +75.1%
+# best mpcp frac=0.05: N=8 mean +62.5%
+# saved 38 records -> /work/u10677113/LDNet_GLA/light/noise/results/E2_mpc.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

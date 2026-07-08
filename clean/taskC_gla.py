@@ -23,7 +23,7 @@ def run(gain):
         dcmd = float(np.clip(dcmd, -DMAX, DMAX))             # saturation
         cl,cm=a.predict(x,dcmd,W[i],U); CL.append(float(cl))
         Fy=q*cl; Mz=q*cm*C
-        a.advance(x,dcmd,W[i],U,DT); x=structure.step_rk4(x,Fy,Mz,DT)
+        a.advance(x,dcmd,W[i],U,DT); x=structure.step_dp45(x,Fy,Mz,DT)
         HH.append(x[0]);AA.append(x[2]);DD.append(dcmd); dprev=dcmd
     CL=np.array(CL);HH=np.array(HH);AA=np.array(AA);DD=np.array(DD)
     exc=np.max(np.abs(CL[gust_win]-CLTRIM))

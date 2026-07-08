@@ -84,7 +84,7 @@ def sim_pd2_full(W0, Tg, g1, g2, TEND, DLPF=0.95, DMAX=14.):
         de_f = DLPF * de_f + (1.0 - DLPF) * d
         de_f2 = DLPF * de_f2 + (1.0 - DLPF) * de_f; de = de_f2
         cl, cm = a.predict(x, de, Wt[i], U)
-        a.advance(x, de, Wt[i], U, DT); x = M.structure.step_rk4(x, q * cl, q * cm * C, DT)
+        a.advance(x, de, Wt[i], U, DT); x = M.structure.step_dp45(x, q * cl, q * cm * C, DT)
         R['al'].append(x[2]); R['ad'].append(x[3]); R['de'].append(de); R['CL'].append(float(cl))
     out = {k: np.array(v) for k, v in R.items()}; out['_t'] = tg
     return out

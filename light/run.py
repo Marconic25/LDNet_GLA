@@ -95,7 +95,7 @@ def simulate(mode, W0, Tg, TEND=3.0, R=3e-4, DLPF=0.0, DMAX=14., NGRID=161):
         Fy = q*cl; Mz = q*cm*C
         der = structure.rhs(x, Fy, Mz)
         aero.advance(x, de, Wi, U, DT)
-        x = structure.step_rk4(x, Fy, Mz, DT)
+        x = structure.step_dp45(x, Fy, Mz, DT)
         for k, v in zip(['h','hd','al','ad','hdd','add','de','CL','CM','Fy'],
                         [x[0],x[1],x[2],x[3],der[1],der[3],de,float(cl),float(cm),Fy]):
             rec[k].append(v)

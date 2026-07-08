@@ -11,7 +11,7 @@ for MD in MODELS:
     a.reset(dt=DT); x=np.zeros(4)
     for _ in range(6000):
         cl,cm=a.predict(x,0.,0.,U); Fy=q*cl; Mz=q*cm*C
-        a.advance(x,0.,0.,U,DT); x=structure.step_rk4(x,Fy,Mz,DT)
+        a.advance(x,0.,0.,U,DT); x=structure.step_dp45(x,Fy,Mz,DT)
     xs=x.copy(); zs=a._z.copy()
     cls,cms=a.predict(xs,0.,0.,U)
     print('  joint fixed point: h=%.4f a=%.4f ||z||=%.1f  C_L=%.3f'%(xs[0],xs[2],np.linalg.norm(zs),float(cls)),flush=True)
@@ -33,7 +33,7 @@ for MD in MODELS:
             W=gust(t) if gon else 0.0
             cl,cm=a.predict(x,0.,W,U); Fy=q*cl;Mz=q*cm*C
             d=structure.rhs(x,Fy,Mz); HD.append(d[1]);AD.append(d[3]);CL.append(float(cl))
-            a.advance(x,0.,W,U,DT); x=structure.step_rk4(x,Fy,Mz,DT)
+            a.advance(x,0.,W,U,DT); x=structure.step_dp45(x,Fy,Mz,DT)
         return np.array(CL),np.array(HD),np.array(AD)
     CLg,HDg,ADg=run(True); CLn,HDn,ADn=run(False)
     print('  (3) COUPLING (joint eq): C_L gust excursion=%.4f'%(np.max(np.abs(CLg-float(cls)))),flush=True)

@@ -1,0 +1,843 @@
+\section{Aeroelastic framework}
+\label{sec:aeroelastic model}
+
+\subsection{Structural model}
+\label{subsec:structmodel}
+\begin{figure}[h]
+    \centering
+    \input{Thesis_article_format/Chapters/Chapter1/airfoil_scheme}
+    \caption{Sketch of the structural model}
+    \label{fig:airfoil_scheme}
+\end{figure}
+
+The problem considered is a 2D airfoil with a flap attached as shown in Figure \ref{fig:airfoil_scheme}: structural model has two dynamic degrees of freedom, the plunge $h$ and the pitch $\alpha$. The plunge measures the vertical translation of the elastic axis, taken positive downward, while the pitch is the rotation about the elastic axis, positive nose-up. The trailing-edge flap is rigidly hinged to the airfoil, but its rotation $\delta$ is not treated as a structural unknown: it is imposed in time as a prescribed schedule and represents the action of the controller on the system. From the point of view of the structural model the flap is therefore a kinematic input, not a degree of freedom, and its dynamics is reduced to the time history $\delta(t)$ chosen by the control law. The vector of generalised coordinates is $\mathbf{q} = [h,\,\alpha]^{T}$: $\delta(t)$ enters the equations as an external excitation.
+
+Equations of motions are two coupled linear ordinary differential equations in the unknowns $h(t)$ and $\alpha(t)$. They can be written in compact form as
+\begin{equation}
+\mathbf{M}\,\ddot{\mathbf{q}} \;+\; \mathbf{C}\,\dot{\mathbf{q}} \;+\; \mathbf{K}\,\mathbf{q}
+\;=\; \mathbf{f}_{\text{aero}}(t) \;+\; \mathbf{Q}_{\delta}(t),
+\label{eq:eom}
+\end{equation}
+with mass, damping and stiffness matrices
+\begin{equation}
+\mathbf{M} \;=\;
+\begin{bmatrix}
+m_{w} + m_{f} & m_{f}\,d_{x} \\[0.2em]
+m_{f}\,d_{x} & I_{w} + I_{f,\text{EA}}
+\end{bmatrix},
+\qquad
+\mathbf{C} \;=\;
+\begin{bmatrix}
+d_{h} & 0 \\
+0 & d_{\alpha}
+\end{bmatrix},
+\qquad
+\mathbf{K} \;=\;
+\begin{bmatrix}
+k_{h} & 0 \\
+0 & k_{\alpha}
+\end{bmatrix},
+\label{eq:matrices}
+\end{equation}
+aerodynamic forcing vector and generalized forcing produced by the prescribed flap motion:
+\begin{equation}
+\mathbf{f}_{\text{aero}}(t) = 
+\begin{bmatrix}
+- F_{y}(t) \\[0.2em]
+\phantom{-}M_{z}(t)
+\end{bmatrix},
+\qquad
+\mathbf{Q}_{\delta}(t) = 
+\begin{bmatrix}
+- m_{f}\,d_{y}\,\ddot\delta(t) - 2\,m_{f}\,d_{x}\,\dot\alpha(t)\,\dot\delta(t) \\[0.4em]
+- I_{f,\text{hinge}}\,\ddot\delta(t)
+\end{bmatrix}.
+\label{eq:forcing_vectors}
+\end{equation}
+
+\subsection{Unsteady aerodynamics model}
+
+The incompressible unsteady flow is described by the URANS equations~\cite{wilcox2006turbulence} closed with the
+$k$--$\omega$ SST turbulence model:
+
+\begin{equation}
+\begin{aligned}
+\frac{\partial\mathbf{u}}{\partial t}
++(\mathbf{u}\cdot\nabla)\mathbf{u}
+-\nabla\cdot
+\left[
+\nu_{\mathrm{eff}}
+\left(
+\nabla\mathbf{u}
++\nabla\mathbf{u}^{T}
+\right)
+\right]
++\nabla p
+&=\mathbf{0},
+&& \mathbf{x}\in\Omega,\; t\in(0,T],\\[3pt]
+\nabla\cdot\mathbf{u}
+&=0,
+&& \mathbf{x}\in\Omega,\; t\in(0,T].
+\end{aligned}
+\label{eq:urans}
+\end{equation}
+
+The effective kinematic viscosity $\nu_{\mathrm{eff}}=\nu+\nu_t$ adds to the
+molecular viscosity $\nu$ the eddy viscosity $\nu_t$ supplied by the SST
+model~\cite{menter1994sst}; $p$ is the kinematic pressure and
+$U_\infty=80\,\mathrm{m/s}$ the freestream velocity.
+
+Boundary and initial conditions, ordered from the outer boundaries to the solid
+surfaces, read
+
+\begin{equation}
+\begin{aligned}
+&\mathbf{u}=(U_\infty,\,W(t),\,0)^{T},
+&&\mathbf{x}\in\Gamma_{\mathrm{in}},
+\\[3pt]
+&p=p_\infty,\qquad \frac{\partial\mathbf{u}}{\partial n}=0,
+&&\mathbf{x}\in\Gamma_{\mathrm{out}},
+\\[3pt]
+&\mathbf{u}\cdot\mathbf{n}=0,\qquad \frac{\partial(\mathbf{u}\cdot\mathbf{t})}{\partial n}=0,
+&&\mathbf{x}\in\Gamma_{\mathrm{far}},
+\\[3pt]
+&\mathbf{u}=\dot h(t)\,\hat{\mathbf e}_y+\dot\alpha(t)\,(\mathbf{x}-\mathbf{x}_{\mathrm{EA}})^{\perp},
+&&\mathbf{x}\in\Gamma_{\mathrm{wall}},
+\\[3pt]
+&\mathbf{u}=\dot{\mathbf{x}}_{\mathrm{hinge}}(t)+\bigl(\dot\alpha(t)+\dot\delta(t)\bigr)\,\bigl(\mathbf{x}-\mathbf{x}_{\mathrm{hinge}}(t)\bigr)^{\perp},
+&&\mathbf{x}\in\Gamma_{\mathrm{flap}},
+\\[3pt]
+&\mathbf{u}=\mathbf{u}_0(\mathbf{x}),
+&&\mathbf{x}\in\Omega,\; t=0.
+\end{aligned}
+\label{eq:bc}
+\end{equation}
+
+with $\hat{\mathbf e}_y$ the vertical unit vector,
+$(\cdot)^\perp=\hat{\mathbf e}_z\times(\cdot)$ a counter-clockwise $90^\circ$
+in-plane rotation, and $\mathbf n$, $\mathbf t$ the outward normal and tangential
+unit vectors. The inlet carries the freestream plus the gust $W(t)$, the outlet
+fixes the pressure, the far-field is a slip boundary, and the wing and flap
+surfaces enforce no-slip with their local rigid-body velocity.
+
+These surface velocities are set by the plunge $h$, pitch $\alpha$ and prescribed
+flap rotation $\delta$ of the structural model (Section~\ref{subsec:structmodel}):
+the wing rotates about the elastic axis $\mathbf x_{\mathrm{EA}}$ and the flap
+about its hinge with total angular rate
+$\omega_{\mathrm{flap}}=\dot\alpha(t)+\dot\delta(t)$. The hinge is rigidly carried
+by the airfoil, so its position and velocity are
+
+\begin{equation}
+\begin{aligned}
+\mathbf{x}_{\mathrm{hinge}}(t)
+&=
+\mathbf{x}_{\mathrm{EA}}
++
+R(\alpha(t))
+\left(
+\mathbf{x}_{\mathrm{hinge},0}
+-
+\mathbf{x}_{\mathrm{EA}}
+\right)
++
+h(t)\hat{\mathbf e}_y,
+\\[3pt]
+\dot{\mathbf{x}}_{\mathrm{hinge}}(t)
+&=
+\dot h(t)\hat{\mathbf e}_y
++
+\dot\alpha(t)
+\left(
+\mathbf{x}_{\mathrm{hinge}}(t)
+-
+\mathbf{x}_{\mathrm{EA}}
+\right)^\perp.
+\end{aligned}
+\label{eq:hinge}
+\end{equation}
+
+where $R(\alpha)$ is the in-plane rotation matrix through the pitch angle
+$\alpha$ and $\mathbf{x}_{\mathrm{hinge},0}$ is the hinge position in the
+undeformed configuration.
+
+The gust enters at the inlet as a ``$1-\cos$'' vertical velocity pulse,
+
+\begin{equation}
+W(t)=
+\begin{cases}
+\dfrac{W_{\max}}{2}
+\left[1-\cos\!\left(\dfrac{2\pi(t-t_0)}{T_g}\right)\right],
+& t_0\le t\le t_0+T_g,\\[1.2em]
+0, & \text{otherwise},
+\end{cases}
+\label{eq:gust}
+\end{equation}
+
+of peak velocity $W_{\max}$, duration $T_g$ and onset time $t_0$.
+
+\subsection{Fluid--structure interaction and numerical approach}
+\label{subsec:fsi_formulation}
+\label{subsec:fluid_eqs}
+
+The computational domain is split into a fluid subdomain $\Omega_f(t)$ around the airfoil and a structural subdomain $\Omega_s(t)$ occupied by the rigid wing and flap. Both move in time: the structure responds to the aerodynamic loads and drags the fluid boundary with it. The two solvers exchange information across the shared interface $\Gamma_I(t)$, the wetted surface of wing and flap. The coupled problem gathers three sets of equations --- the interface conditions on $\Gamma_I(t)$, the two-degree-of-freedom structural equations, and the fluid equations on the moving ALE domain --- whose information flow is sketched in Figure~\ref{fig:fsi_scheme}.
+
+\begin{figure}[h]
+    \centering
+    \input{Thesis_article_format/Chapters/Chapter1/fsi_scheme}
+    \caption{Structure of the coupled model: information flow between CFD and structural solver and external inputs (CS-25 gust and flap deflection imposed by the controller).}
+    \label{fig:fsi_scheme}
+\end{figure}
+
+On $\Gamma_I(t)$ two compatibility conditions must hold. The kinematic condition enforces velocity continuity between fluid and surface (no-slip),
+\begin{equation}
+\mathbf{u}_{f}(\mathbf{x},\,t) \;=\; \dot{\mathbf{u}}_{s}(\mathbf{x},\,t), \qquad \mathbf{x} \in \Gamma_{I}(t),
+\label{eq:fsi_kinematic}
+\end{equation}
+and the dynamic condition the equilibrium of the contact tractions,
+\begin{equation}
+\boldsymbol{\sigma}_{f}(\mathbf{x},\,t)\,\mathbf{n} \;=\; \boldsymbol{\sigma}_{s}(\mathbf{x},\,t)\,\mathbf{n}, \qquad \mathbf{x} \in \Gamma_{I}(t),
+\label{eq:fsi_dynamic}
+\end{equation}
+where $\boldsymbol{\sigma}_{f}$ and $\boldsymbol{\sigma}_{s}$ are the fluid and structural stress tensors and $\mathbf{n}$ is the interface normal. Integrating the fluid traction $\boldsymbol{\sigma}_{f}\,\mathbf{n}$ over the wing and flap surfaces yields the vertical force $F_{y}(t)$ and the pitching moment $M_{z}(t)$ about the elastic axis that force the structural model~\eqref{eq:eom}; in return, the structural displacement prescribes the motion of the fluid mesh.
+
+The structural motion obeys the two-degree-of-freedom system~\eqref{eq:eom}, driven by the aerodynamic loads $(F_y,M_z)$ and by the generalised forces of the prescribed flap motion. To integrate it in time it is recast in first-order state-space form,
+\begin{equation}
+    \dot{\mathbf{x}}(t) = \mathbf{f}\bigl(t,\,\mathbf{x}(t);\,F_y(t),\,M_z(t),\,\delta(t)\bigr),
+    \qquad
+    \mathbf{x}(t) = [\,h,\ \dot h,\ \alpha,\ \dot\alpha\,]^{T},
+    \label{eq:structural-state-space}
+\end{equation}
+whose right-hand side $\mathbf{f}$ follows from the analytical inversion of the constant, symmetric and positive-definite mass matrix ($\det\mathbf{M}=(m_w+m_f)(I_w+I_{f,\mathrm{EA}})-(m_f d_x)^2>0$):
+\begin{equation}
+    \mathbf{f} = \bigl[\,\dot h,\ \ddot h,\ \dot\alpha,\ \ddot\alpha\,\bigr]^{T},
+    \qquad
+    \begin{bmatrix} \ddot h \\ \ddot\alpha \end{bmatrix}
+    = \mathbf{M}^{-1}
+      \bigl(\mathbf{f}_{\mathrm{aero}} + \mathbf{f}_\delta
+            - \mathbf{D}\dot{\mathbf q} - \mathbf{K}\mathbf q\bigr).
+    \label{eq:state-space-rhs}
+\end{equation}
+
+Equation~\eqref{eq:structural-state-space} is advanced with the explicit, adaptive Dormand--Prince $5(4)$ embedded Runge--Kutta pair (RK45)~\cite{dormand1980}, as implemented in SciPy~\cite{virtanen2020scipy}. From the state $\mathbf{x}_n$ at time $t_n$, the scheme evaluates $s=7$ stage derivatives
+\begin{equation}
+    \mathbf{k}_i = \mathbf{f}\Bigl(t_n + c_i\,\Delta t,\ \ \mathbf{x}_n + \Delta t\!\!\sum_{j=1}^{i-1} a_{ij}\,\mathbf{k}_j\Bigr),
+    \qquad i = 1,\dots,s,
+    \label{eq:rk45_stages}
+\end{equation}
+and combines them into a fifth-order update and an embedded fourth-order estimate that reuse the same stages,
+\begin{equation}
+    \mathbf{x}_{n+1} = \mathbf{x}_n + \Delta t \sum_{i=1}^{s} b_i\,\mathbf{k}_i,
+    \qquad
+    \widehat{\mathbf{x}}_{n+1} = \mathbf{x}_n + \Delta t \sum_{i=1}^{s} \widehat{b}_i\,\mathbf{k}_i,
+    \label{eq:rk45_update}
+\end{equation}
+where the nodes $c_i$, the weights $b_i,\widehat{b}_i$ and the coefficients $a_{ij}$ are those of the Dormand--Prince tableau~\cite{dormand1980}. The difference $\mathbf{x}_{n+1}-\widehat{\mathbf{x}}_{n+1}$ estimates the local truncation error and drives the step-size control under the tolerances $\mathrm{rtol}=10^{-8}$, $\mathrm{atol}=10^{-10}$, which make the structural integration error negligible. The step is capped at twice the CFD step, so that every stage falls inside the current co-simulation window, where the loads $F_y(t)$ and $M_z(t)$ are already available and are interpolated linearly.
+
+An explicit scheme is preferred to an implicit one (e.g.\ Newmark~\cite{newmark1959}): an implicit update would require the load $\mathbf{f}^{n+1}$ consistent with the still-unknown state $\mathbf{x}^{n+1}$, a consistency that a loosely coupled partitioned scheme cannot provide without sub-iterations, since $\mathbf{f}^{n+1}$ is produced by the fluid from the structural motion predicted by the first-order hold. The four-dimensional state, in turn, makes the cost of the explicit stages irrelevant.
+
+The flow is incompressible and is solved on the deformable domain $\Omega_f(t)$ in the Arbitrary Lagrangian--Eulerian (ALE) description~\cite{Donea2004ALE}: each grid point is given an arbitrary velocity $\mathbf{w}(\mathbf{x},t)$, generally different from the fluid velocity $\mathbf{u}$, so that the mesh conforms to the moving surface near $\Gamma_I(t)$ and stays almost fixed in the far field, limiting distortion. Mass and momentum conservation read
+\begin{equation}
+    \nabla \cdot \mathbf{u} = 0,
+    \qquad
+    \frac{\partial \mathbf{u}}{\partial t}\bigg|_{\boldsymbol\chi}
+    + \bigl[(\mathbf{u} - \mathbf{w}) \cdot \nabla\bigr]\mathbf{u}
+    = -\frac{1}{\rho}\nabla p + \nu\,\nabla^2 \mathbf{u},
+    \qquad \mathbf{x} \in \Omega_f(t),
+    \label{eq:ns-ale}
+\end{equation}
+with $\rho$ the air density and $\nu$ its kinematic viscosity. The time derivative is taken at fixed grid coordinate $\boldsymbol\chi$, so the convective velocity is the relative one $\mathbf{u}-\mathbf{w}$: the formulation recovers the Lagrangian description when $\mathbf{w}=\mathbf{u}$ and the Eulerian one when $\mathbf{w}=\mathbf{0}$. The grid velocity satisfies the Geometric Conservation Law, so that a uniform flow is reproduced without spurious mass sources due to mesh motion. The boundary and initial conditions coincide with those of Equation~\eqref{eq:bc}; the gust enters as a frozen disturbance convected from the inlet at $U_\infty$, a certification simplification that neglects its distortion before it reaches the airfoil.
+
+Scaling velocities with $U_\infty$, lengths with the chord $c$ and time with $c/U_\infty$, Equation~\eqref{eq:ns-ale} depends on the single Reynolds number
+\begin{equation}
+    \mathrm{Re} = \frac{U_\infty\,c}{\nu},
+    \label{eq:reynolds}
+\end{equation}
+which for $U_\infty=80$~m/s, $c\simeq1$~m and $\nu=10^{-5}$~m\(^2\)/s gives $\mathrm{Re}\simeq8\times10^{6}$, a fully turbulent regime. The Mach number $M_\infty=U_\infty/a_\infty\approx0.23$ stays below the $M\lesssim0.3$ threshold, which justifies the incompressible hypothesis. The turbulence closure, the spatial and temporal discretisation of~\eqref{eq:ns-ale} and the pressure--velocity coupling are described in Section~\ref{openfoam}. The exchange of $F_y$ and $M_z$ across $\Gamma_I(t)$, the co-simulation windows and the Python driver that orchestrates them are detailed in Sections~\ref{subsec:partitioned} and~\ref{python-struct}.
+
+\subsection{Partitioned Coupling Scheme}
+\label{subsec:partitioned}
+
+
+Fluid and structural equations must be integrated in time in a coordinated way. Theoretically the problem could be approached with a monolithic approach, in which structural and fluid degrees of freedom can be grouped solved simultaneously at each step. This approach maximizes the temporal consistency of the coupling but requires the knowledge of the fluid dynamics degrees of freedom, option not viable with OpenFOAM solver. The natural approach that follows is then the partitioned one, in which the two solvers maintain separate identities and exchange informations at the interface. In the present work the two solvers are treated as black-box components coordinated by an external Python module.
+
+Within the partitioned family, a further distinction is represented by the internal number of iterations for each coupling step: a strongly coupled scheme iterates many times the fluid-structure couple within the same step until the convergence of residuals at the interface.
+On the other hand, a loosely coupled scheme executes a single-pass paying the staggering error with a temporal delay between the two solvers. For aeronautical flows with density ratio $\rho_f / \rho_s = O(10^{-3})$, the loosely coupled scheme is stable without iterative relaxing, and it is the choice adopted in the present work.
+ 
+The co-simulation cycle advances for temporal windows of
+$N_{\mathrm{win}}$ CFD passes each, with $N_{\mathrm{win}} = 200$ and
+$\Delta t_{\mathrm{CFD}} = 10^{-5}$~s, windows of amplitude
+$\Delta t_{\mathrm{win}} = N_{\mathrm{win}}\,\Delta t_{\mathrm{CFD}}
+= 2\times 10^{-3}$~s. Within each window the fluid advances autonomally for $N_{\mathrm{win}}$ sub-passes to achieve stability --- strategy called sub-cycling --- while the structure is updated once, combining the current structural value with the aerodynamic histories produced by the fluid. The choice of
+$N_{\mathrm{win}} = 200$ represents a compromise between two needs: a high
+$N_{\mathrm{win}}$ minimizes the hoverhead $I/O$ and of initialization of the parallel solver at each window, while a small $N_{\mathrm{win}}$ improves the coupling accuracy: the value adopted produces shorter windows than the flutter mode
+($T_{\mathrm{flutter}} \simeq 0.4$~s) of two magnitude orders, making the staggering error negligible. DA INSERIRE DISCORSO SU FLUTTTERRRRRRRRRRRRRRRRRRRR
+ 
+The fluid-structure interface $\Gamma_I(t)$ is the bidirectional channel through which solvers talk. In the direction fluid $\to$ structure, integrates on each temporal pass the pressure and viscous components of the aerodynamic loads and saves them (METTI FORMULA): at the end of the window, Python module reads the time series of $F_y(t)$ and $M_z(t)$ and gives them as force of the Equation~\eqref{eq:structural-state-space}. In the opposite direction, structure $\to$ fluid, the updated state $(h,\,\alpha)$ and the scheduled $\delta(t)$ are traduced in two files in the , \texttt{tabulated6DoFMotion} OpenFOAM format, required by OpenFOAM as a sequence of rigid temporal transformation. 
+
+MA PRENDE I VALORI FINALI DELLA FINESTRA DEI COEFFICIENTI????????????????
+At the start of the next windoe the fluid motion solver of Section
+(Sezione~\ref{openfoam}) reads the new files, computes the displacement field at the flap and wing nodes and deforms the grid consequently.
+ 
+Since at the moment of generating the motion tables for the incoming window, the fluid solver does not know the forces that will produce, $h(t)$ and $\alpha(t)$ values for $t \in [t_n,\,t_{n+1}]$ are obtained with a linear prediction starting from the structural position and velocity at the pass $t_n$:
+\begin{equation}
+    h(t) \approx h(t_n) + \dot h(t_n)\,(t - t_n),
+    \qquad
+    \alpha(t) \approx \alpha(t_n) + \dot\alpha(t_n)\,(t - t_n),
+    \qquad t \in [t_n,\,t_{n+1}].
+    \label{eq:first-order-hold}
+\end{equation}
+This first-order hold guarantees the continuity of the velocity of the mesh at the boundary of two consecutives windows --- propriety not characteristics of the zero-order hold, which extrapolates the only position maintaining the velocity as zero within the window --- and avoids the Courant peak associated at the discontinuous jump of the grid velocity at the reset of the window.    PARLA DI COURANTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+At the end of the window, the new
+$(h,\,\dot h,\,\alpha,\,\dot\alpha)$ produced by the structural integrator are used as initial condition at the following window, realizing an explicit sequential coupling of Jacobi type in which the fluid sees the structure that moves following the prediction and the structure sees a fluid that responds at the prediction of the previous window.
+
+The stability of the looosely coupled scheme without sub-iterations is guaranteed by the low inertia of the fluid compared to the structure, measured by the mass ratio:
+\begin{equation}
+    \mu \;=\; \frac{\rho_f\,V_f}{m_s}
+    \;=\; O(10^{-3}),
+    \label{eq:mass-ratio}
+\end{equation}
+where $V_f$ is the reference volume of the flow and $m_s$ is the effective structural mass of the wing. In those conditions the added mass effect, main responsible of the instability of the idroelastic loosely coupled schemes, is negligible and the delay of a window in the information exchange does not compromise the temporal coherence of the simulation. The verification of the numerical stability and convergence of the Scheme is conducted in Section~\ref{sec:fsi-validation}, through energy balance at the interface with a strongly coupled variance of the same driver --- based on iterations of fixed point with Aitken relaxation --- done as benchmark as a subgroup of the cases. 
+REFERENCEEEEEEEEEEEEEEEESSSSSSSSSS
+
+\subsection{OpenFOAM as CFD Solver}
+\label{openfoam}
+The discretization and numerical solution of Equations~\eqref{eq:ns-ale} are relegated to \texttt{pimpleFoam}, incompressible transient solver, distributed by open-source OpenFOAM~v7. The solver implements the PIMPLE algorithm, hybrid of the classical SIMPLE schemes(\emph{Semi-Implicit
+Method for Pressure-Linked Equations}) and PISO (\emph{Pressure-Implicit
+with Splitting of Operators}), which combines the iterations of the PISO pressure-velocity coupling within every temporal pass with the external iterations of the SIMPLE non linear corrections. 
+
+ 
+\paragraph{Struttura del caso.}
+Il caso segue l'organizzazione canonica di OpenFOAM in tre directory:
+\texttt{0.orig/} per le condizioni iniziali e al contorno su $\mathbf u$,
+$p$, $k$, $\omega$, $\nu_t$ e \texttt{pointDisplacement};
+\texttt{constant/} per le proprietà fisiche invarianti nel tempo
+(\texttt{transportProperties}, \texttt{turbulenceProperties}), per la
+configurazione del motion solver (\texttt{dynamicMeshDict}) e per i file
+di moto tabellato riscritti a ogni finestra dal driver Python; e
+\texttt{system/} per i parametri numerici (\texttt{controlDict},
+\texttt{fvSchemes}, \texttt{fvSolution}, \texttt{decomposeParDict},
+\texttt{topoSetDict}). Oltre alle librerie standard, il caso carica
+\texttt{libfvMotionSolvers.so} e l'implementazione custom
+\texttt{libmulti\-Interpolating\-SolidBody\-Motion\-Solver.so} del motion
+solver descritto più avanti. Le proprietà fisiche adottate sono quelle
+dell'aria in condizioni standard: densità $\rho = 1.225$~kg/m\(^3\) e
+viscosità cinematica $\nu = 10^{-5}$~m\(^2\)/s.
+ 
+\paragraph{Discretizzazione spaziale.}
+La discretizzazione è del tipo finite-volume \emph{cell-centred} (FVM) sul
+reticolo non strutturato generato in fase di pre-processing. Le scelte
+dei singoli schemi in \texttt{system/fvSchemes} sono di accuratezza
+complessiva del secondo ordine per i termini diffusivi e convettivi
+principali, con moderazione della \emph{non-boundedness} laddove
+necessario a preservare la stabilità in presenza di mesh distorte. I
+gradienti sono calcolati con lo schema \texttt{Gauss linear}, le
+divergenze convettive della quantità di moto con \texttt{linearUpwind}
+basato sul gradiente di $\mathbf u$, schema TVD del secondo ordine; i
+termini convettivi delle equazioni di trasporto delle grandezze turbolente
+$k$ e $\omega$ adottano invece \texttt{limitedLinear} con coefficiente
+$\psi = 1$, che ne garantisce la positività. Gli schemi laplaciani
+utilizzano \texttt{Gauss linear limited 0.333}, variante corretta per
+non-ortogonalità con limitatore centrato, coerente con la scelta di
+\texttt{snGradSchemes limited 0.333} per i gradienti normali alle facce.
+L'interpolazione volume-faccia dei campi è lineare.
+ 
+\paragraph{Discretizzazione temporale e ciclo PIMPLE.}
+Lo schema temporale è \texttt{Euler} implicito del primo ordine, scelta
+conservativa giustificata dalla necessità di tollerare variazioni di
+$\Delta t$ imposte dal controllo adattivo di Courant e dalla deformazione
+del reticolo durante le escursioni del flap. Il passo temporale nominale
+è $\Delta t_{\mathrm{CFD}} = 10^{-5}$~s e viene adattato automaticamente
+in \texttt{controlDict} tramite \texttt{adjustTimeStep yes} con vincolo
+$\mathrm{Co}_{\max} = 2$. Entro ogni passo, il ciclo PIMPLE è configurato
+con \texttt{nOuterCorrectors = 1}, \texttt{nCorrectors = 2} e
+\texttt{nNonOrthogonalCorrectors = 2}; i fattori di rilassamento fissati
+in \texttt{fvSolution} --- $\alpha_p = 0.3$ sulla pressione, $\alpha_U =
+0.7$ sulla velocità, $\alpha_{k,\omega} = 0.5$ sulle grandezze turbolente
+--- smorzano le iterazioni intermedie, mentre ai \emph{corrector} finali
+(\texttt{UFinal}, \texttt{pFinal}, ecc.) si impone $\alpha = 1$ per non
+introdurre errore sistematico sul passo. La scrittura su disco è
+programmata con \texttt{writeControl adjustableRunTime} e
+\texttt{writeInterval} pari a $2\times 10^{-3}$~s, coincidente con
+l'ampiezza di una finestra di co-simulazione: ciò garantisce che al
+termine di ogni finestra sia sempre disponibile un checkpoint completo
+per la ricostruzione e il successivo avvio della finestra seguente.
+ 
+I solutori lineari per i sistemi algebrici discreti sono: GAMG
+(\emph{algebraic multi-grid}) con smoother Gauss-Seidel per la pressione,
+con tolleranza assoluta $10^{-7}$ e relativa $10^{-2}$ al \emph{corrector}
+intermedio (relTol nullo al \texttt{pFinal}); \texttt{smoothSolver} con
+smoother Gauss-Seidel simmetrico per la velocità e per le grandezze
+turbolente, a tolleranza $10^{-6}$. Un ulteriore solutore GAMG è dedicato
+al campo ausiliario \texttt{bgCellDisp} del Laplaciano di sfondo per il
+moto di mesh, con tolleranza meno stringente $10^{-4}$, giustificata dal
+ruolo puramente cinematico di tale campo.
+ 
+\paragraph{Generazione della mesh.}
+Il reticolo di calcolo è generato in due fasi. Dapprima \texttt{blockMesh}
+costruisce un dominio rettangolare di lati $x \in [-10,\,30]$~m, $y \in
+[-10,\,10]$~m, $z \in [-0.1,\,0.1]$~m, suddiviso in blocchi strutturati
+($240 \times 120 \times 1$ celle esadriche) che costituiscono lo sfondo
+su cui il profilo è immerso; il dominio si estende quindi per circa 10
+corde a monte, 30 a valle e 10 in direzione laterale, distanze
+sufficienti a limitare l'influenza spuria delle condizioni al contorno
+sul carico aerodinamico. Successivamente \texttt{snappyHexMesh} taglia
+il blocco con la geometria del profilo NACA~2312 importata via
+\texttt{wing\_main.stl} e \texttt{flap.stl}, applicando livelli di
+raffinamento locali pari a 5 sulle superfici del profilo e del flap, 4
+sulla regione di gap flap-ala e 2 su un box generico attorno al profilo.
+Lo strato limite è risolto mediante l'inserzione di tre
+\emph{boundary layers} con rapporto di espansione $1.2$ e spessore
+finale relativo $0.3$, configurazione mirata a un $y^+ \sim O(1)$ sulle
+superfici solide. I vincoli di qualità imposti a \texttt{snappyHexMesh}
+sono $\max(\mathrm{nonOrtho}) = 65^{\circ}$,
+$\max(\mathrm{skewness})_{\mathrm{boundary}} = 20$ e
+$\max(\mathrm{skewness})_{\mathrm{internal}} = 4$. Il dominio 2D è
+realizzato collassando la direzione $z$ su una singola cella ed
+etichettando i patch di fronte e retro come \texttt{empty}.
+ 
+\paragraph{Modello di turbolenza.}
+Il regime turbolento ad alto Reynolds della~\eqref{eq:reynolds} richiede
+una chiusura delle equazioni RANS accurata in presenza di gradienti di
+pressione avversi e separazione incipiente, fenomeni attesi sul dorso del
+profilo alle elevate incidenze istantanee durante la raffica. Si è
+pertanto adottato il modello $k$--$\omega$ SST (\emph{Shear-Stress
+Transport}) di Menter~\cite{menter1994sst}, combinazione ibrida di $k$--$\omega$ in prossimità
+di parete e $k$--$\varepsilon$ in corrente libera, ampiamente validato
+nelle applicazioni aerodinamiche esterne. Le \emph{wall function} sono
+applicate come funzioni a tratti (\texttt{kqRWallFunction},
+\texttt{omegaWallFunction}, \texttt{nutUSpaldingWallFunction}) che
+commutano automaticamente tra trattamento viscoso e logaritmico in base
+al $y^+$ locale. Le condizioni all'inlet sono fissate a $k = 24$~m\(^2\)/s\(^2\)
+e $\omega = 32$~s\(^{-1}\), valori consistenti con un'intensità turbolenta
+del $5\%$ e un rapporto di viscosità turbolenta $\nu_t/\nu = 10$.
+ 
+\paragraph{Motion solver.}
+Il trattamento del moto di mesh costituisce il punto di contatto più
+delicato tra il solutore fluido e lo schema di accoppiamento. Il motion
+solver adottato, \texttt{multiInterpolating\-SolidBody\-Motion\-Solver}, è
+un'estensione custom dei motion solver nativi di OpenFOAM, progettata
+per gestire la compresenza di due corpi rigidi con cinematiche indipendenti
+(profilo principale e flap). La logica operativa è a due passaggi. Il
+primo applica la trasformazione di \texttt{wingZone} (heave + pitch del
+profilo, con centro di rotazione all'asse elastico, $\mathrm{CofG} =
+(0.25,\,0.0,\,0.125)$) come morphing SLERP (\emph{spherical linear
+interpolation}) su base \emph{bbox} del reticolo, con distanze
+$\mathrm{innerDistance} = 0.3$~m e $\mathrm{outerDistance} = 4.0$~m. Il
+secondo passaggio applica in sovrapposizione la trasformazione di
+\texttt{flapZone} (composizione delle cinematiche di ala e flap, con
+centro alla cerniera iniziale $(0.775,\,-0.045,\,0.125)$) con distanze
+locali ridotte $\mathrm{innerDistance} = 0.05$~m,
+$\mathrm{outerDistance} = 0.25$~m e una funzione di \emph{blending} a
+coseno sul gap flap-ala ($\mathrm{frontStartX} = 0.720$,
+$\mathrm{frontEndX} = 0.760$). Infine un'equazione laplaciana di
+\emph{smoothing} ($\nabla^2 \mathbf d = \mathbf 0$) sul campo ausiliario
+\texttt{bgCellDisp} è risolta sulle celle residuali per eliminare la
+discontinuità di gradiente che altrimenti si produce nelle zone di
+transizione tra i due solidi. Le tabelle
+\texttt{constant/wingMotion.dat} e \texttt{constant/flapMotion.dat},
+riscritte a ogni finestra dal modulo Python
+(Sezione~\ref{sec:python-structural-module}), costituiscono l'input
+prescritto di questo motion solver.
+ 
+\paragraph{Implementazione delle condizioni al contorno.}
+Le condizioni al contorno implementate in \texttt{0.orig/} sono
+consistenti con la formulazione continua già discussa nella
+Sezione~\ref{subsec:fluid_eqs}. L'inlet è una \texttt{codedFixedValue}
+che embedda il profilo di raffica cosine~\eqref{eq:gust}
+direttamente nel caso OpenFOAM, con parametri $U_\infty$, $W_{g,0}$,
+$t_0$ e $T_g$ iniettati dal driver Python in fase di inizializzazione;
+l'outlet è a pressione fissata ($p = 0$) con \texttt{inletOutlet} sulla
+velocità per stabilizzare eventuali backflow; i far-field laterali sono
+in \texttt{slip}; le pareti solide \texttt{wing\_main} e \texttt{flap}
+sono assegnate a \texttt{movingWallVelocity}, condizione di aderenza
+estesa alle superfici in moto che assicura la consistenza con la velocità
+istantanea della mesh; i patch di fronte e retro (\texttt{front},
+\texttt{back}) sono in \texttt{empty}, coerentemente con l'estrusione 2D
+del dominio. Il campo \texttt{pointDisplacement} su profilo e flap è di
+tipo \texttt{calculated} ed è fornito dal motion solver a ogni passo,
+mentre è fissato a zero su tutte le rimanenti parti. La decomposizione
+del dominio per il calcolo parallelo è gestita da
+\texttt{decomposeParDict} su quattro sottodomini in schema $2\times 2
+\times 1$, appropriato al dominio 2D esteso longitudinalmente.
+
+
+
+
+\subsection{Python Module for Structural Dynamics}
+\label{python-struct}
+The orchestrator of the partitioned scheme is a Python script module, which implements both the structural integrator of Equation~\eqref{eq:structural-state-space} and the coordination of the OpenFOAM co-simulation. The choice of not using external co-simulation frameworks (as preCICE) is motivated by the simplicity of the interface of two degrees of freedom and the will of maintining complete control over the information exchange between the two solvers. 
+ 
+\paragraph{Architettura.}
+L'esecuzione è organizzata come un ciclo esterno sulle finestre di
+co-simulazione. Prima dell'ingresso nel ciclo, il modulo inizializza il
+caso: rigenera la condizione al contorno di raffica all'inlet (una
+\texttt{codedFixedValue} popolata con le costanti Python correnti
+$U_\infty$, $W_{g,0}$, $T_g$, $t_0$), copia \texttt{0.orig} $\to$
+\texttt{0}, ripulisce i log e le directory dei processori residue dei run
+precedenti, esegue \texttt{decomposePar} per la decomposizione del
+dominio sul numero di processi MPI richiesti, e scrive due motion table
+iniziali a spostamento nullo che coprono l'intero orizzonte temporale
+della simulazione. Lo stato strutturale di partenza è
+$(h,\,\dot h,\,\alpha,\,\dot\alpha) = \mathbf 0$, oppure, in modalità
+\texttt{-{}-restart}, viene caricato dal file \texttt{cosim\_state.json}
+aggiornato al termine dell'ultima finestra completata.
+ 
+All'interno del ciclo, ciascuna finestra $[t_n,\,t_{n+1}]$ percorre in
+sequenza i passi seguenti:
+\begin{enumerate}
+    \item \textbf{Predizione strutturale.} Applicazione del first-order
+        hold~\eqref{eq:first-order-hold} per costruire le storie $h(t)$ e
+        $\alpha(t)$ sul passo temporale CFD. La schedula prescritta
+        $\delta(t)$ viene contemporaneamente valutata agli stessi istanti
+        mediante interpolazione lineare a tratti sul set di nodi
+        $(t_i,\,\delta_i)$ dell'input di controllo.
+    \item \textbf{Generazione delle motion table.} Le storie
+        $(h,\,\alpha,\,\delta)$ sono composte nelle trasformazioni rigide
+        richieste da OpenFOAM (traslazione della cerniera dovuta al moto
+        dell'ala e rotazione totale $\alpha + \delta$ per il flap) e
+        serializzate in \texttt{constant/wingMotion.dat} e
+        \texttt{constant/flapMotion.dat} nel formato
+        \texttt{tabulated6DoFMotion}.
+    \item \textbf{Avanzamento del fluido.} Aggiornamento dei campi
+        \texttt{startTime} e \texttt{endTime} di \texttt{system/controlDict}
+        con i tempi corrispondenti alla finestra, e invocazione di
+        \texttt{mpirun -np $N$ pimpleFoam -parallel} con streaming
+        dell'output su \texttt{log.pimpleFoam}.
+    \item \textbf{Ricostruzione e lettura delle forze.} Al termine del
+        solutore fluido, \texttt{reconstructPar} consolida le soluzioni
+        parallele e il modulo legge le storie $F_y(t)$ e $M_z(t)$ dal
+        file \texttt{postProcessing/forces/<startTime>/forces.dat},
+        sommando le componenti di pressione e viscose sui patch
+        \texttt{wing\_main} e \texttt{flap}.
+    \item \textbf{Integrazione strutturale.} Le serie aerodinamiche
+        vengono interpolate linearmente e usate come forzamento
+        della~\eqref{eq:state-space-rhs}. L'integrazione
+        RK45~\eqref{eq:rk45_update} è eseguita sull'intero intervallo
+        $[t_n,\,t_{n+1}]$ con tolleranze $\mathrm{rtol} = 10^{-8}$,
+        $\mathrm{atol} = 10^{-10}$, restituendo lo stato finale
+        $(h,\,\dot h,\,\alpha,\,\dot\alpha)_{n+1}$.
+    \item \textbf{Persistenza dello stato.} I valori finali sono
+        serializzati in \texttt{cosim\_state.json} insieme all'indice
+        della finestra corrente, al tempo corrente, al tempo finale e al
+        passo CFD, in modo da poter riprendere la simulazione dall'ultima
+        finestra completata in caso di interruzione.
+\end{enumerate}
+Il ciclo termina quando $t_n$ raggiunge il tempo finale di simulazione.
+L'intero flusso è schematizzato in Figura~\ref{fig:fsi-algorithm-flowchart}.
+ 
+\paragraph{Dettagli implementativi rilevanti.}
+Alcuni accorgimenti sono necessari per garantire la robustezza del ciclo
+in esecuzione parallela e meritano menzione in quanto determinano la
+riproducibilità del workflow. In primo luogo, il parametro
+\texttt{matchTolerance} nei file
+\texttt{processor*/constant/polyMesh/boundary} viene rilassato
+automaticamente a $10^{-3}$ al termine di \texttt{decomposePar}: il
+default è troppo stringente e, dopo grandi rotazioni di \texttt{flapZone},
+può innescare un arresto fatale del solutore al confine tra processori.
+In secondo luogo, il file \texttt{pointDisplacement} viene propagato
+manualmente dalla directory \texttt{processor*/0/} alle directory di fine
+finestra, poiché \texttt{pimpleFoam} non lo scrive ai sotto-intervalli di
+\texttt{writeInterval}, e la sua presenza è condizione necessaria per il
+riavvio corretto della finestra successiva. Infine, le sottodirectory
+\texttt{postProcessing/forces/<startTime>/} generate da OpenFOAM a ogni
+nuova finestra sono conservate e il modulo le attraversa tutte in fase di
+lettura, in modo da poter ricostruire l'intera storia aerodinamica
+\emph{a posteriori} anche dopo numerosi riavvii. Questi aspetti sono
+confinati nella fase di runtime e non alterano la formulazione matematica
+dello schema di accoppiamento, ma costituiscono la condizione pratica
+perché lo schema sia eseguibile in modo affidabile su lunghe simulazioni.
+
+%Code architecture: how Python reads forces from OpenFOAM, integrates the equations of motion, returns displacements, and updates the mesh via motionSolver. Libraries used (scipy, numpy). Full FSI algorithm flowchart.
+
+ 
+%OpenFOAM case structure, chosen solver (e.g. pimpleFoam), spatial discretization (FVM, numerical schemes), temporal discretization (PIMPLE loop), mesh generation (blockMesh / snappyHexMesh), boundary conditions implementation.
+
+
+
+\subsection{Validation of the FSI Solver}
+\subsubsection{Verification, Validation and Mesh Independence Study}
+\label{subsec:verification_validation}
+
+%Before the FSI solver can be trusted to generate a reliable training dataset,
+%each of its components must be verified and validated independently.
+%The following subsections address the static CFD solver, the spatial and temporal
+%discretizations, the structural integrator, the mesh deformation algorithm,
+%the FSI coupling scheme, and finally the complete coupled system.
+
+% ------------------------------------------------------------
+%\subsubsection{Definitions: Verification vs.\ Validation}
+%\label{subsubsec:verif_vs_valid}
+
+%A conceptual distinction must be drawn between two complementary activities.
+%\textit{Verification} answers the question: \emph{are the governing equations
+%being solved correctly?} It concerns numerical errors introduced by spatial and
+%temporal discretization and by the iterative solvers, independently of whether
+%the mathematical model correctly represents the physical phenomenon.
+%\textit{Validation}, on the other hand, answers: \emph{are the correct equations
+%being solved?} It concerns the agreement between the mathematical model and
+%experimental or reference data, independently of numerical accuracy.
+%Both activities are necessary: a numerically accurate solution of a wrong model
+%is physically meaningless, while a physically representative model that is solved
+%inaccurately produces unreliable results.
+%Throughout this section the two activities are kept distinct and addressed in
+%sequence, following the approach recommended in~\cite{oberkampf2010verification}.
+
+% ------------------------------------------------------------
+%\subsubsection{Static Airfoil CFD Validation}
+%\label{subsubsec:static_cfd_validation}
+%DA FARE: VALUTA SE FARLO
+
+%Before coupling the fluid and structural solvers, the pure CFD solver is validated
+%on a steady-state benchmark with known reference data.
+%A simulation of the flow around the reference airfoil geometry is performed at
+%several angles of attack, and the resulting lift coefficient $C_L$, drag coefficient
+%$C_D$, and pressure coefficient distribution $C_p(x/c)$ are compared against
+%experimental measurements available in the literature~\cite{abbottDoenhoff1959}.
+
+%The reported quantities are:
+%\begin{itemize}
+ %   \item a table of $C_L$ and $C_D$ at each angle of attack, with relative
+  %  \item residual convergence histories confirming that steady state was reached
+          %before sampling the force coefficients.
+%\end{itemize}
+%This step isolates any modelling or numerical errors that originate in the fluid
+%solver alone, before mesh deformation or structural coupling are introduced.
+
+% ------------------------------------------------------------
+%\subsubsection{Spatial Mesh Independence Study}
+%\label{subsubsec:mesh_independence}
+%$DATI IN "C:\Users\marco\OneDrive - Politecnico di Milano\Magistrale\THESIS\Cluster\Grid convergence"
+
+%HAI FATTO MESH CON DISTANCE E REF BOX IN SCIA ED è meglio MA SEI ANDATO CON 37k celle. Fai magheggi
+
+%The dependence of the solution on the spatial discretization is assessed by running
+%the static airfoil case on a sequence of four progressively refined meshes,
+%denoted $\mathcal{M}_1$ (coarsest) through $\mathcal{M}_4$ (finest).
+%$y^+$, and the far-field cell density are refined at each level.
+
+%For each mesh the following quantities are reported:
+%\begin{itemize}
+%    \item total number of cells, maximum $y^+$, $C_L$, and $C_D$ (summary table);
+%    \item plots of $C_L$ and $C_D$ as functions of the mesh refinement level,
+%          showing convergence toward the finest-mesh value;
+%    \item the Grid Convergence Index (GCI)~\cite{roache1994perspective}, computed
+%          via Richardson extrapolation, which provides a rigorous, quantitative
+%%\end{itemize}
+%The mesh selected for subsequent simulations is the coarsest level that yields
+%a variation in $C_L$ and $C_D$ of less than $1\%$ relative to the finest mesh.
+
+
+%Since the airfoil undergoes large-amplitude motion during the FSI simulation,
+%the quality of the chosen mesh is also assessed after imposing a representative
+%deformation corresponding to the maximum expected plunge, pitch, and flap
+%deflection. Minimum cell quality metrics (maximum non-orthogonality and maximum
+%skewness) are reported before and after deformation to confirm that no
+%degenerate cells are produced within the operating range of the FSI simulation.}
+
+\subsubsection{Temporal Discretization Study}
+\label{subsubsec:temporal_discretization}
+%"Il timestep è controllato adattativamente con maxCo=2, corrispondente a dt~1e-5 s. La stabilità e accuratezza temporale sono garantite dal controllo del numero di Courant."
+
+%For the mesh selected in Section~\ref{subsubsec:mesh_independence}, the
+%sensitivity of the unsteady solution to the timestep size $\Delta t$ is
+%investigated by running the same case with four values of $\Delta t$,
+%spanning one order of magnitude.
+%The Courant number $\mathrm{Co} = \|\mathbf{u}\|\,\Delta t / \Delta x$ is
+%monitored throughout each run and reported alongside the solution.
+
+%The reported quantities are:
+%\begin{itemize}
+%    \item a table of $\Delta t$, maximum Co, amplitude and phase of the $C_L(t)$
+%          signal, and wall-clock time per simulated second;
+%    \item time histories of $C_L$ for all values of $\Delta t$ overlaid on the
+%          same axes, demonstrating convergence as $\Delta t$ is reduced.
+%\end{itemize}
+%The timestep selected for the FSI campaign is the largest value for which the
+%$C_L$ time history is indistinguishable from that obtained with the next finer
+%level, providing an acceptable balance between accuracy and computational cost.
+
+% ------------------------------------------------------------
+\subsubsection{Structural Solver Validation}
+\label{subsubsec:structural_validation}
+%DATI E SCRIPT IN PIMPLE/VALIDATION
+%The Python structural integrator is validated in isolation, independently of the
+%fluid solver.
+%A known harmonic forcing is applied to the two-degree-of-freedom
+%(plunge $h$, pitch $\alpha$) structural model, and the numerical response is
+%compared against the closed-form analytical solution of the forced linear
+%oscillator.
+%In addition, a free-vibration simulation with zero damping is run over many
+%oscillation periods, and the total mechanical energy of the system
+%\begin{equation}
+%    E(t) = \frac{1}{2}\dot{\mathbf{q}}^T \mathbf{M} \dot{\mathbf{q}}
+%         + \frac{1}{2}\mathbf{q}^T \mathbf{K} \mathbf{q}
+%\end{equation}
+%is monitored to verify that the time integrator does not introduce artificial
+%numerical dissipation or growth.
+
+%The reported quantities are:
+%\begin{itemize}
+ %   \item plots of the numerical and analytical $h(t)$ and $\alpha(t)$ for the
+  %        forced case, with pointwise error;
+   % \item a plot of $E(t)$ over the free-vibration simulation, which should
+    %      remain constant to within machine precision for a symplectic integrator;
+   % \item the $L^2$ error in the displacement response as a function of the
+    %      structural timestep, confirming the expected order of convergence of
+     %     the chosen scheme.
+%\end{itemize}
+
+%The structural solver is a standard linear ODE integrator — there is no modelling uncertainty, only numerical error. The analytical solution of the linear 3-DOF system is exact, so comparing against it is actually more rigorous than comparing against an external dataset, which would itself have measurement or modelling uncertainty.
+%This is the standard approach in every aeroelasticity and structural dynamics textbook. Fung (1955), Bisplinghoff et al. (1955), and Wright & Cooper (2007) all use exactly this type of free-vibration and forced-response check to validate structural integrators.
+
+%Once you have validated the 3-DOF free response, add a flutter speed check: sweep the freestream velocity UU
+%U and find the velocity at which the coupled aeroelastic system (structural equations only, with Theodorsen aerodynamics applied analytically as an external force) goes from stable to unstable. Compare this flutter speed against the classical Theodorsen flutter solution for your structural parameters. This is still purely analytical — no CFD involved — but it validates that the
+%coupling between the three DOFs produces the correct aeroelastic behaviour, which is directly relevant to what happens later in the FSI simulation.
+
+% ------------------------------------------------------------
+\subsubsection{Mesh Deformation Quality}
+\label{subsubsec:mesh_deformation}
+
+%DA FARE DOPO
+%The mesh deformation algorithm must maintain acceptable cell quality throughout
+%the full range of motion expected during the FSI simulations.
+%A prescribed-motion test is performed in which the airfoil is moved through its
+%maximum expected plunge amplitude, pitch angle, and flap deflection, while the
+%fluid equations are not solved (deformation only).
+%At each step, the mesh quality metrics — maximum non-orthogonality,
+%maximum skewness, and minimum cell volume — are recorded.
+
+%The reported quantities are:
+%\begin{itemize}
+ %   \item time histories of maximum non-orthogonality and skewness over the
+  %        prescribed-motion cycle;
+  %  \item snapshots of the mesh at the neutral position and at the maximum
+   %       deformation, annotated with the worst-quality cells;
+  %  \item confirmation that no negative cell volumes are produced at any point
+   %       in the prescribed motion, which would cause the solver to abort.
+%\end{itemize}
+%The results define the envelope of safe operating conditions for the deformation
+%algorithm and inform any constraints placed on the structural response during
+%the FSI dataset generation in Chapter~\ref{ch:dataset}.
+
+% ------------------------------------------------------------
+\subsubsection{FSI Coupling Convergence}
+\label{subsubsec:fsi_coupling}
+%SCRIPT IN TEMPORAL STUDY/DT1
+%The convergence behavior of the partitioned coupling scheme is analyzed
+%separately from the physical accuracy of the results.
+%For each timestep of the FSI simulation, the coupling residual is defined as
+%the $L^2$ norm of the difference in interface displacement between successive
+%coupling iterations:
+%\begin{equation}
+ %   r^{(k)} = \left\| \mathbf{d}_\Gamma^{(k)} - \mathbf{d}_\Gamma^{(k-1)} \right\|_2,
+%\end{equation}
+%where $\mathbf{d}_\Gamma$ denotes the displacement of the fluid-structure
+%interface and $k$ is the inner iteration index.
+
+%The reported quantities are:
+%\begin{itemize}
+ %   \item plots of $r^{(k)}$ vs.\ inner iteration number for several
+  %        representative timesteps, confirming geometric convergence of the
+   %       fixed-point iterations;
+  %  \item a comparison of the plunge and pitch time histories obtained with
+   %       one coupling iteration (loosely coupled) and with the converged
+    %      strongly-coupled scheme, quantifying the error introduced by the
+    %      loosely coupled approach;
+   % \item an energy balance at the FSI interface, verifying that the work
+    %      done by the fluid on the structure equals the work done by the
+     %     structural forces on the fluid over one oscillation cycle.
+%\end{itemize}
+
+% ------------------------------------------------------------
+\subsubsection{Full FSI Validation}
+\label{subsubsec:full_fsi_validation}
+
+%The complete coupled FSI solver is validated against reference data for a
+%pitching and plunging airfoil.
+%Depending on availability, the reference may be:
+%\begin{enumerate}
+ %   \item the analytical solution from Theodorsen theory~\cite{theodorsen1935general}
+  %        for small-amplitude harmonic motion, valid in the linear regime;
+%end{enumerate}
+
+%he reported quantities are:
+%\begin{itemize}
+ %   \item time histories of $h(t)$, $\alpha(t)$, and $\delta(t)$ compared to
+  %        the reference, for at least two flow conditions (subcritical and
+   %       near-critical reduced velocity);
+  %  \item the dominant oscillation frequency and damping ratio extracted from
+   %       the numerical results via FFT or logarithmic decrement, compared to
+    %      the reference values;
+ %   \item a brief discussion of any observed discrepancies, with reference to
+  %        the known limitations of the present model (two-dimensional geometry,
+   %       rigid airfoil assumption, turbulence modelling choices).
+%\end{itemize}
+%Successful completion of this validation step establishes the credibility of
+%the FSI solver and provides confidence that the dataset generated in
+%Chapter~\ref{ch:dataset} accurately represents the physical phenomenon of
+%interest.
+
+
+%How you use this for validation
+%The validation procedure is the following.
+%Step 1 — Prescribe a harmonic motion in OpenFOAM
+%Instead of running the full FSI (where the motion is determined by the structural solver), you prescribe a known harmonic motion to the airfoil and flap:
+%h(t)=h0sin⁡(ωt),α(t)=0,δ(t)=0h(t) = h_0 \sin(\omega t), \quad \alpha(t) = 0, \quad \delta(t) = 0h(t)=h0​sin(ωt),α(t)=0,δ(t)=0
+%or any combination of the three, at a chosen frequency ω\omega
+%ω and amplitude small enough to stay in the linear regime (typically h0/c<0.01h_0/c < 0.01
+%h0​/c<0.01, α0<2°\alpha_0 < 2°
+%α0​<2°).
+
+%In OpenFOAM this is done via rigidBodyMotion or a prescribed sixDoFRigidBodyMotion with the motion specified analytically — no structural solver needed for this step.
+%Step 2 — Record the aerodynamic forces from OpenFOAM
+%Run the simulation for several cycles until the transient dies out. Record CL(t)C_L(t)
+%CL​(t) and CM(t)C_M(t)
+%CM​(t) from OpenFOAM's
+%forceCoeffs function object.
+%Step 3 — Compute the Theodorsen analytical prediction
+%For the same h0h_0
+%h0​, ω\omega
+%ω, U∞U_\infty
+%U∞​, cc
+%c, compute L(t)L(t)
+%L(t) and M(t)M(t)
+%M(t) analytically using the expressions above. The result is a sinusoid at the same frequency ω\omega
+%ω but with a different amplitude and phase from the input motion — this amplitude and phase are what C(k)C(k)
+%C(k) controls.
+
+%Step 4 — Compare amplitude and phase
+%Extract from both the numerical and analytical results:
+
+%The amplitude ratio ∣CL∣/(h0/c)|C_L| / (h_0/c)
+%∣CL​∣/(h0​/c)
+%The phase lag ϕ\phi
+%ϕ between CL(t)C_L(t)
+%CL​(t) and h(t)h(t)
+%h(t)
+
+%These two numbers are what you compare in a table. A good FSI solver should match the Theodorsen amplitude to within a few percent and the phase to within a degree or two, at moderate reduced frequencies (k<0.5k < 0.5
+%k<0.5).
+
+
+%What reduced frequencies to test
+%Run the validation at three or four values of kk
+%k covering your expected operating range. The reduced frequency in your gust problem is approximately:
+%k≈ωgust⋅c2U∞k \approx \frac{\omega_\text{gust} \cdot c}{2 U_\infty}k≈2U∞​ωgust​⋅c​
+%where ωgust=2πU∞/λg\omega_\text{gust} = 2\pi U_\infty / \lambda_g
+%ωgust​=2πU∞​/λg​ and λg\lambda_g
+%λg​ is the gust wavelength. Compute this for your expected gust parameters and make sure your validation covers that range.
+
+%Typical values to test: k=0.05,0.1,0.2,0.5k = 0.05, 0.1, 0.2, 0.5
+%k=0.05,0.1,0.2,0.5. At low kk
+%k (quasi-steady limit) C(k)≈1C(k) \approx 1
+%C(k)≈1 and the result approaches thin airfoil theory. At high kk
+%k the phase lag increases and this is where the validation is most informative.
+
+
+%Important caveat to state in the thesis
+%Theodorsen theory assumes:
+
+%Incompressible, inviscid flow
+%Flat plate (zero thickness)
+%Small amplitudes (linearization)
+% 2D (infinite span)

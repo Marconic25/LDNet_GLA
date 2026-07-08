@@ -17,4 +17,4 @@ for label,wf in [('WITH gust W0=10',gust),('NO gust (drift only)',lambda t:0.0)]
         W=wf(t); cl,cm=a.predict(x,0.,W,U); a.advance(x,0.,W,U,DT)
         Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;_,hdd,_,_=structure.rhs(x,Fy,Mz)
         if i%100==0: print('  %.2f: %.3f  %+7.2f  %+6.2f  %.0f'%(t,cl,hdd,np.rad2deg(x[3]),np.linalg.norm(a._z)),flush=True)
-        x=structure.step_rk4(x,Fy,Mz,DT)
+        x=structure.step_dp45(x,Fy,Mz,DT)

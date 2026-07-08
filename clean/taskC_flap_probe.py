@@ -8,7 +8,7 @@ print('=== flap authority probe: %s ==='%MD,flush=True)
 # settle joint equilibrium (no gust, no flap)
 a.reset(dt=DT); x=np.zeros(4)
 for _ in range(6000):
-    cl,cm=a.predict(x,0.,0.,U); a.advance(x,0.,0.,U,DT); x=structure.step_rk4(x,q*cl,q*cm*C,DT)
+    cl,cm=a.predict(x,0.,0.,U); a.advance(x,0.,0.,U,DT); x=structure.step_dp45(x,q*cl,q*cm*C,DT)
 xs=x.copy(); zs=a._z.copy(); cls,cms=a.predict(xs,0.,0.,U)
 print('joint eq: C_L=%.4f C_M=%.4f ||z||=%.1f'%(float(cls),float(cms),np.linalg.norm(zs)),flush=True)
 # (A) STATIC flap authority: hold delta const from eq, let z+struct re-settle, measure dC_L,dC_M and h_ddot transient
@@ -17,7 +17,7 @@ for dd in [-3.,-1.,1.,3.]:
     a._z=zs.copy(); x=xs.copy(); hddmax=0.
     for k in range(1500):
         cl,cm=a.predict(x,dd,0.,U); d=structure.rhs(x,q*cl,q*cm*C); hddmax=max(hddmax,abs(d[1]))
-        a.advance(x,dd,0.,U,DT); x=structure.step_rk4(x,q*cl,q*cm*C,DT)
+        a.advance(x,dd,0.,U,DT); x=structure.step_dp45(x,q*cl,q*cm*C,DT)
     clf,cmf=a.predict(x,dd,0.,U)
     print('  delta=%+.0f deg -> dC_L=%+.4f dC_M=%+.4f  peak h_ddot=%.3f'%(dd,float(clf)-float(cls),float(cmf)-float(cms),hddmax),flush=True)
 # (B) FEEDFORWARD ideal: best constant flap to cancel gust C_L excursion
@@ -26,7 +26,7 @@ def run_ff(dff):
     a._z=zs.copy(); x=xs.copy(); CL=[];HD=[]
     for t in np.arange(0,1.6+DT,DT):
         W=gust(t); cl,cm=a.predict(x,dff,W,U); d=structure.rhs(x,q*cl,q*cm*C); CL.append(float(cl));HD.append(d[1])
-        a.advance(x,dff,W,U,DT); x=structure.step_rk4(x,q*cl,q*cm*C,DT)
+        a.advance(x,dff,W,U,DT); x=structure.step_dp45(x,q*cl,q*cm*C,DT)
     CL=np.array(CL);HD=np.array(HD); return np.max(np.abs(CL-float(cls))),np.max(np.abs(HD))
 ex0,hd0=run_ff(0.)
 print('  no flap:        C_L excursion=%.4f  h_ddot peak=%.3f'%(ex0,hd0),flush=True)

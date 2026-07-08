@@ -34,7 +34,7 @@ def simulate(x0, W, ctrl):
         dv = ctrl.compute(x, W_hat=float(W[i])) if ctrl is not None else 0.0
         cl,cm = aero.predict(x,dv,W[i],U); Fy=q*cl; Mz=q*cm*C
         dr = structure.rhs(x,Fy,Mz)
-        aero.advance(x,dv,W[i],U,DT); x=structure.step_rk4(x,Fy,Mz,DT)
+        aero.advance(x,dv,W[i],U,DT); x=structure.step_dp45(x,Fy,Mz,DT)
         ad.append(x[3]); add.append(dr[3]); hdd.append(dr[1])
         CL.append(float(cl)); de.append(dv)
     return [np.array(v) for v in (ad,add,hdd,CL,de)]

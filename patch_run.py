@@ -40,7 +40,7 @@ new='''    # Compute trim aero loads (W=0, delta=0) to subtract as static offset
         for _ in range(_settle):
             cl_s, cm_s = _aero_module.predict(xs, 0., 0., U_INF)
             _aero_module.advance(xs, 0., 0., U_INF, DT)
-            xs = structure.step_rk4(xs, q_dyn * cl_s, q_dyn * cm_s * C_REF, DT)
+            xs = structure.step_dp45(xs, q_dyn * cl_s, q_dyn * cm_s * C_REF, DT)
         x0 = xs.copy()
         C_L_trim, C_M_trim = _aero_module.predict(x0, 0., 0., U_INF)
         Fy_trim = q_dyn * C_L_trim

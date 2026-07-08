@@ -1,0 +1,17 @@
+2026-07-07 22:35:06.750788: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 22:35:08.658501: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 22:35:08.663376: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 22:35:08.673430: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 22:35:09.795119: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E2-KF | W30/Tg0.4 DAMULT=3 | open cex0=0.4600 | SMOKE
+
+=== frac=0 anchors (KF pure lag; plain clean anchor is +76.58%) ===
+  kf     q=1e+06  frac=0.00:   +76.5% [ +76.5, +76.5] std= 0.00 flags=0/1 | sigma_del=0.001 m/s
+
+=== frac=0.02 (raw sigma=0.60 m/s) ===
+  none            frac=0.02:   +18.2% [ +18.0, +18.4] std= 0.19 flags=0/2 | sigma_del=0.481 m/s
+  kf     q=1e+06  frac=0.02:   +18.2% [ +17.8, +18.7] std= 0.45 flags=0/2 | sigma_del=0.284 m/s
+# best kf frac=0.02: q=1e+06 mean +18.2% (sigma_del=0.284 m/s)
+# saved 8 records -> /work/u10677113/LDNet_GLA/light/noise/results/E2_kalman.npz
+# DONE

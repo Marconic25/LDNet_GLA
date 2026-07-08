@@ -17,7 +17,7 @@ def run(W0):
     for i,t in enumerate(tt):
         W=gust(t);d=ctrl.compute(x,W)
         cl,cm=a.predict(x,d,W,U);a.advance(x,d,W,U,DT)
-        Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;x=structure.step_rk4(x,Fy,Mz,DT)
+        Fy=q*cl-Fyt;Mz=q*cm*C-Mzt;x=structure.step_dp45(x,Fy,Mz,DT)
         if i%25==0: rows.append((t,W,d,cl,np.rad2deg(x[3])))
     return rows
 for W0 in [10,20]:

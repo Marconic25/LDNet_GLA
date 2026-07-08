@@ -21,7 +21,7 @@ def simulate(ctrl):
         de = ctrl.compute(x, W_hat=float(W[i])) if ctrl is not None else 0.0
         cl,cm=a.predict(x,de,W[i],U); Fy=q*cl; Mz=q*cm*C
         der=structure.rhs(x,Fy,Mz)        # [hd, hdd, ad, add]
-        a.advance(x,de,W[i],U,DT); x=structure.step_rk4(x,Fy,Mz,DT)
+        a.advance(x,de,W[i],U,DT); x=structure.step_dp45(x,Fy,Mz,DT)
         R['h'].append(x[0]);R['hd'].append(x[1]);R['al'].append(x[2]);R['ad'].append(x[3])
         R['hdd'].append(der[1]);R['add'].append(der[3]);R['de'].append(de);R['CL'].append(float(cl))
     return {k:np.array(v) for k,v in R.items()}

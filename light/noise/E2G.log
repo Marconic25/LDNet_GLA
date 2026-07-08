@@ -1,0 +1,56 @@
+2026-07-07 23:10:08.090192: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 23:10:09.498081: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 23:10:09.501048: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 23:10:09.509557: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 23:10:10.291713: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E2-gate | W30/Tg0.4 DAMULT=3 | open cex0=0.4600
+
+=== frac=0 anchors (oracle preview) ===
+  db     db=0.005                       frac=0.00: clred= +16.94% flag=''  (plain clean anchor +76.58%)
+  db     db=0.01                        frac=0.00: clred=  +6.18% flag=''  (plain clean anchor +76.58%)
+  hyst   hyst=0.005                     frac=0.00: clred= +76.58% flag=''  (plain clean anchor +76.58%)
+  hd     h=0.005+dw=5                   frac=0.00: clred= +76.58% flag=''  (plain clean anchor +76.58%)
+  dhd    db=0.005+h=0.005+dw=5          frac=0.00: clred= +16.94% flag=''  (plain clean anchor +76.58%)
+  wash   tau=200ms                      frac=0.00: clred= +63.24% flag=''  (plain clean anchor +76.58%)
+  wash   tau=500ms                      frac=0.00: clred= +73.81% flag=''  (plain clean anchor +76.58%)
+  wash   tau=1000ms                     frac=0.00: clred= +75.26% flag=''  (plain clean anchor +76.58%)
+  wash   tau=2000ms                     frac=0.00: clred= +75.94% flag=''  (plain clean anchor +76.58%)
+
+=== frac=0.02 (sigma=0.60 m/s) ===
+  none                                  frac=0.02:    -0.1% [ -26.3, +19.2] std=19.94 flags=3/6
+  db     db=0.005                       frac=0.02:    +3.3% [ -25.2, +19.1] std=16.55 flags=3/6
+  db     db=0.01                        frac=0.02:    -2.0% [ -25.1,  +8.5] std=11.89 flags=3/6
+  hyst   hyst=0.005                     frac=0.02:    +3.8% [  -5.0, +18.4] std=10.38 flags=3/6
+  hyst   hyst=0.01                      frac=0.02:    -2.2% [ -27.5,  +8.2] std=12.68 flags=3/6
+  hd     h=0.005+dw=5                   frac=0.02:    -6.1% [ -27.5, +19.1] std=19.00 flags=3/6
+  dhd    db=0.005+h=0.005+dw=5          frac=0.02:    +4.8% [ -16.6, +19.1] std=14.22 flags=3/6
+  wash   tau=200ms                      frac=0.02:   +13.7% [ -13.4, +36.3] std=22.07 flags=3/6
+  wash   tau=500ms                      frac=0.02:   +12.8% [  -5.0, +30.9] std=17.68 flags=3/6
+  wash   tau=1000ms                     frac=0.02:    +8.8% [ -15.4, +26.3] std=17.44 flags=3/6
+  wash   tau=2000ms                     frac=0.02:    +3.4% [ -23.2, +23.1] std=19.99 flags=3/6
+
+=== frac=0.05 (sigma=1.50 m/s) ===
+  none                                  frac=0.05:    -7.3% [ -25.0, +20.8] std=19.80 flags=3/6
+  db     db=0.005                       frac=0.05:   -17.1% [ -31.5, +19.6] std=16.94 flags=3/6
+  db     db=0.01                        frac=0.05:   -12.9% [ -26.7,  +8.6] std=15.18 flags=3/6
+  hyst   hyst=0.005                     frac=0.05:   -15.1% [ -36.7, +19.9] std=18.59 flags=3/6
+  hyst   hyst=0.01                      frac=0.05:   -13.4% [ -35.7,  +9.7] std=17.55 flags=3/6
+  hd     h=0.005+dw=5                   frac=0.05:   -16.1% [ -26.9,  -7.8] std= 6.82 flags=4/6
+  dhd    db=0.005+h=0.005+dw=5          frac=0.05:   -20.5% [ -36.9, -11.7] std= 9.42 flags=3/6
+  wash   tau=200ms                      frac=0.05:   +10.8% [  -8.8, +35.4] std=18.99 flags=3/6
+  wash   tau=500ms                      frac=0.05:    +4.5% [ -19.1, +31.9] std=19.52 flags=3/6
+  wash   tau=1000ms                     frac=0.05:    -0.3% [ -16.9, +27.4] std=19.36 flags=3/6
+  wash   tau=2000ms                     frac=0.05:    -4.4% [ -21.8, +24.3] std=20.20 flags=3/6
+
+=== gw frac=0.02: gate [dhd db=0.005+h=0.005+dw=5] + wash tau=200ms ===
+  gw     db=0.005+h=0.005+dw=5+tau=200ms frac=0.02:    +8.3% [  -6.0, +35.3] std=15.51 flags=3/6
+  gw     db=0.005+h=0.005+dw=5+tau=200ms frac=0.00: clred= +34.60% flag=''  (plain clean anchor +76.58%)
+
+=== gw frac=0.05: gate [db db=0.01] + wash tau=200ms ===
+  gw     db=0.01+tau=200ms              frac=0.05:    +5.6% [  -6.5, +26.5] std=12.61 flags=3/6
+  gw     db=0.01+tau=200ms              frac=0.00: clred= +27.02% flag=''  (plain clean anchor +76.58%)
+# best cure frac=0.02: wash tau=200ms mean +13.7%
+# best cure frac=0.05: wash tau=200ms mean +10.8%
+# saved 60 records -> /work/u10677113/LDNet_GLA/light/noise/results/E2_gate.npz
+# DONE

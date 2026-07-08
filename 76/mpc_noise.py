@@ -37,7 +37,7 @@ def rollout_customW(make_ctrl, wfun):
         cl, cm = H.aero.predict(x, d, Wi, H.U)         # plant uses TRUE gust
         Fy = H.q*cl; Mz = H.q*cm*H.C
         der = structure.rhs(x, Fy, Mz)
-        H.aero.advance(x, d, Wi, H.U, H.DT); x = structure.step_rk4(x, Fy, Mz, H.DT)
+        H.aero.advance(x, d, Wi, H.U, H.DT); x = structure.step_dp45(x, Fy, Mz, H.DT)
         CL[i]=cl; al[i]=x[2]; ad[i]=x[3]; de[i]=d; hdd[i]=der[1]; add[i]=der[3]
         prev = d
     return dict(CL=CL, al=al, ad=ad, de=de, hdd=hdd, add=add, _t=ts, _Wt=Wt)

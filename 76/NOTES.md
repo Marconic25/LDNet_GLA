@@ -243,6 +243,43 @@ Files: `characterize.py`/`analyze_char.py` (H0), `controllers.py` (all laws),
 
 ---
 
+## Honest equal-information comparison (`honest_home.py` → `results_honest/`)
+
+Direct answer to "is the wnext win just the preview?" — home cell W30/Tg0.4, DAMULT=3, same
+scalar B=1 harness, and now the **same information set for both laws**: {x(t), C_L measurement,
+W(t), **W(t+dt)**}. The prop exploits the preview the only way a static linear law can: the
+feedforward term becomes `g_W·W(t+dt)` (`PropW(use_wnext=True)`), i.e. the identical 2 ms phase
+lead the wnext optimal gets. Same tuning discipline for both: full sweep + **no-flag pick**
+(max CLred s.t. no α̇/α̈/ḧ explosion flag). Prop sweeps the full 5×6 gain grid; optimal sweeps
+the standard 5-value R grid.
+
+| arm | best (no-flag pick) | config | flap | pitch pk |
+|---|---|---|---|---|
+| open | cex0 = 0.4600 | — | — | — |
+| prop-W(t+dt) | **+32.0%** | g_CL=−60, g_W=−0.5 | 6.3° | 0.154° |
+| optimal wnext | **+80.7%** | R\*=1e-4 (R=3e-4 → +76.6%) | 8.0° | 0.156° |
+
+- **The preview is worth nothing to the prop**: +32.0% vs +32.2% with W(t) (moneyplot, same
+  grid) — best at the *same* gains (−60, −0.5). A smooth static law has no argmin knife-edge to
+  stabilize, and a 2 ms shift of a 400 ms gust barely changes the feedforward signal. The wnext
+  gain is *not* "preview beats no-preview"; it is the model-based optimizer needing the correct
+  gust *phase* to pick the good branch.
+- **Prop gain fragility, quantified**: 24/30 grid combos explode (flap saturates at 14°,
+  `ad!add!`, pitch ~0.5°) — including ALL pure-feedback columns (g_W=0). Only a narrow diagonal
+  band (g_CL·g_W trade-off) is stable; the working range is ~6 clean combos.
+- **What the optimal does that the prop cannot** (money plot `results_honest/honest_W30_Tg04.png`):
+  same actuator budget (7.8° vs 6.3° flap), but the optimal *leads* the gust — flap peaks +7.7°
+  during the rise and reverses ~50 ms earlier — holding C_L within ±0.09; the prop, reacting
+  through the C_L error + a fixed-gain W term, lets C_L dip to 0.56 and rebound to 0.96.
+- Regressions: open cex0 = 0.4600 exact; R=3e-4 → +76.6% (ref +76.5%); R\*=1e-4 → +80.7%,
+  matching the cs25_wnext2 W30/T0.4 cell (the no-flag pick unlocks R=1e-4 here, clean).
+
+**Verdict.** At equal information and equal tuning/pick rules, the one-step optimal beats the
+proportional law +80.7% vs +32.0% (≈49 pts). The advantage is the **LDNet model in the loop**
+(nonlinear inversion of C_L(δ, W, x) each step), not the preview sample.
+
+---
+
 ## CS-25.341 gust study (`cs25_wnext.py` → `cs25_wnext2.py`)
 
 Full 3×6 grid (W0∈{10,20,30} × Tg∈{0.30,0.40,0.50,0.70,1.00,1.20}), R swept per cell,

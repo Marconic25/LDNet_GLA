@@ -37,7 +37,7 @@ def run(mode, G=10.0):
         dprev=d; D[i]=d
         cl,cm=aero.predict(x,d,W,U); aero.advance(x,d,W,U,DT); clm=float(cl)
         Fy=q*cl-Fyt; Mz=q*cm*C-Mzt; _,hdd,_,_=structure.rhs(x,Fy,Mz)
-        CL[i]=cl; HD[i]=hdd; AL[i]=x[2]; x=structure.step_rk4(x,Fy,Mz,DT)
+        CL[i]=cl; HD[i]=hdd; AL[i]=x[2]; x=structure.step_dp45(x,Fy,Mz,DT)
     gw=tt<=1.6
     return dict(cl=np.max(np.abs(CL[gw])), hd=np.max(np.abs(HD[gw])), al=np.max(np.abs(AL[gw])), dmax=np.max(np.abs(D)))
 

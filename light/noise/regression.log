@@ -1,0 +1,25 @@
+2026-07-07 17:38:26.069630: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 17:38:28.133021: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 17:38:28.135824: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 17:38:28.144118: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 17:38:28.869947: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# stage-0 regression gate | W30/Tg0.4 DAMULT=3
+  OK  open cex0: +0.46 (ref +0.46, tol 0.0005)
+  OK  sigma=0 R=3e-4 CLred: +76.58 (ref +76.6, tol 0.5)
+       flap=7.8 flag=''
+  OK  sigma=0 R=1e-4 CLred: +80.67 (ref +80.7, tol 0.5)
+       flap=8.0 flag=''
+  OK  OptimalRdu(R_du=0) == Optimal (max |d_de|): +0 (ref +0, tol 1e-12)
+  seed 100: CLred  +17.7%  flag=''
+  seed 101: CLred  +17.2%  flag=''
+  seed 102: CLred  -26.1%  flag='ad!add!'
+  seed 103: CLred  -25.4%  flag='ad!add!'
+  seed 104: CLred   -4.8%  flag='ad!add!'
+  seed 105: CLred  +18.5%  flag=''
+  sigma=2% refine=False: mean -0.5% [-26.1,+18.5] (76/preview.log ref: -0.5 [-26.1,+18.5]; NOTES' +5.2 = rng 200+seed)
+  OK  sigma=2% refine=False mean CLred: -0.4843 (ref -0.5, tol 1)
+  OK  sigma=2% refine=False min CLred: -26.08 (ref -26.1, tol 1)
+  OK  sigma=2% refine=False max CLred: +18.51 (ref +18.5, tol 1)
+# REGRESSION PASSED
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

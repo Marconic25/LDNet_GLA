@@ -1,0 +1,16 @@
+2026-07-07 22:49:58.724167: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 22:50:01.001421: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 22:50:01.004588: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 22:50:01.014603: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 22:50:02.137402: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E2-sensor | W30/Tg0.4 DAMULT=3 | open cex0=0.4600 | SMOKE
+
+=== anchor: per-sample sigma=1e-6, fuse Jmax=50 lam=0 (must reproduce ~+76.58%) ===
+  fuse   anchor       frac=0.00:   +76.6% [ +76.6, +76.6] std= 0.00 flags=0/1  sig_del=1.21e-07 m/s
+
+=== frac=0.02 (raw sigma=0.60 m/s per sample) ===
+  none                frac=0.02:   +18.2% [ +18.0, +18.4] std= 0.19 flags=0/2  sig_del=0.481 m/s
+  fuse   J=25         frac=0.02:   +40.4% [ +16.5, +64.2] std=23.87 flags=1/2  sig_del=0.0957 m/s
+# saved 4 records -> /work/u10677113/LDNet_GLA/light/noise/results/E2_sensor.npz
+# DONE

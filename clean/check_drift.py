@@ -12,7 +12,7 @@ print('OPEN-LOOP (no control): C_L and ||z|| drift over time. trim C_L=%.3f'%CLT
 x=X0.copy(); CL=[];Z=[]
 for i in range(N):
     cl,cm=a.predict(x,0.,W[i],U); CL.append(float(cl)); Z.append(np.linalg.norm(a._z))
-    a.advance(x,0.,W[i],U,DT); x=structure.step_rk4(x,q*cl,q*cm*C,DT)
+    a.advance(x,0.,W[i],U,DT); x=structure.step_dp45(x,q*cl,q*cm*C,DT)
 CL=np.array(CL);Z=np.array(Z)
 for tt in [0.0,0.5,1.12,1.6,2.0,2.5,3.0-DT]:
     i=int(round(tt/DT)); print('  t=%.2f: C_L=%.4f (dev from trim %+.4f)  ||z||=%.1f'%(tt,CL[i],CL[i]-CLTRIM,Z[i]),flush=True)

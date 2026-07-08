@@ -75,9 +75,13 @@ def rhs(state, Fy, Mz, delta_dot=0.0, delta_ddot=0.0):
     return [hd, h_ddot, ad, a_ddot]
 
 
-def step_rk4(state, Fy, Mz, dt):
+def step_dp45(state, Fy, Mz, dt):
     """
-    Advance the structural state by one time step using RK4.
+    Advance the structural state by one time step using Dormand-Prince RK45.
+
+    Uses scipy.integrate.solve_ivp (method='RK45', rtol=1e-8, atol=1e-10,
+    max_step=2*dt), matching the parameters of cosim_driver.integrate_structural.
+    Aerodynamic forces Fy and Mz are held constant over the step.
 
     Parameters
     ----------
@@ -90,14 +94,9 @@ def step_rk4(state, Fy, Mz, dt):
     -------
     state_next : np.ndarray (h, ḣ, α, α̇)
     """
+    from scipy.integrate import solve_ivp
     x = np.asarray(state, dtype=float)
 
-    def f(s):
-        return np.array(rhs(s, Fy, Mz))
-
-    k1 = f(x)
-    k2 = f(x + 0.5 * dt * k1)
-    k3 = f(x + 0.5 * dt * k2)
-    k4 = f(x + dt * k3)
-
-    return x + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
+    sol = solve_ivp(lambda t, s: rhs(s, Fy, Mz), [0.0, dt], x,
+                    method='RK45', rtol=1e-8, atol=1e-10, max_step=2.0 * dt)
+    return sol.y[:, -1]

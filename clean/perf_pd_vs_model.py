@@ -86,7 +86,7 @@ def sim_pd2(W0, Tg, g1, g2, TEND, DLPF=0.95, DMAX=14.):
         de = de_f2
         cl, cm = a.predict(x, de, Wt[i], U); Fy = q * cl; Mz = q * cm * C
         der = M.structure.rhs(x, Fy, Mz)
-        a.advance(x, de, Wt[i], U, DT); x = M.structure.step_rk4(x, Fy, Mz, DT)
+        a.advance(x, de, Wt[i], U, DT); x = M.structure.step_dp45(x, Fy, Mz, DT)
         for k, v in zip(['h', 'hd', 'al', 'ad', 'hdd', 'add', 'de', 'CL', 'CM', 'Fy'],
                         [x[0], x[1], x[2], x[3], der[1], der[3], de, float(cl), float(cm), Fy]):
             R[k].append(v)

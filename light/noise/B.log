@@ -1,0 +1,27 @@
+2026-07-07 17:46:54.698682: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 17:46:57.504999: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 17:46:57.508598: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 17:46:57.520411: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 17:46:58.608213: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis B | W30/Tg0.4 DAMULT=3 | frac=0.05 band-limited preview | open cex0=0.4600
+
+=== optimal wnext+refine R=0.0003 | frac=0.05 ===
+  optimal  R=0.0003 tau=   0ms:   -14.0% [ -32.5,  +2.0] std=12.11 flags=3/6
+  optimal  R=0.0003 tau=   2ms:    -3.6% [ -24.0, +17.4] std=19.87 flags=2/6
+  optimal  R=0.0003 tau=   5ms:    +2.3% [ -27.7, +17.9] std=16.48 flags=2/6
+  optimal  R=0.0003 tau=  10ms:   +20.0% [  -6.6, +64.0] std=21.32 flags=1/6
+  optimal  R=0.0003 tau=  20ms:   +12.5% [  -5.0, +33.6] std=11.30 flags=2/6
+  optimal  R=0.0003 tau=  40ms:   -13.3% [ -58.8,  +8.1] std=28.74 flags=3/6
+
+=== optimal wnext+refine R=0.0001 | frac=0.05 ===
+  optimal  R=0.0001 tau=   0ms:   -10.7% [ -34.4,  +2.2] std=13.83 flags=2/6
+  optimal  R=0.0001 tau=   2ms:   -20.5% [ -34.1,  -5.3] std=10.13 flags=2/6
+  optimal  R=0.0001 tau=   5ms:   -15.0% [ -33.1,  +4.3] std=14.09 flags=2/6
+  optimal  R=0.0001 tau=  10ms:   +10.4% [  -6.0, +52.6] std=19.27 flags=2/6
+  optimal  R=0.0001 tau=  20ms:    +7.7% [  -2.1, +41.3] std=15.13 flags=2/6
+  optimal  R=0.0001 tau=  40ms:   -32.8% [ -55.2,  +6.5] std=19.04 flags=3/6
+
+# best tau at R=3e-4: 10 ms, mean +20.0% flags=1/6
+# saved 19 records -> /work/u10677113/LDNet_GLA/light/noise/results/B_bandlim.npz
+# DONE

@@ -1,0 +1,58 @@
+2026-07-07 10:22:14.521916: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-07 10:22:16.058894: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-07 10:22:16.061971: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-07 10:22:16.070577: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-07 10:22:17.063613: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# honest_home W30/Tg0.4 DAMULT=3 | open cex0=0.4600 (regression: 0.4600)
+
+=== prop-W(t+dt) gain sweep (5x6) ===
+   gCL     gW   CLred  flap  pitch     flag
+   -40   0.00  -92.2%  14.0  0.501  ad!add!
+   -40  -0.10  -88.2%  14.0  0.480  ad!add!
+   -40  -0.20  -78.4%  14.0  0.434  ad!add!
+   -40  -0.30  +30.5%   6.6  0.166         
+   -40  -0.50  +11.3%   6.3  0.162         
+   -40  -0.80  -19.0%   7.0  0.143         
+   -60   0.00  -93.9%  14.0  0.506  ad!add!
+   -60  -0.10  -92.0%  14.0  0.498  ad!add!
+   -60  -0.20  -89.4%  14.0  0.486  ad!add!
+   -60  -0.30  -85.1%  14.0  0.465  ad!add!
+   -60  -0.50  +32.0%   6.3  0.154         
+   -60  -0.80   +9.2%   6.1  0.146         
+   -80   0.00  -94.4%  14.0  0.504  ad!add!
+   -80  -0.10  -92.9%  14.0  0.499  ad!add!
+   -80  -0.20  -91.2%  14.0  0.492  ad!add!
+   -80  -0.30  -88.9%  14.0  0.482  ad!add!
+   -80  -0.50  -78.8%  14.0  0.436  ad!add!
+   -80  -0.80  +27.4%   6.1  0.146         
+  -120   0.00  -95.6%  14.0  0.506  ad!add!
+  -120  -0.10  -94.8%  14.0  0.505  ad!add!
+  -120  -0.20  -93.8%  14.0  0.502  ad!add!
+  -120  -0.30  -92.7%  14.0  0.498  ad!add!
+  -120  -0.50  -90.3%  14.0  0.489  ad!add!
+  -120  -0.80  -83.6%  14.0  0.458  ad!add!
+  -160   0.00  -96.1%  14.0  0.507  ad!add!
+  -160  -0.10  -95.6%  14.0  0.506  ad!add!
+  -160  -0.20  -95.0%  14.0  0.505  ad!add!
+  -160  -0.30  -94.3%  14.0  0.504  ad!add!
+  -160  -0.50  -92.7%  14.0  0.499  ad!add!
+  -160  -0.80  -89.8%  14.0  0.487  ad!add!
+# prop-wnext BEST (no-flag pick): CLred=+32.0%  gCL=-60 gW=-0.5  flap=6.3  pitch=0.154deg  
+
+=== optimal wnext R sweep (5) ===
+      R   CLred  flap  pitch     flag
+   0.01   -7.5%   5.1  0.412  ad!add!
+  0.003  +44.6%   6.2  0.337  ad!add!
+  0.001  +66.8%   6.9  0.197  ad!add!
+ 0.0003  +76.6%   7.8  0.151         
+ 0.0001  +80.7%   8.0  0.156         
+# optimal-wnext BEST (no-flag pick): CLred=+80.7%  R*=0.0001  flap=8.0  pitch=0.156deg  
+
+# SUMMARY W30/Tg0.4 (equal info, equal pick rule):
+#   open          cex0 = 0.4600
+#   prop-W(t+dt)  CLred = +32.0%  (gCL=-60, gW=-0.5)
+#   optimal-wnext CLred = +80.7%  (R*=0.0001)
+# saved /work/u10677113/LDNet_GLA/76/results_honest/honest_home.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort
