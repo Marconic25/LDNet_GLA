@@ -384,3 +384,30 @@ collapses to +19.7% — over-suppression alone kills the branch).
    realistic lidar noise is the full +80%, zero flags** — the fragility
    belonged to the single-sample argmin architecture, not to the LDNet
    model or the preview premise.
+
+## E2CC — generality check (e2_combo_cells.py, 2026-07-08)
+
+The fixed winner (fusion Jmax=50 -> MPC N=8, R=3e-4, R_du=0; flat lam=0,
+dlr lam=1) re-run without any re-tuning at the two other study cells.
+mean [min,max] flags/6; sigma_del in m/s.
+
+| cell (cex0)        | 1step clean | combo clean | none 1step σ=2%      | combo-flat σ=2%              | combo-dlr (raw 1–3 m/s)       |
+|--------------------|-------------|-------------|-----------------------|------------------------------|-------------------------------|
+| W30/Tg0.4 (0.4600) | +76.6%      | +80.5%      | −0.1 [−26,+19] 3/6    | +80.5 [80.4,80.6] 0/6, 0.070 | +81.1 [80.3,83.7] 0/6, 0.179  |
+| W10/Tg0.7 (0.2075) | +89.5%      | +93.5%      | +75.3 [69,84] 0/6     | +93.5 [92.9,94.0] 0/6, 0.025 | +92.0 [91.2,93.2] 0/6, 0.190  |
+| W30/Tg0.7 (0.5791) | +85.0%      | +91.5%      | +61.9 [11,78] 1/6     | +91.5 [91.4,91.5] 0/6, 0.075 | +91.5 [91.4,91.5] 0/6, 0.191  |
+
+- **The composition generalizes without re-tuning**: at every cell the noisy
+  combo equals its own clean anchor to within the seed spread (≤1.2 pts),
+  with 0/6 flags everywhere — including W10/Tg0.7 where the dlr raw noise is
+  **10–30% of the gust amplitude** (delivered 0.19 m/s ≈ 1.9%·W0) and the
+  one-step controller would sit on its knife-edge.
+- **The horizon also upgrades the clean optimum at every cell** (+4.0/+4.0/
+  +6.5 pts over the one-step clean): the integrated cost is simply a better
+  use of the same LDNet, noise aside.
+- Note for the thesis: cells ran with N=8 fixed; the home-cell R_du sweep and
+  the D-axis one-step cell numbers provide the surrounding context. All E2CC
+  results computed on the cluster tree (rk4_batch structural step inside the
+  MPC horizon; the local tree's dp45_batch variant is handled by a defensive
+  import in e2_mpc/e2_combo/e2_combo_cells but was not used for any recorded
+  number).

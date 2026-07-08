@@ -60,7 +60,11 @@ import os
 import sys
 import numpy as np
 import harness_noise as H
-from controllers_ref import MPCConstRef, rk4_batch
+from controllers_ref import MPCConstRef
+try:
+    from controllers_ref import rk4_batch          # cluster tree (all recorded
+except ImportError:                                # E2 results used this RK4)
+    from controllers_ref import dp45_batch as rk4_batch  # local tree, f92d8975
 
 W0, Tg = 30.0, 0.4
 SMOKE = '--smoke' in sys.argv[1:]

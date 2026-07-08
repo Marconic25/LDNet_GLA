@@ -1,0 +1,26 @@
+2026-07-08 10:19:54.865969: I tensorflow/core/util/port.cc:111] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-07-08 10:19:56.700073: E tensorflow/compiler/xla/stream_executor/cuda/cuda_dnn.cc:9360] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-08 10:19:56.702788: E tensorflow/compiler/xla/stream_executor/cuda/cuda_fft.cc:609] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-08 10:19:56.711095: E tensorflow/compiler/xla/stream_executor/cuda/cuda_blas.cc:1537] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-07-08 10:19:57.529631: I tensorflow/core/platform/cpu_feature_guard.cc:183] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: SSE3 SSE4.1 SSE4.2 AVX, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+# axis E2-combo-cells [W30T07] N=8 | W30/Tg0.7 DAMULT=3 | open cex0=0.5791
+
+=== 1step-clean: one-step optimal, oracle preview ===
+  1step-clean :   +85.0% [ +85.0, +85.0] std= 0.00 flags=0/1  sig_del=0 m/s
+
+=== anchor: sigma=1e-6 through fusion+MPC (home-cell anchor is +80.5%) ===
+  anchor      :   +91.5% [ +91.5, +91.5] std= 0.00 flags=0/1  sig_del=1.3e-07 m/s
+
+=== none: one-step baseline, white frac=0.02 ===
+  none        :   +61.9% [ +10.9, +78.1] std=23.21 flags=1/6  sig_del=0.52 m/s
+
+=== combo-flat: fused flat sigma frac=0.02 (= 0.6 m/s), lam=0, N=8 ===
+  combo-flat  :   +91.5% [ +91.4, +91.5] std= 0.02 flags=0/6  sig_del=0.0751 m/s
+
+=== combo-dlr: raw LOS 1-3 m/s, lam=1, Jmax=50, N=8 ===
+# note: dlr noise is ABSOLUTE -> 3.3-10.0% of W0=30 m/s at this cell
+  combo-dlr   :   +91.5% [ +91.4, +91.5] std= 0.02 flags=0/6  sig_del=0.191 m/s
+# saved 18 records -> /work/u10677113/LDNet_GLA/light/noise/results/E2_combo_cells_W30T07.npz
+# DONE
+INFO:    Cleanup error: while stopping driver for /var/lib/apptainer/mnt/session/final: fuse-overlayfs exited: fuse: reading device: Software caused connection abort

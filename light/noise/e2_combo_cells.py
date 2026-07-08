@@ -1,37 +1,40 @@
 """
-Axis E2-combo — the literature pipeline COMPOSED (NOTES.md, E2 verdict #5):
-T1 DLR massed-measurement fusion  ->  T7 N-step preview-horizon MPC  ->
-R_du move suppression for the residual acceleration flags.
+Axis E2CC — generality check of the composed pipeline on the other two cells.
 
-E2 measured the halves separately at the home cell (W30/Tg0.4, DAMULT=3):
-    one-step none            sigma=2%:  -0.1% [-26,+19] 3/6
-    mpcp N=8, white preview  sigma=2%: +75.1% [+45,+83] 4/6   (value, no safety)
-    fuseT J50 lam=10 one-step sigma=2%: +36.7% [+16,+77] 0/6  (safety, no value)
-    dlr lam=1 one-step (raw 1-3 m/s):  +34.8% [+17,+76] 1/6
-This script composes them: the fusion database (verbatim mechanics of
-e2_sensor.wc_fuse, incl. the pre-warm) delivers the fused N-node preview
-VECTOR to the MPC via the e2_mpc.PreviewSensor coupling (harness calls
-wc_fun BEFORE ctrl.compute each step), and the MPC cost gets the OptimalRdu
-move-suppression term on its single horizon move (constant-flap MPC).
+e2_combo.py SOLVED the noise problem at the home cell W30/Tg0.4 (DAMULT=3):
+T1 DLR massed-measurement fusion (Jmax=50, pre-warmed database) feeding the
+fused 8-node preview vector to the constant-flap preview-MPC (N=8, R=3e-4,
+R_du=0): flat sigma=2%*W0 -> +80.5% [80.4,80.6] 0/6 flags (== clean anchor);
+DLR-realistic raw LOS noise 1-3 m/s with Tikhonov lam=1 -> +81.1% [80.3,83.7]
+0/6 flags. One-step baseline same seeds: -0.1% 3/6. This script repeats THE
+WINNER (fixed N=8, Jmax=50, R=3e-4, R_du=0 — no sweeps) at the two other
+study cells:
 
-Parts (run as two concurrent jobs; both share the script):
-    python3 e2_combo.py flat   anchors (sigma=1e-6, R_du in {0, max}) +
-                               paired one-step 'none' baseline (wc_plain,
-                               frac=0.02) + fused flat-sigma frac=0.02,
-                               lam=0, R_du in {0, 1e-2, 1e-1}
-    python3 e2_combo.py dlr    raw LOS sigma 1->3 m/s (3.3-10% W0), Jmax=50:
-                               lam=1 x R_du in {0, 1e-2, 1e-1} + lam=0
-                               R_du=0 (does the horizon replace smoothing?)
-R_du scale note: the horizon holds N tracking terms, so the same R_du weighs
-~N-times less against tracking than in the one-step cost (axis E used
-1e-4..1e-2 there); hence the sweep {0, 1e-2, 1e-1}.
+    python3 e2_combo_cells.py W10T07     W0=10, Tg=0.7  (gentle)
+    python3 e2_combo_cells.py W30T07     W0=30, Tg=0.7  (strong but slower)
 
-Extra metric: sigma_del = std(Wc - W_true(t+dt)) over the gust window
-(the scalar channel only; the horizon nodes see the same fusion database).
+Default cell (no recognized arg): W30T07.
 
---smoke: N=4, part flat, anchor + one fused config, 2 seeds, same OUT.
-Output: results/E2_combo_<part>.npz     Runtime: ~2.8 h (flat) / ~3.2 h (dlr)
-at ~8 min per N=8 rollout.
+Honesty note: the dlr LOS noise is ABSOLUTE (1-3 m/s), so at W0=10 it is
+10-30% of the gust amplitude — a much harsher relative test than at W30
+(3.3-10%); the flat arm scales with the cell (sigma = 2%*W0 = 0.2 m/s at W10).
+
+Arms (NSEED=6, rng 100+seed fresh per rollout):
+    1step-clean  one-step H.make_optimal, oracle preview  (1 rollout)
+                 — the cell's clean one-step reference
+    anchor       fusion sigma=1e-6 + MPC                  (1 rollout)
+                 — the cell's clean combo reference
+    none         one-step + wc_plain frac=0.02            (6 seeds)
+                 — the unmitigated baseline at this cell
+    combo-flat   fused flat sigma frac=0.02, lam=0        (6 seeds)
+    combo-dlr    fused raw LOS 1-3 m/s, lam=1             (6 seeds)
+
+--smoke: N=4, 2 seeds, anchor + combo-flat only, same OUT.
+Output: results/E2_combo_cells_<cell>.npz  (schema: harness_noise.py helpers)
+Runtime at ~8 min per N=8 rollout (~1 min one-step): per cell
+1 (OL) + 1 (1step-clean) + 8 (anchor) + 6 (none) + 48 (flat) + 48 (dlr)
+= ~112 min; the two cells run as two concurrent cluster jobs.
+DAMULT must be in the environment before launch (the study uses DAMULT=3).
 """
 import os
 import sys
@@ -39,22 +42,28 @@ import numpy as np
 import harness_noise as H
 from controllers_ref import MPCConstRef
 try:
-    from controllers_ref import rk4_batch          # cluster tree (all recorded
-except ImportError:                                # E2 results used this RK4)
-    from controllers_ref import dp45_batch as rk4_batch  # local tree, f92d8975
+    from controllers_ref import rk4_batch            # name on the cluster tree
+except ImportError:                                  # local tree: dp45_batch
+    from controllers_ref import dp45_batch as rk4_batch
 
-W0, Tg = 30.0, 0.4
+# ---- cell selection ------------------------------------------------------------
+# W0/Tg are MODULE GLOBALS read by sig_flat / wc_plain / delivered_sigma below
+# (same convention as e2_combo.py), so they are set from argv before those
+# definitions and the copied code works unchanged.
+CELLS = {'W10T07': (10.0, 0.7), 'W30T07': (30.0, 0.7)}
+cellname = next((a for a in sys.argv[1:] if a in CELLS), 'W30T07')
+W0, Tg = CELLS[cellname]
 SMOKE = '--smoke' in sys.argv
-PART  = 'dlr' if ('dlr' in sys.argv and not SMOKE) else 'flat'
 NSEED = 2 if SMOKE else 6
 NH    = 4 if SMOKE else 8          # horizon; smoke only validates the glue
 JMAX  = 50
-RDUS  = (0.0,) if SMOKE else (0.0, 1e-2, 1e-1)
+RDU   = 0.0                        # the home-cell winner: R_du=0 throughout
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results',
-                   f'E2_combo_{PART}.npz')
+                   f'E2_combo_cells_{cellname}.npz')
 
 
 # ---- T1 fusion sensor delivering an N-node preview vector ----------------------
+# verbatim copy of e2_combo.py — kept in sync by eye
 class FusedSensor:
     """
     Rolling massed-measurement fusion database — verbatim mechanics of
@@ -110,6 +119,7 @@ class FusedSensor:
 
 
 # ---- T7 preview-horizon MPC + R_du move suppression ----------------------------
+# verbatim copy of e2_combo.py — kept in sync by eye
 class MPCPrevRdu(MPCConstRef):
     """
     e2_mpc.MPCPrevRef (verbatim copy — the e2_*.py axis files are scripts,
@@ -152,6 +162,7 @@ class MPCPrevRdu(MPCConstRef):
 
 
 # ---- sigma models + wc_plain (== e2_sensor) ------------------------------------
+# verbatim copies of e2_combo.py — kept in sync by eye
 def sig_flat(frac):
     s = frac * W0
     return lambda j: s
@@ -179,10 +190,10 @@ def delivered_sigma(r):
 # ---- study body ------------------------------------------------------------------
 OL = H.rollout(None, W0, Tg)
 cex0 = H.metrics(OL, OL, Tg)['exo']
-print(f"# axis E2-combo [{PART}] N={NH} | W30/Tg0.4 DAMULT="
+print(f"# axis E2-combo-cells [{cellname}] N={NH} | W{W0:g}/Tg{Tg:g} DAMULT="
       f"{os.environ.get('DAMULT', '1')} | open cex0={cex0:.4f}"
       f"{' | SMOKE' if SMOKE else ''}", flush=True)
-recs = [dict(kind='open', axis='E2C', W0=W0, Tg=Tg, cex0=cex0,
+recs = [dict(kind='open', axis='E2CC', cell=cellname, W0=W0, Tg=Tg, cex0=cex0,
              t=OL['_t'], W=OL['_Wt'], CL=OL['CL'])]
 
 
@@ -198,8 +209,8 @@ def run_point(make_pair, nseed=None, **cfg):
         sds.append(delivered_sigma(r))
     sig = float(np.mean(sds))
     rec = H.point_record(ms, sigma_del=sig, **cfg)
-    print(f"  {cfg['arm']:6s} {cfg.get('detail', ''):22s}: "
-          f"{H.fmt_stats(H.seed_stats(ms))}  sig_del={sig:.3g} m/s", flush=True)
+    print(f"  {cfg['arm']:12s}: {H.fmt_stats(H.seed_stats(ms))}  "
+          f"sig_del={sig:.3g} m/s", flush=True)
     return rec, ms, rs
 
 
@@ -208,67 +219,66 @@ def pair_combo(rng, sigma_fun, lam, rdu):
     return MPCPrevRdu(sensor, N=NH, R=3e-4, R_du=rdu), sensor.wc_fun
 
 
-points = {}   # (arm, detail) -> (rec, ms, rs)
+points = {}   # arm -> (rec, ms, rs)
 
-if PART == 'flat':
-    # anchors: clean gust through the full pipeline (fusion sigma=1e-6 + MPC)
-    print("\n=== anchors: sigma=1e-6 through fusion+MPC "
-          f"(mpcp N=8 white-clean anchor is +80.51%) ===", flush=True)
-    for rdu in ((0.0,) if SMOKE else (0.0, RDUS[-1])):
-        k = ('anchor', f'Rdu={rdu:g}')
-        points[k] = run_point(
-            lambda rng, rdu=rdu: pair_combo(rng, lambda j: 1e-6, 0.0, rdu),
-            nseed=1, axis='E2C', arm='anchor', detail=f'Rdu={rdu:g}',
-            W0=W0, Tg=Tg, R=3e-4, N=NH, Jmax=JMAX, lam=0.0, R_du=rdu, frac=0.0)
+if not SMOKE:
+    print("\n=== 1step-clean: one-step optimal, oracle preview ===", flush=True)
+    points['1step-clean'] = run_point(
+        lambda rng: (H.make_optimal(R=3e-4), None),
+        nseed=1, axis='E2CC', arm='1step-clean', cell=cellname,
+        W0=W0, Tg=Tg, R=3e-4, frac=0.0)
 
-    # paired one-step baseline (cheap, 1 min/rollout)
-    if not SMOKE:
-        print("\n=== one-step baseline, white frac=0.02 ===", flush=True)
-        k = ('none', '')
-        points[k] = run_point(
-            lambda rng: (H.make_optimal(R=3e-4), wc_plain(rng, 0.02)),
-            axis='E2C', arm='none', detail='', W0=W0, Tg=Tg, R=3e-4, frac=0.02)
+print("\n=== anchor: sigma=1e-6 through fusion+MPC "
+      "(home-cell anchor is +80.5%) ===", flush=True)
+points['anchor'] = run_point(
+    lambda rng: pair_combo(rng, lambda j: 1e-6, 0.0, RDU),
+    nseed=1, axis='E2CC', arm='anchor', cell=cellname, W0=W0, Tg=Tg,
+    R=3e-4, N=NH, Jmax=JMAX, lam=0.0, R_du=RDU, frac=0.0)
 
-    print(f"\n=== combo: fused flat sigma frac=0.02, lam=0, N={NH} ===", flush=True)
-    for rdu in RDUS:
-        k = ('combo', f'flat Rdu={rdu:g}')
-        points[k] = run_point(
-            lambda rng, rdu=rdu: pair_combo(rng, sig_flat(0.02), 0.0, rdu),
-            axis='E2C', arm='combo', detail=f'flat Rdu={rdu:g}',
-            W0=W0, Tg=Tg, R=3e-4, N=NH, Jmax=JMAX, lam=0.0, R_du=rdu, frac=0.02)
+if not SMOKE:
+    print("\n=== none: one-step baseline, white frac=0.02 ===", flush=True)
+    points['none'] = run_point(
+        lambda rng: (H.make_optimal(R=3e-4), wc_plain(rng, 0.02)),
+        axis='E2CC', arm='none', cell=cellname, W0=W0, Tg=Tg,
+        R=3e-4, frac=0.02)
 
-else:  # PART == 'dlr'
-    print(f"\n=== combo: dlr raw 1-3 m/s, Jmax={JMAX}, N={NH} ===", flush=True)
-    for lam, rdu in [(1.0, r) for r in RDUS] + [(0.0, 0.0)]:
-        k = ('combo', f'dlr lam={lam:g} Rdu={rdu:g}')
-        points[k] = run_point(
-            lambda rng, lam=lam, rdu=rdu: pair_combo(rng, sig_dlr(JMAX), lam, rdu),
-            axis='E2C', arm='combo', detail=f'dlr lam={lam:g} Rdu={rdu:g}',
-            W0=W0, Tg=Tg, R=3e-4, N=NH, Jmax=JMAX, lam=lam, R_du=rdu,
-            frac=None, raw_sigma='1-3m/s')
+print(f"\n=== combo-flat: fused flat sigma frac=0.02 "
+      f"(= {0.02 * W0:.2g} m/s), lam=0, N={NH} ===", flush=True)
+points['combo-flat'] = run_point(
+    lambda rng: pair_combo(rng, sig_flat(0.02), 0.0, RDU),
+    axis='E2CC', arm='combo-flat', cell=cellname, W0=W0, Tg=Tg,
+    R=3e-4, N=NH, Jmax=JMAX, lam=0.0, R_du=RDU, frac=0.02)
+
+if not SMOKE:
+    print(f"\n=== combo-dlr: raw LOS 1-3 m/s, lam=1, Jmax={JMAX}, N={NH} ===",
+          flush=True)
+    print(f"# note: dlr noise is ABSOLUTE -> {100 * 1.0 / W0:.1f}-"
+          f"{100 * 3.0 / W0:.1f}% of W0={W0:g} m/s at this cell", flush=True)
+    points['combo-dlr'] = run_point(
+        lambda rng: pair_combo(rng, sig_dlr(JMAX), 1.0, RDU),
+        axis='E2CC', arm='combo-dlr', cell=cellname, W0=W0, Tg=Tg,
+        R=3e-4, N=NH, Jmax=JMAX, lam=1.0, R_du=RDU,
+        frac=None, raw_sigma='1-3m/s')
 
 
-# ---- collect records + trajectories of the best combo ---------------------------
-for key, (rec, ms, rs) in points.items():
+# ---- collect records + trajectories (all combo-dlr seeds + paired none) ---------
+for arm, (rec, ms, rs) in points.items():
     recs.append(rec)
 
-combo = [(key, v) for key, v in points.items() if key[0] == 'combo']
-if combo:
-    clean = [(key, v) for key, v in combo if v[0]['nflag'] == 0]
-    pool = clean if clean else combo
-    key_b, (rec_b, ms_b, rs_b) = max(pool, key=lambda kv: kv[1][0]['mean'])
-    print(f"# best combo [{PART}]: {key_b[1]} mean {rec_b['mean']:+.1f}% "
-          f"flags {rec_b['nflag']}/{len(ms_b)}", flush=True)
-    for seed, (m, r) in enumerate(zip(ms_b, rs_b)):
-        recs.append(H.traj_record(r, m, axis='E2C', arm='combo',
-                                  detail=key_b[1], W0=W0, Tg=Tg, N=NH,
-                                  seed=seed, label=f'E2C_{PART}_best_s{seed}'))
-if PART == 'flat' and ('none', '') in points:
-    rec_n, ms_n, rs_n = points[('none', '')]
+if 'combo-dlr' in points:
+    rec_d, ms_d, rs_d = points['combo-dlr']
+    for seed, (m, r) in enumerate(zip(ms_d, rs_d)):
+        recs.append(H.traj_record(r, m, axis='E2CC', arm='combo-dlr',
+                                  cell=cellname, W0=W0, Tg=Tg, N=NH,
+                                  Jmax=JMAX, lam=1.0, R_du=RDU, seed=seed,
+                                  label=f'E2CC_{cellname}_dlr_s{seed}'))
+if 'none' in points:
+    rec_n, ms_n, rs_n = points['none']
     for seed, (m, r) in enumerate(zip(ms_n, rs_n)):
-        recs.append(H.traj_record(r, m, axis='E2C', arm='none', detail='',
-                                  W0=W0, Tg=Tg, frac=0.02, seed=seed,
-                                  label=f'E2C_none_s{seed}'))
+        recs.append(H.traj_record(r, m, axis='E2CC', arm='none',
+                                  cell=cellname, W0=W0, Tg=Tg, frac=0.02,
+                                  seed=seed,
+                                  label=f'E2CC_{cellname}_none_s{seed}'))
 
 H.save_records(OUT, recs)
 print("# DONE", flush=True)
