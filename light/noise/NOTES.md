@@ -436,4 +436,29 @@ commit 7a171d9c). dp45 values are bit-exact with rk4 at this cell.
 | combo oracle clean R=3e-4 | +80.5% | **+80.51%** | +0.01 pt |
 
 Use the dp45 values as the new anchors for all subsequent studies.
-All non-chaotic numbers within tolerance (delta < 1 pt) — no debug needed.
+All non-chaotic numbers within tolerance (delta < 1 pt) -- no debug needed.
+
+---
+
+# W_combo -- white-noise robustness of the E2-combo (2026-07-08)
+
+Axis: noise_white_combo.py -- white Gaussian raw measurement noise sigma applied BEFORE
+fusion; FusedSensor(Jmax=50, lam=0, N=8) + MPCPreviewController(R=3e-4, R_du=0).
+Home cell W30/Tg0.4, DAMULT=3, 6 seeds rng(100+seed). Baseline 'none' = one-step
+argmin (same R, same raw frac), same seeds (paired).
+
+| sigma/W0 | combo CLred | combo [min,max] flags/6 | sigma_del m/s | none CLred | none flags/6 |
+|---|---|---|---|---|---|
+| 0%   | TBD | TBD | TBD | -- | -- |
+| 1%   | TBD | TBD | TBD | TBD | TBD |
+| 2%   | TBD | TBD | TBD | TBD | TBD |
+| 5%   | TBD | TBD | TBD | TBD | TBD |
+| 10%  | TBD | TBD | TBD | TBD | TBD |
+| 20%  | TBD | TBD | TBD | TBD | TBD |
+
+**Break-even vs combo-clean:** sigma/W0 = TBD%
+**Break-even vs prop-W clean (+32%):** sigma/W0 = TBD%
+
+Figure: `results/fig_noise_white_combo.png`
+
+Verdict: TBD (fill after cluster run).
