@@ -16,7 +16,7 @@ Usage (cluster):
 import numpy as np, os, time
 import structure
 from ldnet_aero import LDNetAero
-from optimal import OptimalController
+from optimal import OptimalController, MPCPreviewController
 
 structure.D_ALPHA *= float(os.environ.get('DAMULT', '1'))
 
@@ -27,6 +27,7 @@ MD = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 aero = LDNetAero(MD); aero.reset(dt=DT)
 X0 = np.array([-6.49179e-3, 0.0, -8.76338e-4, 0.0])
 CLTRIM = float(aero.predict(X0, 0., 0., U)[0])
+LAM    = float(aero._z_leak)
 
 SCORE_W = dict(Q_CL=1.0, Q_ad=100.0, R=0.01)
 
@@ -44,7 +45,7 @@ def gust(t, W0, Tg):
 # Simulation loop
 # ---------------------------------------------------------------------------
 
-def simulate(mode, W0, Tg, TEND=3.0, R=3e-4, DLPF=0.0, DMAX=14., NGRID=161):
+def simulate(mode, W0, Tg, TEND=3.0, R=3e-4, DLPF=0.0, DMAX=14., NGRID=161, NH=8, R_du=0.0):
     """
     Run one closed-loop gust simulation.
 
@@ -52,8 +53,8 @@ def simulate(mode, W0, Tg, TEND=3.0, R=3e-4, DLPF=0.0, DMAX=14., NGRID=161):
     Returns : trajectory dict with keys h, hd, al, ad, hdd, add, de, CL, CM, Fy,
               plus _t, _Wt, _comp_ms, _cfg.
     """
-    N  = int(round(TEND/DT)) + 1
-    ts = np.arange(N)*DT
+    Nsteps = int(round(TEND/DT)) + 1
+    ts = np.arange(Nsteps)*DT
     Wt = np.array([gust(t, W0, Tg) for t in ts])
 
     aero.reset(dt=DT)
@@ -63,18 +64,31 @@ def simulate(mode, W0, Tg, TEND=3.0, R=3e-4, DLPF=0.0, DMAX=14., NGRID=161):
             aero, U=U, dt=DT, R=R, n_grid=NGRID,
             C_L_trim=CLTRIM, delta_max=DMAX, delta_dot_max=300.)
         ctrl.reset()
+    elif mode == 'combo':
+        ctrl = MPCPreviewController(
+            aero, U=U, dt=DT, rho=RHO, S=S, C=C,
+            C_L_trim=CLTRIM, N=NH, R=R, R_du=R_du,
+            G=NGRID, delta_max=DMAX, delta_dot_max=300.)
+        ctrl.reset()
 
     x = X0.copy(); de_f = 0.0; de_f2 = 0.0
     rec = {k: [] for k in ['h','hd','al','ad','hdd','add','de','CL','CM','Fy']}
     comp_t = 0.0; comp_n = 0
 
-    for i in range(N):
+    for i in range(Nsteps):
         Wi = float(Wt[i])
-        Wn = float(Wt[i+1]) if i + 1 < N else 0.0
+        Wn = float(Wt[i+1]) if i + 1 < Nsteps else 0.0
 
         if mode == 'optimal':
             t0 = time.perf_counter()
             de_raw = ctrl.compute(x, Wi, Wn)
+            comp_t += time.perf_counter()-t0; comp_n += 1
+        elif mode == 'combo':
+            t0 = time.perf_counter()
+            lo = i + 1; hi = min(i + 1 + NH, Nsteps)
+            w_seq = np.zeros(NH)
+            w_seq[:hi - lo] = Wt[lo:hi]
+            de_raw = ctrl.compute(x, w_seq)
             comp_t += time.perf_counter()-t0; comp_n += 1
         else:
             de_raw = 0.0
@@ -153,12 +167,16 @@ if __name__ == '__main__':
 
     kw = dict(TEND=TEND, R=RW, DLPF=DLPF, DMAX=DMAX)
 
-    OL  = simulate('open',    W0, TG, **kw)
-    OPT = simulate('optimal', W0, TG, **kw)
-    mo  = metrics(OPT, OL, TG)
-    cfg = OPT['_cfg']
+    MODE  = os.environ.get('MODE', 'optimal')
+    NH    = int(os.environ.get('NH',   '8'))
+    R_DU  = float(os.environ.get('R_DU', '0.0'))
 
-    print(f'W0={W0:.1f} Tg={TG:.2f} | R={cfg["R"]:g} DLPF={cfg["DLPF"]:g}', flush=True)
-    print(f'  optimal : CLexc {mo["exo"]:.3f}->{mo["clexc"]:.3f} ({mo["clred"]:+.0f}%)'
+    OL  = simulate('open', W0, TG, **kw)
+    RES = simulate(MODE,   W0, TG, NH=NH, R_du=R_DU, **kw)
+    mo  = metrics(RES, OL, TG)
+    cfg = RES['_cfg']
+
+    print(f'W0={W0:.1f} Tg={TG:.2f} mode={MODE} | R={cfg["R"]:g} DLPF={cfg["DLPF"]:g}', flush=True)
+    print(f'  {MODE:7s}: CLexc {mo["exo"]:.3f}->{mo["clexc"]:.3f} ({mo["clred"]:+.0f}%)'
           f'  flap_max={mo["flap_max"]:.1f}  adot_RMS={mo["adrms"]:.3f}'
           f'  {"EXPLODE: "+mo["flag"] if mo["flag"] else "stable"}', flush=True)
