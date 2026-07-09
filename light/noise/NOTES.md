@@ -447,18 +447,34 @@ fusion; FusedSensor(Jmax=50, lam=0, N=8) + MPCPreviewController(R=3e-4, R_du=0).
 Home cell W30/Tg0.4, DAMULT=3, 6 seeds rng(100+seed). Baseline 'none' = one-step
 argmin (same R, same raw frac), same seeds (paired).
 
-| sigma/W0 | combo CLred | combo [min,max] flags/6 | sigma_del m/s | none CLred | none flags/6 |
+| sigma/W0 | combo CLred | combo [min,max] flags/6 | sigma_del m/s | none CLred | none [min,max] flags/6 |
 |---|---|---|---|---|---|
-| 0%   | TBD | TBD | TBD | -- | -- |
-| 1%   | TBD | TBD | TBD | TBD | TBD |
-| 2%   | TBD | TBD | TBD | TBD | TBD |
-| 5%   | TBD | TBD | TBD | TBD | TBD |
-| 10%  | TBD | TBD | TBD | TBD | TBD |
-| 20%  | TBD | TBD | TBD | TBD | TBD |
+| 0%   | **+80.5%** | [+80.5,+80.5] 0/6 | ~0 | -- | -- |
+| 1%   | **+80.5%** | [+80.5,+80.5] 0/6 | 0.035 | +9.6% | [−13.3,+22.4] 3/6 |
+| 2%   | **+80.5%** | [+80.4,+80.6] 0/6 | 0.070 | −0.1% | [−26.3,+19.2] 3/6 |
+| 5%   | **+81.3%** | [+80.6,+83.7] 1/6 | 0.175 | −7.4% | [−25.7,+20.8] 3/6 |
+| 10%  | **+81.7%** | [+80.4,+83.7] 1/6 | 0.348 | −21.1% | [−24.1,−16.3] 3/6 |
+| 20%  | +76.2%     | [+53.0,+83.1] 2/6 | 0.693 | −10.9% | [−15.1,−8.6] 3/6 |
 
-**Break-even vs combo-clean:** sigma/W0 = TBD%
-**Break-even vs prop-W clean (+32%):** sigma/W0 = TBD%
+**Break-even vs combo-clean (+80.5%):** never (−4.3 pts at worst, σ=20%)
+**Break-even vs prop-W clean (+32%):** never (combo stays ≥+76.2% throughout)
 
 Figure: `results/fig_noise_white_combo.png`
 
-Verdict: TBD (fill after cluster run).
+## W_combo verdict
+
+1. **E2-combo is essentially noise-immune up to σ=10%·W0 (3 m/s).** The fusion
+   reduces σ_del by ~7× at each sigma level (e.g. σ=2% raw → 0.070 m/s delivered
+   vs 0.487 m/s for the one-step baseline); the horizon MPC then converts the
+   residual sub-0.1 m/s noise into a cost-function average rather than a branch
+   selection. The result is +80.5% with 0/6 flags at σ=2%, identical to the
+   clean oracle. Even at σ=20% (6 m/s raw, 0.693 m/s delivered) the mean is
+   +76.2% — still 44 pts above the prop-W +32% clean reference.
+2. **The one-step argmin collapses immediately.** At σ=1% it is already +9.6%
+   (3/6 flags); at σ=2% the mean is −0.1% — worse than open loop. The delivered
+   noise (0.487 m/s) is above the 0.22 m/s break-even measured in axis A. The
+   two controllers are incomparable as GLA laws under any realistic sensor noise.
+3. **Composition robustness confirmed:** these results use the same Jmax=50,
+   N=8, R=3e-4, R_du=0 parameters as the E2CC generality check — no re-tuning
+   for the noise sweep. The study fully supersedes Verdict #5 ("honest number
+   +8%") with the honest number **+80.5%, 0/6 flags, at realistic raw noise**.
