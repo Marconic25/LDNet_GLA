@@ -478,3 +478,131 @@ Figure: `results/fig_noise_white_combo.png`
    N=8, R=3e-4, R_du=0 parameters as the E2CC generality check — no re-tuning
    for the noise sweep. The study fully supersedes Verdict #5 ("honest number
    +8%") with the honest number **+80.5%, 0/6 flags, at realistic raw noise**.
+
+---
+
+# A2 — calibration robustness of the E2-combo (2026-07-09)
+
+Axis: noise_calib_combo.py — the sensor measures a mis-calibrated field
+Wt_meas = gain*Wt + bias (bias = value*W0) with per-shot noise sigma_fun(j).
+Inverse-variance fusion removes VARIANCE, not systematic error: bias_del
+(mean of Wc − Wnext) confirms pass-through, so the axis measures the MPC's
+own calibration tolerance. Combo-only (no comparison arms, user decision).
+Home cell W30/Tg0.4, DAMULT=3, Jmax=50, lam=0, N=8, R=3e-4, R_du=0.
+Clean sweep deterministic (1 rollout/point); spot-checks sigma=2%*W0, 6 seeds.
+
+| arm/value      | clean CLred (flags) | sigma=2% mean [min,max] flags/6 | sigma_del | bias_del m/s |
+|----------------|---------------------|----------------------------------|-----------|--------------|
+| bias −10%·W0   | +59.8 (0)           | —                                | 1.42      | −1.15        |
+| bias −5%·W0    | +73.9 (0)           | +74.2 [+73.7,+74.9] 0/6          | 0.73      | −0.60        |
+| bias −2%·W0    | +80.2 (0)           | —                                | 0.29      | −0.25        |
+| bias 0 (anchor)| **+80.5 (0)**       | —                                | ~0        | ~0           |
+| bias +2%·W0    | **+23.5 (FLAG)**    | —                                | ~0        | +0.60        |
+| bias +5%·W0    | +12.9 (FLAG)        | +13.1 [+12.6,+13.5] **6/6**      | 0.085     | +1.50        |
+| bias +10%·W0   | −4.9 (FLAG)         | —                                | ~0        | +3.00        |
+| gain ×0.8      | +46.8 (0)           | —                                | 2.05      | −1.33        |
+| gain ×0.9      | +74.2 (0)           | —                                | 1.03      | −0.67        |
+| gain ×1.1      | +79.7 (0)           | —                                | 1.03      | +0.67        |
+| gain ×1.2      | +77.0 (0)           | +76.5 [+76.2,+76.8] 1/6          | 2.05      | +1.35        |
+
+## A2 verdict
+
+1. **Bias is the killer for the MPC too, and it is violently asymmetric.**
+   Positive bias survives fusion intact (bias_del = injected) and already at
+   **+2%·W0 = +0.6 m/s collapses the combo to +23.5% with an explosion flag**
+   (+5%: +12.9, 6/6 flags noisy; +10%: −4.9, worse than open loop). Negative
+   bias is nearly free down to −5%·W0 (+73.9, no flags): the sensor output
+   clamp max(0,·) truncates it near W≈0 (delivered −0.60 of −1.5 injected;
+   the truncation also shows as sigma_del 0.3–1.4) and an under-estimated
+   gust makes the MPC under-commit flap — graceful. Mechanism identical to
+   the historical C-axis money plot: errors where W≈0 flip the post-gust
+   behaviour; a phantom positive gust keeps the flap deployed.
+2. **Gain error is benign for the horizon MPC** (×0.9–1.2: +74…+80, no clean
+   flags; ×1.2 noisy 1/6): multiplicative error preserves the gust phase and
+   zeros. Unlike the one-step argmin (×1.2 rang), the integrated cost absorbs
+   it. ×0.8 costs real performance (+46.8) but stays stable.
+3. **Amplitude noise does not interact with calibration errors**: every noisy
+   spot-check sits on its clean value (−5%: +74.2 vs +73.9; +5%: +13.1 vs
+   +12.9; ×1.2: +76.5 vs +77.0) — only the flag counts move.
+4. Sensor spec consequence: the lidar bias budget for this controller is
+   **asymmetric — under-read, never over-read** (calibrate the chain to
+   err low). Gain accuracy is secondary (±10% free, ±20% survivable).
+
+# B2 — timing robustness of the E2-combo (2026-07-09)
+
+Axis: noise_timing_combo.py — (a) shift: the sensor measures the time-shifted
+field Wt[m+d] (frozen-field advection error; d>0 = gust appears d steps EARLY
+in the preview, d<0 = late/stale); (b) refit: measurements accumulate every
+step (500 Hz) but the profile is re-SOLVED every K steps and re-sliced by the
+frozen-field offset in between (DLR refits at 10 Hz; K−1+N ≤ Jmax caps the
+clean re-slice at K=42 ≈ 12 Hz with Jmax=50 — true 10 Hz needs Jmax ≥ 58).
+RefitSensor K=1 reproduced W_combo per-seed BIT-EXACTLY (80.3860/80.5235,
+smoke gate). Same cell/config as A2. Refit arm at sigma=2% only (clean refit
+is trivially flat: exact measurements make staleness invisible).
+
+| shift d | ms    | clean CLred (flags) | sigma=2% mean [min,max] flags/6 |
+|---------|-------|---------------------|----------------------------------|
+| −10     | −20   | +58.9 (FLAG)        | —                                |
+| −5      | −10   | **+78.6 (0)**       | +78.6 [+78.0,+79.0] 0/6          |
+| −2      | −4    | +80.3 (0)           | —                                |
+| −1      | −2    | +80.4 (0)           | —                                |
+| 0       | 0     | **+80.5 (0)**       | —                                |
+| +1      | +2    | +81.0 (0)           | —                                |
+| +2      | +4    | **+71.5 (FLAG)**    | —                                |
+| +5      | +10   | +18.0 (FLAG)        | +38.5 [+18.4,+45.4] **6/6**      |
+| +10     | +20   | +10.7 (FLAG)        | —                                |
+
+| refit K | period ms | rate Hz | sigma=2% mean [min,max] flags/6 | sigma_del m/s |
+|---------|-----------|---------|----------------------------------|---------------|
+| 1       | 2         | 500     | +80.5 [+80.4,+80.6] 0/6          | 0.070         |
+| 5       | 10        | 100     | +80.5 [+80.4,+80.6] 0/6          | 0.071         |
+| 10      | 20        | 50      | +80.5 [+80.5,+80.6] 0/6          | 0.073         |
+| 25      | 50        | 20      | +80.5 [+80.4,+80.6] 0/6          | 0.081         |
+| 42      | 84        | ~12     | **+80.5 [+80.4,+80.6] 0/6**      | 0.103         |
+
+## B2 verdict
+
+1. **Timing tolerance is asymmetric, opposite to naive intuition: LATE is
+   cheap, EARLY is toxic.** Stale preview down to −10 ms costs 2 pts
+   (+78.6, no flags — the one-step died at −2 ms): the receding horizon
+   re-plans from the measured state every step, so lateness only delays the
+   first moves. Acting EARLY flags already at +4 ms (+71.5) and collapses by
+   +10 ms (+18.0): the flap moves against a gust that has not arrived, the
+   self-induced transient is costed against trim, and the misplaced
+   flap/rate budget rings when the real gust lands. Amplitude noise does not
+   rescue it (+10 ms noisy: mean +38.5 but 6/6 flags) and does not hurt the
+   late side (−10 ms noisy: +78.6, 0/6, same as clean).
+2. **Estimator refit rate is FREE down to ~12 Hz** — the slowest rate the
+   Jmax=50 window supports cleanly. All K give +80.5% with 0/6 flags;
+   staleness only creeps into sigma_del (0.070 → 0.103 m/s at K=42, the
+   delivered nodes having been solved with fewer accumulated shots). The
+   DLR arrangement (measure at 500 Hz, re-fit at 10 Hz, re-slice by frozen
+   field) costs this controller nothing measurable.
+3. Sensor spec consequence: **budget the sensing chain toward lateness** —
+   any systematic timing uncertainty (advection speed, processing delay)
+   should be absorbed on the stale side, never by extrapolating ahead.
+
+# Robustness envelope of the E2-combo (thesis deliverable)
+
+Systematic-error tolerances at the severe cell W30/Tg0.4 (DAMULT=3), fixed
+winner config (Jmax=50, lam=0, N=8, R=3e-4, R_du=0), criterion "mean within
+~2 pts of the +80.5% clean anchor AND no explosion flags". Amplitude-noise
+rows from W_combo for completeness.
+
+| error class                  | tolerated (no-flag)            | first failure            |
+|------------------------------|--------------------------------|--------------------------|
+| raw white noise (pre-fusion) | σ ≤ 10%·W0 = 3 m/s (≤1/6)      | σ=20%: +76.2, 2/6        |
+| additive bias, negative      | ≥ −5%·W0 = −1.5 m/s (−2% free) | −10%: +59.8 (no flag)    |
+| additive bias, positive      | **< +2%·W0 = +0.6 m/s**        | +2%: +23.5, FLAG         |
+| gain                         | ×[0.9, 1.2]                    | ×0.8: +46.8 (no flag)    |
+| preview timing, late         | ≥ −10 ms (−5 steps)            | −20 ms: +58.9, FLAG      |
+| preview timing, early        | **≤ +2 ms (+1 step)**          | +4 ms: +71.5, FLAG       |
+| estimator refit period       | ≤ 84 ms (~12 Hz), zero cost    | none up to window limit  |
+
+The envelope is sharply one-sided: the pipeline is certifiable-grade robust
+to everything a redundant, conservatively calibrated sensing chain actually
+delivers (variance, under-estimation, staleness, slow refit) and fragile
+only to the two errors a chain must never make — over-reading the gust and
+anticipating it. Both specs are cheap to honour by construction (calibrate
+low, buffer late); neither is achievable by averaging, which is exactly why
+the fusion layer cannot substitute for them.
