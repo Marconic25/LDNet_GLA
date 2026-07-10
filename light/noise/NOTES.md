@@ -606,3 +606,112 @@ only to the two errors a chain must never make — over-reading the gust and
 anticipating it. Both specs are cheap to honour by construction (calibrate
 low, buffer late); neither is achievable by averaging, which is exactly why
 the fusion layer cannot substitute for them.
+
+---
+
+# C2 — spatial per-shot jitter of the E2-combo (2026-07-10)
+
+Axis: noise_jitter_combo.py — every shot samples the field at the wrong node
+(value from clip(i+j+eta), eta ~ U{−k..+k} per shot, registered at i+j): the
+1D surrogate of lidar coherence loss / range-gate error / probe-volume
+averaging (Schlipf/Guo WES 2023). The fusion converges to W convolved with
+the jitter kernel — a spatial low-pass. k=0 reproduces FusedPreviewSensor
+bit-exactly (anchor gate). Node spacing U·dt = 0.16 m. Same cell/config as
+A2/B2.
+
+| k (nodes) | range error | jitter-only mean [min,max] flags/6 | sigma_del m/s |
+|-----------|-------------|-------------------------------------|---------------|
+| 0 (anchor)| 0           | **+80.5 (0/1, deterministic)**      | ~0            |
+| 1         | 0.16 m      | +80.5 [+80.5,+80.5] 0/6             | 0.026         |
+| 2         | 0.32 m      | +80.5 [+80.4,+80.5] 0/6             | 0.045         |
+| 5         | 0.80 m      | +80.4 [+80.4,+80.5] 0/6             | 0.104         |
+| 2 + σ=2%  | 0.32 m      | +80.9 [+80.4,+83.2] 1/6             | 0.082         |
+
+## C2 verdict
+
+**Per-shot range jitter is FREE up to the tested 0.80 m.** The smearing
+argument is real but the scales save us: the gust length is Tg·U = 32 m, so
+±0.8 m of spatial smear perturbs the fused profile by ~2.5% of the gust
+wavelength — delivered as ≤0.10 m/s of effective noise, well inside the
+W_combo tolerance. Coherence loss would need to reach the gust-gradient
+scale (metres to tens of metres, i.e. wind evolution, not range-gate error)
+before this controller notices. Combined jitter+amplitude noise (k=2, σ=2%)
+sits on the anchor with 1/6 flag.
+
+# D2 — structural model mismatch of the E2-combo (2026-07-10)
+
+Axis: noise_mismatch_combo.py — the PLANT flies with perturbed parameters
+while the MPC predicts with nominal ones (toggle of structure globals around
+mpc.compute; each perturbed plant compared against ITS OWN open loop, cex0
+logged). uinf/cltrim arms mis-set the CONTROLLER's constructor instead
+(plant nominal). Oracle-clean preview: the axis isolates model error.
+Declared limit: the LDNet is shared plant/controller — structural mismatch
+only. Deterministic (1 rollout/point).
+
+| arm / value            | CLred (flags) | cex0 (plant OL) | note |
+|------------------------|---------------|-----------------|------|
+| anchor                 | **+80.5 (0)** | 0.4600          | gate |
+| plant D_ALPHA ×0.67    | +80.5 (0)     | 0.4678          | ctrl assumes DAMULT=3, plant ~2 |
+| plant D_ALPHA ×0.83    | +80.6 (0)     | 0.4639          | |
+| plant D_ALPHA ×1.17    | +80.6 (0)     | 0.4560          | |
+| plant D_ALPHA ×1.33    | +80.6 (0)     | 0.4523          | plant ~4 |
+| plant K_ALPHA ×0.90    | +40.5 (0)     | **0.8519**      | plant OL nearly doubles |
+| plant K_ALPHA ×0.95    | +85.8 (0)     | 0.5613          | −2.5% pitch frequency |
+| plant K_ALPHA ×1.05    | +78.9 (0)     | 0.4688          | |
+| plant K_ALPHA ×1.10    | +77.0 (0)     | 0.4738          | |
+| ctrl U = 76 (−5%)      | **−57.5 (0)** | 0.4600          | worse than open loop |
+| ctrl U = 84 (+5%)      | −2.1 (FLAG)   | 0.4600          | |
+| ctrl C_L_trim ×0.95    | **−60.8 (0)** | 0.4600          | worse than open loop |
+| ctrl C_L_trim ×1.05    | −1.9 (FLAG)   | 0.4600          | |
+
+## D2 verdict
+
+1. **Structural mismatch is a non-event.** Pitch damping ×0.67–1.33 (i.e.
+   the entire plant-DAMULT 2→4 range against an assumed 3) changes nothing:
+   +80.5/+80.6, no flags — D_ALPHA barely acts inside a 16 ms horizon.
+   Pitch stiffness ±5–10% keeps +77…+86 with zero flags. The K_ALPHA ×0.90
+   row reads low (+40.5) but its plant is a different problem: the open-loop
+   excursion nearly doubles (cex0 0.85 vs 0.46, ω_α −5% moving toward this
+   gust); the mismatched controller still holds the residual at ≈ the
+   NOMINAL plant's open-loop level. Caveat: CLred on a perturbed plant mixes
+   plant difficulty with mismatch damage; a matched-controller reference on
+   the same plant would separate them (not run). Against Forte 2023's
+   −2.5%-frequency collapse (69→39%), our −2.5% row (K_ALPHA ×0.95) sits at
+   +85.8 — the receding horizon with state feedback does not inherit the
+   estimator-model fragility.
+2. **The controller's REFERENCE calibration is the true fragile axis.**
+   ±5% on the believed airspeed or on C_L_trim is catastrophic: −57.5%
+   (U=76) and −60.8% (trim ×0.95) — the controller becomes actively worse
+   than no controller, without even flagging; the +5% sides sit at ≈0% with
+   flags. The U and trim curves nearly coincide, exposing the mechanism:
+   the horizon cost is (C_L − trim)², so any inconsistency between the
+   model-predicted C_L (LDNet evaluated at the believed U) and the trim
+   reference acts as a CONSTANT offset in the cost — the controller holds a
+   permanent flap deflection chasing a phantom, the same post-gust wind-up
+   money-plot mechanism as the A2 positive bias, now injected through the
+   model side. −5% U ≈ −5% trim because C_L_trim(U) is near-linear here.
+3. Spec consequence: U and C_L_trim are the two best-instrumented quantities
+   on any aircraft (air data + trim measurement), so the fragile axes are
+   the cheap ones to honour — but the spec must be stated: **the surrogate
+   must be evaluated at the true flight condition and the trim reference
+   must track the actual trim to ≪5%** (edge not bracketed below 5%; a
+   finer sweep would locate it). Consistency of the (model, reference) pair
+   matters more than either value alone.
+
+## Robustness envelope — C2/D2 additions
+
+| error class                  | tolerated (no-flag)            | first failure            |
+|------------------------------|--------------------------------|--------------------------|
+| per-shot range jitter        | ≤ 0.80 m (all tested)          | none up to 0.80 m        |
+| plant D_ALPHA vs model       | ×[0.67, 1.33] (all tested)     | none in range            |
+| plant K_ALPHA vs model       | ×[0.95, 1.10] (≥ +77%)         | ×0.90: +40.5 (harder plant, no flag) |
+| controller U estimate        | **≪ ±5%** (edge not bracketed) | ±5%: −57.5 / −2.1 FLAG   |
+| controller C_L_trim estimate | **≪ ±5%** (edge not bracketed) | ±5%: −60.8 / −1.9 FLAG   |
+
+Updated study-level picture: across all four families (A2 calibration, B2
+timing, C2 coherence-surrogate, D2 model mismatch) every VARIANCE-class
+error is absorbed by the fusion+horizon composition, and every failure is a
+BIAS-class error in disguise — gust over-read, preview anticipation, wrong
+trim/airspeed reference. The controller needs its reference frame (where
+zero is, when now is) far more than it needs precise measurements or a
+precise structural model.
