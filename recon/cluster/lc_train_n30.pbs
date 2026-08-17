@@ -1,0 +1,36 @@
+#!/bin/bash
+#PBS -N lcN30
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#
+# Learning-curve training, rung N=30, ONE latent dim per job (-v DS=k).
+# Protocol identical to final_div for cross-N comparability: adam=300, bfgs=2000,
+# restarts=2, linear output, legacy valid (A_020) and test (Cc_060); extra tests
+# (A_025 gust-only, B_038 flap-only) reconstructed for post-hoc per-field metrics.
+
+: "${DS:?must pass -v DS=<latent dim>}"
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+
+echo "=== lcN30 ds=$DS start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p models/lc_N30; \
+      python3 -u train_fields.py --train data/FIELDS_lc_N30_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out models/lc_N30 --latents $DS \
+        --adam 300 --bfgs 2000 --restarts 2 --output-nl linear --log-every 1 \
+        > models/lc_N30/train_ds$DS.log 2>&1; \
+      python3 -u reconstruct_fields.py --model models/lc_N30/latent_$DS \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/lc_N30_rom_a025_l$DS > models/lc_N30/recon_ds$DS.log 2>&1; \
+      python3 -u reconstruct_fields.py --model models/lc_N30/latent_$DS \
+        --data data/FIELDS_B038.h5 --index 0 --name sim_B_038 \
+        --out results/lc_N30_rom_b038_l$DS >> models/lc_N30/recon_ds$DS.log 2>&1; \
+      echo LCN30_DS${DS}_DONE"
+echo "=== lcN30 ds=$DS end $(date) exit $? ==="

@@ -58,14 +58,16 @@ def _rng(lo, hi):
 
 
 def compute_normalization(train, dt_base):
-    """Min/max normalization ranges from the training arrays."""
+    """Min/max normalization ranges from the training arrays. Space bounds are
+    per-column, so extra point-feature columns (wall distance, BL mask) are
+    normalized alongside x,y with zero changes in src/."""
     inp = train["input_signals"]      # (N,T,6)
     of  = train["output_fields"]      # (N,T,P,3)
     os_ = train["output_signals"]     # (N,T,1,2)
-    pts = train["points"]             # (P,2)
+    pts = train["points"]             # (P, 2+F)
     norm = {
-        "space": {"min": [float(pts[:, 0].min()), float(pts[:, 1].min())],
-                  "max": [float(pts[:, 0].max()), float(pts[:, 1].max())]},
+        "space": {"min": [float(pts[:, j].min()) for j in range(pts.shape[1])],
+                  "max": [float(pts[:, j].max()) for j in range(pts.shape[1])]},
         "time": {"time_constant": dt_base},
         "input_parameters": {"U_inf": {"min": 0.0, "max": 120.0}},
         "input_signals": {SIGNAL_NAMES[i]: _rng(inp[:, :, i].min(), inp[:, :, i].max())
@@ -78,22 +80,120 @@ def compute_normalization(train, dt_base):
     return norm
 
 
+def build_fourier_B(scales, m, seed=12345):
+    """Gaussian random Fourier-feature frequency matrix B: (2, m*len(scales)).
+    Columns for scale s are drawn ~ N(0, s^2). Seed is FIXED (not the run seed) so
+    every seed/arm shares the same feature basis -> a fair 'does FF help' test; only
+    the network init varies with the run seed."""
+    rng = np.random.default_rng(seed)
+    return np.concatenate([rng.normal(0.0, float(s), size=(2, m)) for s in scales], axis=1)
+
+
+def fourier_encode(coords, B):
+    """coords [...,2] (normalized x,y) -> [cos, sin](2*pi * coords @ B), dim 2*M."""
+    proj = 2.0 * np.pi * tf.matmul(coords, tf.constant(B, tf.float64))
+    return tf.concat([tf.cos(proj), tf.sin(proj)], axis=-1)
+
+
+class ModulatedSiren(tf.keras.Model):
+    """Shift-modulated SIREN decoder (CORAL / Functa style) as a drop-in NNrec
+    (D-RES lever, [[dynamic-residual-levers]]).
+
+    Receives the SAME concatenated tensor the tanh decoder gets,
+    [latent_state (nls) | input_signals (nsig) | coords (din_coord)], and splits
+    it back into a conditioning code c=[z,u] and the spatial coords. A small
+    modulation MLP maps c -> per-sine-layer modulation; the SIREN base maps
+    coords -> field, then a linear head. Sine activations supply the
+    high-frequency capacity directly (no Fourier features needed), and the
+    modulation conditions the field on (z,u) without touching the latent ODE.
+
+    mod_type: 'shift' (CORAL/Functa, default) -> sin(omega0*(W h + b) + beta_l);
+    'film' (FiLM, scale+shift) -> sin(omega0*(gamma_l * (W h + b)) + beta_l) with
+    gamma_l = 1 + modnet output (so it starts at ~1 and film reduces to a plain
+    SIREN at init -> stable). film gives the decoder a multiplicative per-channel
+    conditioning knob on top of the additive shift.
+
+    Deviation from CORAL: the modulation is produced amortized by an MLP from
+    (z,u), trained end-to-end, not meta-learned per-sample latent codes. SIREN
+    init per Sitzmann 2020: first layer U(-1/fan_in, 1/fan_in), hidden layers
+    U(-sqrt(6/fan_in)/omega0, +...), linear output head."""
+
+    def __init__(self, din_mod, din_coord, width, depth, out_dim,
+                 omega0=30.0, mod_layers=2, mod_width=None, mod_type="shift", **kw):
+        super().__init__(**kw)
+        self.din_mod = int(din_mod)
+        self.width = int(width)
+        self.depth = int(depth)
+        self.omega0 = float(omega0)
+        self.mod_type = str(mod_type)
+        self.n_mod = 2 if self.mod_type == "film" else 1   # (scale, shift) vs shift-only
+        mod_width = self.width if mod_width is None else int(mod_width)
+        self.siren = []
+        for l in range(self.depth):
+            fan_in = int(din_coord) if l == 0 else self.width
+            lim = (1.0 / fan_in) if l == 0 else (np.sqrt(6.0 / fan_in) / self.omega0)
+            self.siren.append(tf.keras.layers.Dense(
+                self.width, activation=None,
+                kernel_initializer=tf.keras.initializers.RandomUniform(-lim, lim),
+                bias_initializer="zeros"))
+        self.head = tf.keras.layers.Dense(int(out_dim), activation=None)
+        mod = [tf.keras.layers.Dense(mod_width, activation=tf.nn.tanh)
+               for _ in range(int(mod_layers))]
+        mod += [tf.keras.layers.Dense(self.depth * self.width * self.n_mod, activation=None)]
+        self.modnet = tf.keras.Sequential(mod)
+
+    def call(self, x):
+        code = x[..., :self.din_mod]          # [z, u], broadcast across points
+        h = x[..., self.din_mod:]             # coords (raw, or +wall features)
+        m = self.modnet(code)                 # (..., depth*width*n_mod)
+        W = self.width
+        for l in range(self.depth):
+            pre = self.siren[l](h)
+            if self.mod_type == "film":
+                b = l * W * 2
+                scale = 1.0 + m[..., b:b + W]                 # ~1 at init -> stable
+                shift = m[..., b + W:b + 2 * W]
+                h = tf.sin(self.omega0 * (scale * pre) + shift)
+            else:
+                shift = m[..., l * W:(l + 1) * W]
+                h = tf.sin(self.omega0 * pre + shift)
+        return self.head(h)
+
+
 def build_networks(num_latent_states, problem, dt, dt_base,
-                   dyn_layers=2, dyn_width=7, rec_layers=4, rec_width=24):
+                   dyn_layers=2, dyn_width=7, rec_layers=4, rec_width=24,
+                   rec_space_dim=None, decoder="mlp",
+                   siren_omega0=30.0, siren_mod_layers=2, siren_mod_width=None,
+                   siren_mod_type="shift"):
     """Defaults (2x7 dyn, 4x24 rec) reproduce the original hardcoded architecture
-    exactly (same layer order -> same weight-init RNG draws for a given seed)."""
+    exactly (same layer order -> same weight-init RNG draws for a given seed).
+    rec_space_dim overrides the decoder's spatial-input width (Fourier-feature
+    encoding widens it beyond problem['space']['dimension']).
+    decoder='coral' swaps the tanh NNrec for a shift-modulated SIREN (D-RES arm);
+    NNdyn (the latent ODE) is unchanged in every case."""
     n_inp = num_latent_states + len(problem["input_parameters"]) + len(problem["input_signals"])
     dyn = [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh, input_shape=(n_inp,))]
     dyn += [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh)
             for _ in range(dyn_layers - 1)]
     dyn += [tf.keras.layers.Dense(num_latent_states)]
     NNdyn = tf.keras.Sequential(dyn)
-    n_rec = num_latent_states + len(problem["input_signals"]) + problem["space"]["dimension"]
-    rec = [tf.keras.layers.Dense(rec_width, activation=tf.nn.tanh, input_shape=(None, None, n_rec))]
-    rec += [tf.keras.layers.Dense(rec_width, activation=tf.nn.tanh)
-            for _ in range(rec_layers - 1)]
-    rec += [tf.keras.layers.Dense(len(problem["output_fields"]))]   # 3 = vx,vy,p
-    NNrec = tf.keras.Sequential(rec)
+    sdim = problem["space"]["dimension"] if rec_space_dim is None else rec_space_dim
+    n_rec = num_latent_states + len(problem["input_signals"]) + sdim
+    if decoder == "coral":
+        NNrec = ModulatedSiren(
+            din_mod=num_latent_states + len(problem["input_signals"]),
+            din_coord=sdim, width=rec_width, depth=rec_layers,
+            out_dim=len(problem["output_fields"]), omega0=siren_omega0,
+            mod_layers=siren_mod_layers, mod_width=siren_mod_width,
+            mod_type=siren_mod_type)
+        NNrec(tf.zeros((1, 1, 1, n_rec), dtype=tf.float64))   # force-build variables
+    else:
+        rec = [tf.keras.layers.Dense(rec_width, activation=tf.nn.tanh,
+                                     input_shape=(None, None, n_rec))]
+        rec += [tf.keras.layers.Dense(rec_width, activation=tf.nn.tanh)
+                for _ in range(rec_layers - 1)]
+        rec += [tf.keras.layers.Dense(len(problem["output_fields"]))]   # 3 = vx,vy,p
+        NNrec = tf.keras.Sequential(rec)
     return NNdyn, NNrec
 
 
@@ -170,9 +270,12 @@ class RecordingOptimizationProblem(optimization.OptimizationProblem):
         return self.bfgs_result
 
 
-def make_ldnet(NNdyn, NNrec, num_latent_states, problem, dt, dt_base, output_nl="cubic"):
+def make_ldnet(NNdyn, NNrec, num_latent_states, problem, dt, dt_base, output_nl="cubic",
+               fourier_B=None):
     """output_nl: 'cubic' = (out^3 + alpha*out)/(1+alpha) tail-compression (baseline,
-    ~21x gradient attenuation near 0); 'linear' = identity (healthy unit gradient)."""
+    ~21x gradient attenuation near 0); 'linear' = identity (healthy unit gradient).
+    fourier_B: if given, the decoder's (x,y) columns are Fourier-feature encoded
+    (spectral-bias remedy); any extra spatial columns (wall features) pass through."""
     alpha = 0.05
 
     def evolve_dynamics(dataset):
@@ -193,7 +296,11 @@ def make_ldnet(NNdyn, NNrec, num_latent_states, problem, dt, dt_base, output_nl=
         s = tf.broadcast_to(tf.expand_dims(states, 2), [ns, nt, npx, num_latent_states])
         u = tf.broadcast_to(tf.expand_dims(dataset["input_signals"], 2),
                             [ns, nt, npx, len(problem["input_signals"])])
-        out = NNrec(tf.concat([s, u, dataset["points_full"]], axis=3))
+        coords = dataset["points_full"]
+        if fourier_B is not None:
+            coords = tf.concat([fourier_encode(coords[..., :2], fourier_B),
+                                coords[..., 2:]], axis=-1)
+        out = NNrec(tf.concat([s, u, coords], axis=3))
         if output_nl == "linear":
             return out
         return (out ** 3 + alpha * out) / (1 + alpha)
@@ -207,13 +314,19 @@ def make_ldnet(NNdyn, NNrec, num_latent_states, problem, dt, dt_base, output_nl=
     return ldnet, loss_fn
 
 
-def evaluate(ldnet, dataset, problem, norm):
+def evaluate(ldnet, dataset, problem, norm, mean_fields=None):
     out_n = ldnet(dataset)
     # denormalize using field ranges (output_fields)
     fmin = np.array([norm["output_fields"][n]["min"] for n in FIELD_NAMES])
     fmax = np.array([norm["output_fields"][n]["max"] for n in FIELD_NAMES])
     rom = utils.normalize_back(out_n, fmin, fmax, axis=3).numpy()
     fom = utils.normalize_back(dataset["output_fields"], fmin, fmax, axis=3).numpy()
+    if mean_fields is not None:
+        # mean-split: rom/fom above are fluctuations; add the stored mean back so all
+        # metrics stay in TOTAL-field units with the same full-range denominators as
+        # every previous run (directly comparable NRMSE).
+        rom = rom + mean_fields[None, None]
+        fom = fom + mean_fields[None, None]
     def safe_rho(a, b):
         if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))) or a.std() == 0 or b.std() == 0:
             return float("nan")
@@ -232,6 +345,18 @@ def evaluate(ldnet, dataset, problem, norm):
     metrics["rho"] = safe_rho(rom.ravel(), fom.ravel())
     print(f"  combined NRMSE {nrmse_all:.3e}")
     return metrics
+
+
+def wall_features(points, airfoil_xy, tau):
+    """Per-node wall features from the airfoil surface polyline (R2 lever):
+      d      = distance to the nearest airfoil-surface node (chord units, c=1)
+      sigma  = (max(0, 1 - d/tau))^2   BL mask: 1 at the wall, quadratic decay,
+               0 beyond tau (MARIO-style; their C_d ablation 0.794%->4.780%
+               without it). Returns (P, 2) [d, sigma]."""
+    from scipy.spatial import cKDTree
+    d = cKDTree(airfoil_xy).query(points[:, :2])[0]
+    sig = np.maximum(0.0, 1.0 - d / tau) ** 2
+    return np.stack([d, sig], axis=1)
 
 
 def area_weighted_subset(points, k, tri=None, seed=0):
@@ -277,8 +402,56 @@ def main():
     ap.add_argument("--bfgs", type=int, default=2000)
     ap.add_argument("--output-nl", choices=["cubic", "linear"], default="cubic",
                     help="NNrec output transform (cubic=tail-compress baseline, linear=identity)")
+    ap.add_argument("--mean-split", action="store_true",
+                    help="store the train-set ensemble+time mean field per point and train "
+                         "the decoder on FLUCTUATIONS around it (normalization recomputed on "
+                         "fluctuations; mean added back at eval so metrics stay total-field). "
+                         "Targets the static near-wall bias (M-SPLIT study).")
+    ap.add_argument("--mean-ref", choices=["ensemble", "t0"], default="ensemble",
+                    help="mean-split reference: 'ensemble' = mean over sims AND times "
+                         "(POD practice, default), 't0' = mean over sims of the first "
+                         "snapshot (= trim state; all sims start from the same checkpoint)")
+    ap.add_argument("--alpha-reg", type=float, default=0.0,
+                    help="Tikhonov weight regularization, reference-LDNet form (per-layer "
+                         "mean of squared kernels averaged over layers, biases excluded, "
+                         "NNdyn+NNrec; validation monitored WITHOUT the term). 0 disables. "
+                         "Loads-sweep finding: 3e-4 flips the d_s verdict there.")
+    ap.add_argument("--wall-feats", action="store_true",
+                    help="append wall distance d + BL mask (1-d/tau)^2_+ as extra decoder "
+                         "point-feature columns (R2 lever); requires --airfoil-nodes")
+    ap.add_argument("--airfoil-nodes", default=None,
+                    help="npy of airfoil-surface node INDICES into the reference grid "
+                         "(analysis_hmetric/airfoil_nodes.npy)")
+    ap.add_argument("--wall-tau", type=float, default=0.02,
+                    help="BL-mask decay length in chord units (default 0.02, MARIO tau)")
+    ap.add_argument("--fourier-scales", default=None,
+                    help="comma list of Gaussian RFF scales sigma to encode the decoder "
+                         "(x,y) inputs, e.g. '1,5' (multiscale, Aero-Nef best) or '10'. "
+                         "Off by default = raw coordinates. Spectral-bias remedy (D-RES arm A).")
+    ap.add_argument("--fourier-m", type=int, default=16,
+                    help="number of random Fourier frequencies PER scale (feature dim "
+                         "= 2*m*len(scales))")
+    ap.add_argument("--decoder", choices=["mlp", "coral"], default="mlp",
+                    help="NNrec architecture: 'mlp' = tanh MLP (baseline) or 'coral' = "
+                         "shift-modulated SIREN decoder (D-RES lever; sine base over "
+                         "coords, (z,u) injected as per-layer shifts). Latent ODE "
+                         "unchanged either way. coral forces output-nl=linear and is "
+                         "mutually exclusive with --fourier-scales (SIREN IS the "
+                         "spectral-bias remedy).")
+    ap.add_argument("--siren-omega0", type=float, default=30.0,
+                    help="SIREN first-/hidden-layer frequency omega0 (Sitzmann default 30)")
+    ap.add_argument("--siren-mod-layers", type=int, default=2,
+                    help="hidden layers in the (z,u)->shifts modulation MLP (coral only)")
+    ap.add_argument("--siren-mod-width", type=int, default=None,
+                    help="width of the modulation MLP (coral only; default = --rec-width)")
+    ap.add_argument("--siren-mod-type", choices=["shift", "film"], default="shift",
+                    help="coral modulation: 'shift' (CORAL, additive beta, default) or "
+                         "'film' (scale+shift: gamma*(Wh+b)+beta, more decoder capacity)")
     ap.add_argument("--restarts", type=int, default=1,
                     help="Adam restarts from different seeds; BFGS runs on best-val winner")
+    ap.add_argument("--seed-base", type=int, default=0,
+                    help="base RNG seed; restart r uses seed-base+r (default 0 = "
+                         "historical behavior, bit-identical to all previous runs)")
     ap.add_argument("--sampling", choices=["uniform", "area"], default="uniform",
                     help="point subsampling: uniform-over-nodes (baseline) or area-weighted")
     ap.add_argument("--tri", default=None, help="mesh_triangles.npy for exact area weighting")
@@ -295,6 +468,15 @@ def main():
                          "1 = full per-epoch/per-iteration history for convergence studies)")
     args = ap.parse_args()
 
+    if args.decoder == "coral":
+        assert not args.fourier_scales, \
+            "--decoder coral is mutually exclusive with --fourier-scales (SIREN sine " \
+            "activations are the spectral-bias remedy; do not double up)"
+        if args.output_nl != "linear":
+            print("coral decoder: forcing --output-nl linear (cubic tail-compression is "
+                  "meaningless with sine activations)")
+            args.output_nl = "linear"
+
     latents = [int(x) for x in args.latents.split(",")]
     out_dir = Path(args.out); (out_dir / "summary").mkdir(parents=True, exist_ok=True)
     problem = problem_def()
@@ -302,6 +484,50 @@ def main():
     raw_train0 = utils.load_gla_h5(args.train)
     times = raw_train0["times"]
     dt_base = float(times[1] - times[0]); dt = dt_base
+    mean_fields = None
+    if args.mean_split:
+        # mean over the TRAIN set only, per node, per field -> (P,3). 'ensemble' =
+        # mean over sims and times (POD practice); 't0' = mean over sims of the first
+        # snapshot (trim state; all sims start from the same checkpoint). All FIELDS
+        # h5 share the reference extraction grid, so the same mean applies
+        # point-aligned to valid/test. Computed BEFORE normalization so the min-max
+        # ranges are re-derived on the fluctuation fields.
+        if args.mean_ref == "t0":
+            mean_fields = raw_train0["output_fields"][:, 0].mean(axis=0)
+        else:
+            mean_fields = raw_train0["output_fields"].mean(axis=(0, 1))
+        raw_train0["output_fields"] = raw_train0["output_fields"] - mean_fields[None, None]
+        np.save(out_dir / "mean_fields.npy", mean_fields)
+        print(f"mean-split ON (ref={args.mean_ref}): stored train mean "
+              f"(P={mean_fields.shape[0]}), fluct ranges: " + ", ".join(
+                  f"{FIELD_NAMES[i]} [{raw_train0['output_fields'][..., i].min():.3g}, "
+                  f"{raw_train0['output_fields'][..., i].max():.3g}]" for i in range(3)))
+
+    airfoil_xy = None
+    if args.wall_feats:
+        assert args.airfoil_nodes, "--wall-feats requires --airfoil-nodes"
+        air_idx = np.load(args.airfoil_nodes)
+        airfoil_xy = raw_train0["points"][air_idx, :2].copy()
+        raw_train0["points"] = np.concatenate(
+            [raw_train0["points"], wall_features(raw_train0["points"], airfoil_xy,
+                                                 args.wall_tau)], axis=1)
+        problem["space"]["dimension"] = raw_train0["points"].shape[1]
+        print(f"wall-feats ON: +2 decoder inputs (d, sigma_bl tau={args.wall_tau}), "
+              f"{len(air_idx)} surface nodes, space dim -> "
+              f"{problem['space']['dimension']}")
+    # Fourier-feature encoding of the decoder (x,y) inputs (D-RES arm A).
+    fourier_B = None
+    rec_space_dim = None
+    if args.fourier_scales:
+        scales = [float(s) for s in args.fourier_scales.split(",")]
+        fourier_B = build_fourier_B(scales, args.fourier_m)
+        n_extra = problem["space"]["dimension"] - 2   # wall-feat columns, if any
+        rec_space_dim = 2 * args.fourier_m * len(scales) + n_extra
+        np.save(out_dir / "fourier_B.npy", fourier_B)
+        print(f"fourier-feats ON: scales={scales} m={args.fourier_m} -> "
+              f"decoder spatial dim {rec_space_dim} (2*{args.fourier_m}*{len(scales)}"
+              f"{f' + {n_extra} wall' if n_extra else ''})")
+
     norm = compute_normalization(raw_train0, dt_base)
     with open(out_dir / "normalization.json", "w") as f:
         json.dump(norm, f, indent=2)
@@ -313,11 +539,23 @@ def main():
         print(f"\n{'='*60}\n  num_latent_states = {nls}  "
               f"[output_nl={args.output_nl} sampling={args.sampling} "
               f"restarts={args.restarts} adam={args.adam} bfgs={args.bfgs}]\n{'='*60}")
-        np.random.seed(0); tf.random.set_seed(0)
+        np.random.seed(args.seed_base); tf.random.set_seed(args.seed_base)
 
         d_tr = utils.load_gla_h5(args.train)
         d_va = utils.load_gla_h5(args.valid)
         d_te = utils.load_gla_h5(args.test)
+
+        if mean_fields is not None:
+            for d in (d_tr, d_va, d_te):
+                assert d["output_fields"].shape[2] == mean_fields.shape[0], \
+                    "mean-split requires all datasets on the shared reference grid"
+                d["output_fields"] = d["output_fields"] - mean_fields[None, None]
+
+        if airfoil_xy is not None:
+            for d in (d_tr, d_va, d_te):
+                d["points"] = np.concatenate(
+                    [d["points"], wall_features(d["points"], airfoil_xy,
+                                                args.wall_tau)], axis=1)
 
         if args.sampling == "area":
             idx = area_weighted_subset(d_tr["points"], args.subsample, tri=tri_arr)
@@ -334,10 +572,31 @@ def main():
         def fresh():
             NNdyn, NNrec = build_networks(nls, problem, dt, dt_base,
                                           dyn_layers=args.dyn_layers, dyn_width=args.dyn_width,
-                                          rec_layers=args.rec_layers, rec_width=args.rec_width)
+                                          rec_layers=args.rec_layers, rec_width=args.rec_width,
+                                          rec_space_dim=rec_space_dim, decoder=args.decoder,
+                                          siren_omega0=args.siren_omega0,
+                                          siren_mod_layers=args.siren_mod_layers,
+                                          siren_mod_width=args.siren_mod_width,
+                                          siren_mod_type=args.siren_mod_type)
             ldnet, loss_fn = make_ldnet(NNdyn, NNrec, nls, problem, dt, dt_base,
-                                        output_nl=args.output_nl)
+                                        output_nl=args.output_nl, fourier_B=fourier_B)
             return NNdyn, NNrec, ldnet, loss_fn
+
+        def make_losses(NNdyn, NNrec, loss_fn):
+            """Train loss (+ optional reference-LDNet Tikhonov: per-layer mean of
+            squared kernels averaged over layers, biases excluded, NNdyn+NNrec);
+            validation loss monitored WITHOUT the term (as in sensitivity_latent)."""
+            loss_va = lambda: loss_fn(d_va, d_va["output_fields"])
+            if args.alpha_reg > 0:
+                def reg():
+                    def wreg(NN):
+                        ks = [l.kernel for l in NN.layers if hasattr(l, "kernel")]
+                        return tf.add_n([tf.reduce_mean(tf.square(k)) for k in ks]) / len(ks)
+                    return args.alpha_reg * (wreg(NNdyn) + wreg(NNrec))
+                loss_tr = lambda: loss_fn(d_tr, d_tr["output_fields"]) + reg()
+            else:
+                loss_tr = lambda: loss_fn(d_tr, d_tr["output_fields"])
+            return loss_tr, loss_va
 
         history = []          # (phase, kind, step, train_loss, valid_loss, wall_s)
         phase_wall = {}
@@ -347,17 +606,21 @@ def main():
         # --- Adam phase with restarts; keep the best init by validation loss ---
         best = None  # (val_loss, NNdyn_weights, NNrec_weights)
         for r in range(args.restarts):
-            np.random.seed(r); tf.random.set_seed(r)
+            np.random.seed(args.seed_base + r); tf.random.set_seed(args.seed_base + r)
             NNdyn, NNrec, ldnet, loss_fn = fresh()
             if not n_params:
                 n_params = {"NNdyn": int(NNdyn.count_params()),
                             "NNrec": int(NNrec.count_params())}
                 n_params["total"] = n_params["NNdyn"] + n_params["NNrec"]
+                rec_desc = (f"coral-SIREN {args.rec_layers}x{args.rec_width} "
+                            f"(omega0={args.siren_omega0:g}, {args.siren_mod_type} mod "
+                            f"{args.siren_mod_layers}L)"
+                            if args.decoder == "coral"
+                            else f"NNrec {args.rec_layers}x{args.rec_width}")
                 print(f"  arch: NNdyn {args.dyn_layers}x{args.dyn_width} "
-                      f"({n_params['NNdyn']} params), NNrec {args.rec_layers}x{args.rec_width} "
+                      f"({n_params['NNdyn']} params), {rec_desc} "
                       f"({n_params['NNrec']} params), total {n_params['total']} params")
-            loss_tr = lambda: loss_fn(d_tr, d_tr["output_fields"])
-            loss_va = lambda: loss_fn(d_va, d_va["output_fields"])
+            loss_tr, loss_va = make_losses(NNdyn, NNrec, loss_fn)
             t_ph = time.time()
             opt = RecordingOptimizationProblem(NNdyn.variables + NNrec.variables, loss_tr, loss_va,
                                                record_every=args.log_every, history=history,
@@ -374,8 +637,7 @@ def main():
         # --- BFGS polish on the best Adam init ---
         NNdyn, NNrec, ldnet, loss_fn = fresh()
         NNdyn.set_weights(best[1]); NNrec.set_weights(best[2])
-        loss_tr = lambda: loss_fn(d_tr, d_tr["output_fields"])
-        loss_va = lambda: loss_fn(d_va, d_va["output_fields"])
+        loss_tr, loss_va = make_losses(NNdyn, NNrec, loss_fn)
         t_ph = time.time()
         opt = RecordingOptimizationProblem(NNdyn.variables + NNrec.variables, loss_tr, loss_va,
                                            record_every=args.log_every, history=history,
@@ -389,9 +651,29 @@ def main():
         md = out_dir / f"latent_{nls}"; md.mkdir(exist_ok=True)
         NNdyn.save_weights(str(md / "NNdyn_weights.weights.h5"))
         NNrec.save_weights(str(md / "NNrec_weights.weights.h5"))
+        if mean_fields is not None:
+            np.save(md / "mean_fields.npy", mean_fields)   # self-contained model dir
+        if airfoil_xy is not None:
+            np.save(md / "airfoil_xy.npy", airfoil_xy)     # for recon-time features
+        if fourier_B is not None:
+            np.save(md / "fourier_B.npy", fourier_B)       # for recon-time FF encoding
         with open(md / "config.json", "w") as f:
             json.dump({"problem": problem, "normalization": norm,
                        "num_latent_states": nls, "output_nl": args.output_nl,
+                       "mean_split": bool(args.mean_split),
+                       "mean_ref": args.mean_ref if args.mean_split else None,
+                       "alpha_reg": args.alpha_reg,
+                       "wall_feats": ({"tau": args.wall_tau, "n_extra": 2}
+                                      if args.wall_feats else None),
+                       "fourier": ({"scales": [float(s) for s in args.fourier_scales.split(",")],
+                                    "m": args.fourier_m}
+                                   if args.fourier_scales else None),
+                       "decoder": args.decoder,
+                       "siren": ({"omega0": args.siren_omega0,
+                                  "mod_layers": args.siren_mod_layers,
+                                  "mod_width": args.siren_mod_width,
+                                  "mod_type": args.siren_mod_type}
+                                 if args.decoder == "coral" else None),
                        "architecture": {"dyn_layers": args.dyn_layers, "dyn_width": args.dyn_width,
                                         "rec_layers": args.rec_layers, "rec_width": args.rec_width,
                                         "n_params_dyn": n_params.get("NNdyn"),
@@ -413,6 +695,11 @@ def main():
                        "n_params": n_params,
                        "restarts": args.restarts, "adam": args.adam, "bfgs": args.bfgs,
                        "output_nl": args.output_nl, "log_every": args.log_every,
+                       "mean_split": bool(args.mean_split),
+                       "mean_ref": args.mean_ref if args.mean_split else None,
+                       "alpha_reg": args.alpha_reg,
+                       "wall_feats": bool(args.wall_feats),
+                       "seed_base": args.seed_base,
                        "best_adam_val": best[0],
                        "bfgs_result": bfgs_result,
                        "final_train_loss": final_tr, "final_valid_loss": final_va,
@@ -420,7 +707,7 @@ def main():
                        "total_wall_s": time.time() - t_run0}, f, indent=2)
 
         print("  eval (test, full grid):")
-        m = evaluate(ldnet, d_te, problem, norm)
+        m = evaluate(ldnet, d_te, problem, norm, mean_fields=mean_fields)
         m["num_latent_states"] = nls
         all_metrics.append(m)
         with open(md / "metrics.json", "w") as f:

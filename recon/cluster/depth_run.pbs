@@ -1,0 +1,27 @@
+#!/bin/bash
+#PBS -N depthrun
+#PBS -q cpu
+#PBS -l select=1:ncpus=8:mem=64gb
+#PBS -l walltime=48:00:00
+#PBS -j oe
+#
+# ONE depth-study run as its own PBS job: qsub -v RUNL=<total layers>,DS=<latent dim>.
+# Rationale (2026-07-09): the chain-link design caps any single run at ~22h; the cpu
+# queue allows 48h per job, which fits L48 (~28-32h est). L96 (~60h est) exceeds the
+# queue max and stays out of reach without within-run checkpointing.
+# budget-s 171000 = 47.5h so the driver kills training and writes status.json BEFORE
+# PBS kills the driver.
+
+: "${RUNL:?pass -v RUNL=<total layers>,DS=<latent dim>}"
+: "${DS:?pass -v RUNL=<total layers>,DS=<latent dim>}"
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+
+echo "=== depthrun L=$RUNL ds=$DS start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      python3 -u depth_driver.py --only $RUNL:$DS --budget-s 171000"
+echo "=== depthrun L=$RUNL ds=$DS end $(date) exit $? ==="

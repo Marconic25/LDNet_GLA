@@ -25,7 +25,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "src"))
 import utils                                   # noqa: E402
-from train_fields import build_networks, make_ldnet, FIELD_NAMES  # noqa: E402
+from train_fields import build_networks, make_ldnet, wall_features, FIELD_NAMES  # noqa: E402
 
 
 def main():
@@ -42,15 +42,37 @@ def main():
         cfg = json.load(f)
     problem, norm, nls = cfg["problem"], cfg["normalization"], cfg["num_latent_states"]
     output_nl = cfg.get("output_nl", "cubic")
+    arch = cfg.get("architecture", {})   # absent in pre-depth-study models -> defaults
     dt_base = norm["time"]["time_constant"]; dt = dt_base
 
-    NNdyn, NNrec = build_networks(nls, problem, dt, dt_base)
-    # build by calling once, then load weights
+    # Fourier-feature encoding widens the decoder spatial input beyond space dim.
+    ff = cfg.get("fourier")
+    fourier_B = np.load(model / "fourier_B.npy") if ff else None
+    n_extra = problem["space"]["dimension"] - 2
+    rec_space_dim = (2 * ff["m"] * len(ff["scales"]) + n_extra) if ff else None
+
+    # decoder architecture: 'mlp' (tanh, default) or 'coral' (shift-modulated SIREN)
+    decoder = cfg.get("decoder", "mlp")
+    siren = cfg.get("siren") or {}
+
+    NNdyn, NNrec = build_networks(nls, problem, dt, dt_base,
+                                  dyn_layers=arch.get("dyn_layers", 2),
+                                  dyn_width=arch.get("dyn_width", 7),
+                                  rec_layers=arch.get("rec_layers", 4),
+                                  rec_width=arch.get("rec_width", 24),
+                                  rec_space_dim=rec_space_dim, decoder=decoder,
+                                  siren_omega0=siren.get("omega0", 30.0),
+                                  siren_mod_layers=siren.get("mod_layers", 2),
+                                  siren_mod_width=siren.get("mod_width"),
+                                  siren_mod_type=siren.get("mod_type", "shift"))
+    # build by calling once, then load weights (space dim may include wall features / FF)
+    sdim = rec_space_dim if rec_space_dim is not None else problem["space"]["dimension"]
     _ = NNdyn(tf.zeros((1, nls + 1 + 6), tf.float64))
-    _ = NNrec(tf.zeros((1, 1, 1, nls + 6 + 2), tf.float64))
+    _ = NNrec(tf.zeros((1, 1, 1, nls + 6 + sdim), tf.float64))
     NNdyn.load_weights(str(model / "NNdyn_weights.weights.h5"))
     NNrec.load_weights(str(model / "NNrec_weights.weights.h5"))
-    ldnet, _ = make_ldnet(NNdyn, NNrec, nls, problem, dt, dt_base, output_nl=output_nl)
+    ldnet, _ = make_ldnet(NNdyn, NNrec, nls, problem, dt, dt_base, output_nl=output_nl,
+                          fourier_B=fourier_B)
 
     ds = utils.load_gla_h5(args.data)
     # keep only the requested sim
@@ -60,6 +82,11 @@ def main():
         ds["sim_families"] = ds["sim_families"][args.index:args.index + 1]
     points = ds["points"].copy()
     times = ds["times"].copy()
+    wf = cfg.get("wall_feats")
+    if wf:
+        axy = np.load(model / "airfoil_xy.npy")
+        ds["points"] = np.concatenate(
+            [ds["points"], wall_features(ds["points"], axy, wf["tau"])], axis=1)
     utils.process_dataset(ds, problem, norm, dt=None)   # full grid
 
     out_n = ldnet(ds)
@@ -67,6 +94,10 @@ def main():
     fmax = np.array([norm["output_fields"][n]["max"] for n in FIELD_NAMES])
     rom = utils.normalize_back(out_n, fmin, fmax, axis=3).numpy()[0]   # [T,Npts,3]
     fom = utils.normalize_back(ds["output_fields"], fmin, fmax, axis=3).numpy()[0]
+    if cfg.get("mean_split"):
+        # mean-split model: the net predicts fluctuations around the stored train mean.
+        # fom is unaffected (raw totals normalize->denormalize round-trip exactly).
+        rom = rom + np.load(model / "mean_fields.npy")[None]
 
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     np.save(out / f"rom_{args.name}.npy", rom.astype(np.float32))

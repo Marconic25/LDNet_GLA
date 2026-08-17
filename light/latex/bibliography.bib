@@ -384,6 +384,26 @@ of aeroelasticity},
 
 % --- FSI partizionato vs monolitico, review ----------------------------------
 
+@article{hubner2004monolithic,
+  author  = {H{\"u}bner, Bj{\"o}rn and Walhorn, Elmar and Dinkler, Dieter},
+  title   = {A Monolithic Approach to Fluid--Structure Interaction Using Space--Time Finite Elements},
+  journal = {Computer Methods in Applied Mechanics and Engineering},
+  volume  = {193},
+  number  = {23--26},
+  pages   = {2087--2104},
+  year    = {2004}
+}
+
+@article{heil2004solver,
+  author  = {Heil, Matthias},
+  title   = {An Efficient Solver for the Fully Coupled Solution of Large-Displacement Fluid--Structure Interaction Problems},
+  journal = {Computer Methods in Applied Mechanics and Engineering},
+  volume  = {193},
+  number  = {1--2},
+  pages   = {1--23},
+  year    = {2004}
+}
+
 @article{felippa2001partitioned,
   author  = {Felippa, Carlos A. and Park, K. C. and Farhat, Charbel},
   title   = {Partitioned Analysis of Coupled Mechanical Systems},
@@ -501,12 +521,86 @@ of aeroelasticity},
   year    = {1982}
 }
 
-@article{jasak1996error,
+@phdthesis{jasak1996error,
   author  = {Jasak, Hrvoje},
   title   = {Error Analysis and Estimation for the Finite Volume Method with Applications to Fluid Flows},
   school  = {Imperial College of Science, Technology and Medicine, London},
-  year    = {1996},
-  type    = {{Ph.D.} thesis}
+  year    = {1996}
+}
+
+@article{sweby1984limiters,
+  author  = {Sweby, Peter K.},
+  title   = {High Resolution Schemes Using Flux Limiters for Hyperbolic Conservation Laws},
+  journal = {SIAM Journal on Numerical Analysis},
+  volume  = {21},
+  number  = {5},
+  pages   = {995--1011},
+  year    = {1984}
+}
+
+@article{weller1998openfoam,
+  author  = {Weller, Henry G. and Tabor, Gavin and Jasak, Hrvoje and Fureby, Christer},
+  title   = {A Tensorial Approach to Computational Continuum Mechanics Using Object-Oriented Techniques},
+  journal = {Computers in Physics},
+  volume  = {12},
+  number  = {6},
+  pages   = {620--631},
+  year    = {1998}
+}
+
+% --- Verifica: convergenza di griglia (GCI / Richardson) ---------------------
+
+@article{roache1994perspective,
+  author  = {Roache, Patrick J.},
+  title   = {Perspective: A Method for Uniform Reporting of Grid Refinement Studies},
+  journal = {Journal of Fluids Engineering},
+  volume  = {116},
+  number  = {3},
+  pages   = {405--413},
+  year    = {1994},
+  publisher = {ASME}
+}
+
+@article{celik2008procedure,
+  author  = {Celik, Ishmail B. and Ghia, Urmila and Roache, Patrick J. and Freitas, Christopher J. and Coleman, Hugh and Raad, Peter E.},
+  title   = {Procedure for Estimation and Reporting of Uncertainty Due to Discretization in {CFD} Applications},
+  journal = {Journal of Fluids Engineering},
+  volume  = {130},
+  number  = {7},
+  pages   = {078001},
+  year    = {2008},
+  publisher = {ASME}
+}
+
+@inproceedings{shoemake1985animating,
+  author    = {Shoemake, Ken},
+  title     = {Animating Rotation with Quaternion Curves},
+  booktitle = {Proceedings of the 12th Annual Conference on Computer Graphics and Interactive Techniques ({SIGGRAPH} '85)},
+  pages     = {245--254},
+  year      = {1985},
+  publisher = {ACM}
+}
+
+@inproceedings{bergstra2011tpe,
+  author    = {Bergstra, James and Bardenet, R{\'e}mi and Bengio, Yoshua and K{\'e}gl, Bal{\'a}zs},
+  title     = {Algorithms for Hyper-Parameter Optimization},
+  booktitle = {Advances in Neural Information Processing Systems},
+  volume    = {24},
+  year      = {2011}
+}
+
+@inproceedings{li2020asha,
+  author    = {Li, Liam and Jamieson, Kevin and Rostamizadeh, Afshin and Gonina, Ekaterina and Ben-Tzur, Jonathan and Hardt, Moritz and Recht, Benjamin and Talwalkar, Ameet},
+  title     = {A System for Massively Parallel Hyperparameter Tuning},
+  booktitle = {Proceedings of Machine Learning and Systems ({MLSys})},
+  year      = {2020}
+}
+
+@inproceedings{nakkiran2021optimal,
+  author    = {Nakkiran, Preetham and Venkat, Prayaag and Kakade, Sham M. and Ma, Tengyu},
+  title     = {Optimal Regularization Can Mitigate Double Descent},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2021}
 }
 
 @article{ferziger2002cfd,
@@ -535,6 +629,394 @@ of aeroelasticity},
   publisher = {DCW Industries},
   address   = {La Ca{\~n}ada, CA, USA},
   year      = {2006}
+}
+
+@book{anderson2017fundamentals,
+  author    = {Anderson, John D.},
+  title     = {Fundamentals of Aerodynamics},
+  edition   = {6},
+  publisher = {McGraw-Hill Education},
+  address   = {New York, NY, USA},
+  year      = {2017}
+}
+
+% --- Gust loads, aeroelasticità, stato dell'arte GLA --------------------------
+
+@book{hoblit1988gust,
+  author    = {Hoblit, Frederic M.},
+  title     = {Gust Loads on Aircraft: Concepts and Applications},
+  publisher = {American Institute of Aeronautics and Astronautics},
+  series    = {AIAA Education Series},
+  address   = {Washington, DC, USA},
+  year      = {1988}
+}
+
+@book{wright2007aeroelasticity,
+  author    = {Wright, Jan R. and Cooper, Jonathan E.},
+  title     = {Introduction to Aircraft Aeroelasticity and Loads},
+  publisher = {John Wiley \& Sons},
+  address   = {Chichester, UK},
+  year      = {2007}
+}
+
+@book{hodges2011aeroelasticity,
+  author    = {Hodges, Dewey H. and Pierce, G. Alvin},
+  title     = {Introduction to Structural Dynamics and Aeroelasticity},
+  edition   = {2},
+  publisher = {Cambridge University Press},
+  address   = {Cambridge, UK},
+  year      = {2011}
+}
+
+@techreport{regan2012survey,
+  author      = {Regan, Christopher D. and Jutte, Christine V.},
+  title       = {Survey of Applications of Active Control Technology for Gust Alleviation and New Challenges for Lighter-Weight Aircraft},
+  institution = {NASA Dryden Flight Research Center},
+  number      = {NASA/TM-2012-216008},
+  address     = {Edwards, CA, USA},
+  year        = {2012}
+}
+
+@article{disney1977c5a,
+  author  = {Disney, T. E.},
+  title   = {C-5A Active Load Alleviation System},
+  journal = {Journal of Spacecraft and Rockets},
+  volume  = {14},
+  number  = {2},
+  pages   = {81--86},
+  year    = {1977},
+  publisher = {American Institute of Aeronautics and Astronautics}
+}
+
+@article{britt2000b2,
+  author  = {Britt, Robert T. and Jacobson, Steven B. and Arthurs, Timothy D.},
+  title   = {Aeroservoelastic Analysis of the {B-2} Bomber},
+  journal = {Journal of Aircraft},
+  volume  = {37},
+  number  = {5},
+  pages   = {745--752},
+  year    = {2000},
+  publisher = {American Institute of Aeronautics and Astronautics}
+}
+
+@inproceedings{giesseler2012mpc,
+  author    = {Giesseler, Hans-Gerd and Kopf, Matthias and Varutti, Paolo and Faulwasser, Timm and Findeisen, Rolf},
+  title     = {Model Predictive Control for Gust Load Alleviation},
+  booktitle = {Proceedings of the 4th IFAC Conference on Nonlinear Model Predictive Control},
+  series    = {IFAC Proceedings Volumes},
+  volume    = {45},
+  number    = {17},
+  pages     = {27--32},
+  year      = {2012},
+  address   = {Noordwijkerhout, The Netherlands}
+}
+
+@article{alam2015mixed,
+  author  = {Alam, Mushfiqul and Hromcik, Martin and Hanis, Tomas},
+  title   = {Active Gust Load Alleviation System for Flexible Aircraft: Mixed Feedforward/Feedback Approach},
+  journal = {Aerospace Science and Technology},
+  volume  = {41},
+  pages   = {122--133},
+  year    = {2015},
+  publisher = {Elsevier}
+}
+
+@article{zhao2023windtunnel,
+  author  = {Zhao, Dongqiang and Yang, Zhichun and Zeng, Xianang and Yu, Jinge and Gao, Yining and Huang, Guoning},
+  title   = {Wind Tunnel Test of Gust Load Alleviation for a Large-Scale Full Aircraft Model},
+  journal = {Chinese Journal of Aeronautics},
+  volume  = {36},
+  number  = {4},
+  pages   = {201--216},
+  year    = {2023},
+  publisher = {Elsevier}
+}
+
+@article{versiani2019smartwing,
+  author  = {Versiani, Thiago de Souza Siqueira and Silvestre, Fl{\'a}vio J. and Guimar{\~a}es Neto, Ant{\^o}nio B. and Rade, Domingos A. and da Silva, Roberto Gil Annes and Donadon, Maur{\'\i}cio V. and Bertolin, Rafael M. and Silva, Gefferson C.},
+  title   = {Gust Load Alleviation in a Flexible Smart Idealized Wing},
+  journal = {Aerospace Science and Technology},
+  volume  = {86},
+  pages   = {762--774},
+  year    = {2019},
+  publisher = {Elsevier}
+}
+
+@inproceedings{duessler2023lqg,
+  author    = {Duessler, Stefanie and Mylvaganam, Thulasi and Palacios, Rafael},
+  title     = {{LQG}-Based Gust Load Alleviation Systems for Very Flexible Aircraft},
+  booktitle = {Proceedings of the AIAA SciTech 2023 Forum},
+  year      = {2023},
+  address   = {National Harbor, MD, USA},
+  note      = {AIAA Paper 2023-2571}
+}
+
+@article{liu2017lqgmpc,
+  author  = {Liu, Xiang and Sun, Qin and Cooper, Jonathan E.},
+  title   = {{LQG} Based Model Predictive Control for Gust Load Alleviation},
+  journal = {Aerospace Science and Technology},
+  volume  = {71},
+  pages   = {499--509},
+  year    = {2017},
+  publisher = {Elsevier}
+}
+
+@article{ting2023preview,
+  author  = {Ting, Kuang-Ying and Mesbahi, Mehran and Livne, Eli},
+  title   = {Aeroservoelastic Wind Tunnel Evaluation of Preview $H_2$ and $H_\infty$ Gust Load Alleviation},
+  journal = {Journal of Guidance, Control, and Dynamics},
+  volume  = {46},
+  number  = {11},
+  pages   = {2044--2062},
+  year    = {2023},
+  publisher = {American Institute of Aeronautics and Astronautics}
+}
+
+@article{he2023robust,
+  author  = {He, Tianyi and Su, Weihua},
+  title   = {Robust Control of Gust-Induced Vibration of Highly Flexible Aircraft},
+  journal = {Aerospace Science and Technology},
+  volume  = {143},
+  pages   = {108703},
+  year    = {2023},
+  publisher = {Elsevier}
+}
+
+@article{wang2019indi,
+  author  = {Wang, Xuerui and van Kampen, Erik-Jan and Chu, Qiping and De Breuker, Roeland},
+  title   = {Flexible Aircraft Gust Load Alleviation with Incremental Nonlinear Dynamic Inversion},
+  journal = {Journal of Guidance, Control, and Dynamics},
+  volume  = {42},
+  number  = {7},
+  pages   = {1519--1536},
+  year    = {2019},
+  publisher = {American Institute of Aeronautics and Astronautics}
+}
+
+@article{hansen2022allocation,
+  author  = {Hansen, John H. and Duan, Molong and Kolmanovsky, Ilya V. and Cesnik, Carlos E. S.},
+  title   = {Load Alleviation of Flexible Aircraft by Dynamic Control Allocation},
+  journal = {Journal of Guidance, Control, and Dynamics},
+  volume  = {45},
+  number  = {10},
+  pages   = {1890--1898},
+  year    = {2022},
+  publisher = {American Institute of Aeronautics and Astronautics}
+}
+
+@article{yue2023adrc,
+  author  = {Yue, Chengyu and Zhao, Yonghui},
+  title   = {Active Disturbance Rejection Controller Design for Alleviation of Gust-Induced Aeroelastic Responses},
+  journal = {Aerospace Science and Technology},
+  volume  = {133},
+  pages   = {108116},
+  year    = {2023},
+  publisher = {Elsevier}
+}
+
+@article{fournier2022lidar,
+  author  = {Fournier, Hugo and Massioni, Paolo and Pham, Minh Tu and Bako, Laurent and Vernay, Robin and Colombo, Michele},
+  title   = {Robust Gust Load Alleviation of Flexible Aircraft Equipped with Lidar},
+  journal = {Journal of Guidance, Control, and Dynamics},
+  volume  = {45},
+  number  = {1},
+  pages   = {58--72},
+  year    = {2022},
+  publisher = {American Institute of Aeronautics and Astronautics}
+}
+
+@article{zhou2024feedforward,
+  author  = {Zhou, Yitao and Wu, Zhigang and Yang, Chao},
+  title   = {Intelligent Feedforward Gust Alleviation Based on Neural Network},
+  journal = {Chinese Journal of Aeronautics},
+  volume  = {37},
+  number  = {3},
+  pages   = {116--132},
+  year    = {2024},
+  publisher = {Elsevier}
+}
+
+@article{hu2025rl,
+  author  = {Hu, Yating and Dai, Yuting and Li, Jinying and Zhang, Yuming and Yang, Chao},
+  title   = {Reinforcement Learning for Gust Load Control of an Elastic Wing via Camber Morphing at Arbitrary Sinusoidal Gusts},
+  journal = {Aerospace Science and Technology},
+  volume  = {162},
+  pages   = {110174},
+  year    = {2025},
+  publisher = {Elsevier}
+}
+
+@article{brunton2020ml,
+  author  = {Brunton, Steven L. and Noack, Bernd R. and Koumoutsakos, Petros},
+  title   = {Machine Learning for Fluid Mechanics},
+  journal = {Annual Review of Fluid Mechanics},
+  volume  = {52},
+  pages   = {477--508},
+  year    = {2020},
+  publisher = {Annual Reviews}
+}
+
+% --- GLA: lidar preview sensing, wind reconstruction, preview MPC -------------
+
+@book{rawlings2017mpc,
+  author    = {Rawlings, James B. and Mayne, David Q. and Diehl, Moritz},
+  title     = {Model Predictive Control: Theory, Computation, and Design},
+  edition   = {2},
+  publisher = {Nob Hill Publishing},
+  address   = {Santa Barbara, CA, USA},
+  year      = {2017}
+}
+
+@article{fezans2017lidar,
+  author  = {Fezans, N. and Schwithal, J. and Fischenberg, D.},
+  title   = {In-Flight Remote Sensing and Identification of Gusts, Turbulence, and Wake Vortices Using a {D}oppler {LIDAR}},
+  journal = {CEAS Aeronautical Journal},
+  volume  = {8},
+  number  = {2},
+  pages   = {313--333},
+  year    = {2017},
+  publisher = {Springer}
+}
+
+@inproceedings{cavaliere2022estimator,
+  author    = {Cavaliere, D. and Fezans, N. and Kiehn, D.},
+  title     = {Method to Account for Estimator-Induced Previewed Information Losses -- Application to Synthesis of Lidar-Based Gust Load Alleviation Functions},
+  booktitle = {Proceedings of the 6th CEAS Conference on Guidance, Navigation and Control (EuroGNC)},
+  year      = {2022},
+  address   = {Berlin, Germany},
+  note      = {Paper CEAS-GNC-2022-063}
+}
+
+@article{rabadan2010lidar,
+  author  = {Rabadan, G. J. and Schmitt, N. P. and Pistner, T. and Rehm, W.},
+  title   = {Airborne Lidar for Automatic Feedforward Control of Turbulent In-Flight Phenomena},
+  journal = {Journal of Aircraft},
+  volume  = {47},
+  number  = {2},
+  pages   = {392--403},
+  year    = {2010},
+  publisher = {American Institute of Aeronautics and Astronautics}
+}
+
+@article{mendez2023mpclidar,
+  author  = {Mendez, A. P. and Whidborne, J. F. and Chen, L.},
+  title   = {Wind Preview-Based Model Predictive Control of Multi-Rotor {UAV}s Using {LiDAR}},
+  journal = {Sensors},
+  volume  = {23},
+  number  = {7},
+  pages   = {3711},
+  year    = {2023},
+  publisher = {MDPI}
+}
+
+@article{sinner2023timing,
+  author  = {Sinner, M. and Petrovi{\'c}, V. and Stockhouse, D. and Langidis, A. and Pusch, M. and K{\"u}hn, M. and Pao, L. Y.},
+  title   = {Insensitivity to Propagation Timing in a Preview-Enabled Wind Turbine Control Experiment},
+  journal = {Frontiers in Mechanical Engineering},
+  volume  = {9},
+  pages   = {1145305},
+  year    = {2023}
+}
+
+% --- Stima e smoothing (fusione del preview) ---------------------------------
+
+@book{kay1993estimation,
+  author    = {Kay, Steven M.},
+  title     = {Fundamentals of Statistical Signal Processing: Estimation Theory},
+  publisher = {Prentice Hall},
+  address   = {Upper Saddle River, NJ, USA},
+  year      = {1993}
+}
+
+@book{tikhonov1977solutions,
+  author    = {Tikhonov, Andrey N. and Arsenin, Vasiliy Y.},
+  title     = {Solutions of Ill-Posed Problems},
+  publisher = {V. H. Winston \& Sons},
+  address   = {Washington, DC, USA},
+  year      = {1977}
+}
+
+@article{whittaker1923graduation,
+  author  = {Whittaker, Edmund T.},
+  title   = {On a New Method of Graduation},
+  journal = {Proceedings of the Edinburgh Mathematical Society},
+  volume  = {41},
+  pages   = {63--75},
+  year    = {1923}
+}
+
+@article{eilers2003perfect,
+  author  = {Eilers, Paul H. C.},
+  title   = {A Perfect Smoother},
+  journal = {Analytical Chemistry},
+  volume  = {75},
+  number  = {14},
+  pages   = {3631--3636},
+  year    = {2003}
+}
+
+% --- Campionamento del piano di simulazioni ----------------------------------
+
+@article{mckay1979lhs,
+  author  = {McKay, Michael D. and Beckman, Richard J. and Conover, William J.},
+  title   = {A Comparison of Three Methods for Selecting Values of Input Variables in the Analysis of Output from a Computer Code},
+  journal = {Technometrics},
+  volume  = {21},
+  number  = {2},
+  pages   = {239--245},
+  year    = {1979}
+}
+
+% --- Ottimizzatori usati nel training ----------------------------------------
+
+@inproceedings{kingma2015adam,
+  author    = {Kingma, Diederik P. and Ba, Jimmy},
+  title     = {Adam: A Method for Stochastic Optimization},
+  booktitle = {3rd International Conference on Learning Representations (ICLR)},
+  address   = {San Diego, CA, USA},
+  year      = {2015}
+}
+
+@article{liu1989lbfgs,
+  author  = {Liu, Dong C. and Nocedal, Jorge},
+  title   = {On the Limited Memory {BFGS} Method for Large Scale Optimization},
+  journal = {Mathematical Programming},
+  volume  = {45},
+  number  = {1--3},
+  pages   = {503--528},
+  year    = {1989},
+  doi     = {10.1007/BF01589116}
+}
+
+@article{bengio1994,
+  author  = {Bengio, Yoshua and Simard, Patrice and Frasconi, Paolo},
+  title   = {Learning Long-Term Dependencies with Gradient Descent is Difficult},
+  journal = {IEEE Transactions on Neural Networks},
+  volume  = {5},
+  number  = {2},
+  pages   = {157--166},
+  year    = {1994},
+  doi     = {10.1109/72.279181}
+}
+
+@inproceedings{pascanu2013,
+  author    = {Pascanu, Razvan and Mikolov, Tomas and Bengio, Yoshua},
+  title     = {On the Difficulty of Training Recurrent Neural Networks},
+  booktitle = {Proceedings of the 30th International Conference on Machine Learning (ICML)},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {28},
+  pages     = {1310--1318},
+  year      = {2013}
+}
+
+@inproceedings{glorot2010,
+  author    = {Glorot, Xavier and Bengio, Yoshua},
+  title     = {Understanding the Difficulty of Training Deep Feedforward Neural Networks},
+  booktitle = {Proceedings of the 13th International Conference on Artificial Intelligence and Statistics (AISTATS)},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {9},
+  pages     = {249--256},
+  year      = {2010}
 }
 
 %% This BibTeX bibliography file was created using BibDesk.
@@ -762,7 +1244,22 @@ of aeroelasticity},
 }
 
 @misc{tikz,
-  author       = {CTAN}, 
+  author       = {CTAN},
   title        = {pgf – Create {P}ost{S}cript and {PDF} graphics in {TEX}},
   url          = {https://www.ctan.org/pkg/pgf}
+}
+
+@article{Catalani2025,
+  author       = {Catalani, Giovanni and Fesquet, Jean and Bertrand, Xavier and Tost, Fr\'ed\'eric and Bauerheim, Michael and Morlier, Joseph},
+  title        = {Towards scalable surrogate models based on Neural Fields for large scale aerodynamic simulations},
+  journal      = {arXiv preprint arXiv:2505.14704},
+  year         = {2025}
+}
+
+@inproceedings{Serrano2023,
+  author       = {Serrano, Louis and Le Boudec, Lise and Kassa\"i Koupa\"i, Armand and Wang, Thomas X. and Yin, Yuan and Vittaut, Jean-No\"el and Gallinari, Patrick},
+  title        = {Operator Learning with Neural Fields: Tackling {PDEs} on General Geometries},
+  booktitle    = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year         = {2023},
+  note         = {arXiv:2306.07266}
 }

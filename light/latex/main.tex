@@ -1,0 +1,239 @@
+% A LaTeX template for ARTICLE version of the MSc Thesis submissions to
+% Politecnico di Milano (PoliMi) - School of Industrial and Information Engineering
+%
+% P. F. Antonietti, S. Bonetti, A. Gruttadauria, G. Mescolini, A. Zingaro
+% e-mail: template-tesi-ingind@polimi.it
+%
+% Last Revision: October 2021
+%
+% Copyright 2021 Politecnico di Milano, Italy. Inc. All rights reserved.
+
+\documentclass[11pt,a4paper]{article}
+
+%------------------------------------------------------------------------------
+%	REQUIRED PACKAGES AND  CONFIGURATIONS
+%------------------------------------------------------------------------------
+% PACKAGES FOR TITLES
+\usepackage{titlesec}
+\usepackage{color}
+
+% PACKAGES FOR LANGUAGE AND FONT
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage[T1]{fontenc} % Font encoding
+
+% PACKAGES FOR IMAGES
+\usepackage{graphicx}
+\graphicspath{{Images/}}
+\usepackage{eso-pic} % For the background picture on the title page
+\usepackage{subfig} % Numbered and caption subfigures using \subfloat
+\usepackage{caption} % Coloured captions
+\usepackage{transparent}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc,fit}
+% PACKAGES FOR IMAGES
+\usepackage{graphicx}
+\usepackage{transparent} % Enables transparent images
+\usepackage{eso-pic} % For the background picture on the title page
+\usepackage{subfig} % Numbered and caption subfigures using \subfloat.
+\usepackage{tikz} % A package for high-quality hand-made figures.
+\usetikzlibrary{decorations.pathmorphing, arrows.meta, calc, patterns, positioning}
+\graphicspath{{./Images/}} % Directory of the images
+\usepackage{caption} % Coloured captions
+\usepackage{xcolor} % Coloured captions
+\usepackage{amsthm,thmtools,xcolor} % Coloured "Theorem"
+\usepackage{float}
+\usepackage{graphicx}
+\usepackage{subcaption} % FONDAMENTALE per affiancare le immagini
+\usepackage{float}       % Se vuoi usare [H] per bloccare la figura
+% STANDARD MATH PACKAGES
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{bm}
+\usepackage[overload]{empheq}  % For braced-style systems of equations
+
+% PACKAGES FOR TABLES
+\usepackage{tabularx}
+\usepackage{longtable} % tables that can span several pages
+\usepackage{colortbl}
+
+% PACKAGES FOR ALGORITHMS (PSEUDO-CODE)
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% PACKAGES FOR REFERENCES & BIBLIOGRAPHY
+\usepackage[colorlinks=true,linkcolor=black,anchorcolor=black,citecolor=black,filecolor=black,menucolor=black,runcolor=black,urlcolor=black]{hyperref} % Adds clickable links at references
+\usepackage{cleveref}
+\usepackage[square, numbers, sort&compress]{natbib} % Square brackets, citing references with numbers, citations sorted by appearance in the text and compressed
+\bibliographystyle{plain} % You may use a different style adapted to your field
+
+% PACKAGES FOR THE APPENDIX
+\usepackage{appendix}
+
+% PACKAGES FOR ITEMIZE & ENUMERATES
+\usepackage{enumitem}
+
+% OTHER PACKAGES
+\usepackage{amsthm,thmtools,xcolor} % Coloured "Theorem"
+\usepackage{comment} % Comment part of code
+\usepackage{fancyhdr} % Fancy headers and footers
+\usepackage{lipsum} % Insert dummy text
+\usepackage{tcolorbox} % Create coloured boxes (e.g. the one for the key-words)
+
+%-------------------------------------------------------------------------
+%	NEW COMMANDS DEFINED
+%-------------------------------------------------------------------------
+% EXAMPLES OF NEW COMMANDS -> here you see how to define new commands
+\newcommand{\bea}{\begin{eqnarray}} % Shortcut for equation arrays
+\newcommand{\eea}{\end{eqnarray}}
+\newcommand{\e}[1]{\times 10^{#1}}  % Powers of 10 notation
+\newcommand{\mathbbm}[1]{\text{\usefont{U}{bbm}{m}{n}#1}} % From mathbbm.sty
+\newcommand{\pdev}[2]{\frac{\partial#1}{\partial#2}}
+% NB: you can also override some existing commands with the keyword \renewcommand
+
+% Comando per far comparire automaticamente "Appendix" davanti alla lettera
+% quando si usa \startappendices al posto del semplice \appendix
+\newcommand{\startappendices}{%
+  \appendix
+  \titleformat{\section}
+    {\normalfont\Large\bfseries}
+    {Appendix~\thesection}{1em}{}%
+  % Inside the appendix every sectioning level must be named "appendix"
+  % for cleveref, otherwise \cref{app:...} prints "section A" instead of
+  % "appendix A" in the running text.
+  \crefalias{section}{appendix}%
+  \crefalias{subsection}{appendix}%
+  \crefalias{subsubsection}{appendix}%
+}
+
+%----------------------------------------------------------------------------
+%	ADD YOUR PACKAGES (be careful of package interaction)
+%----------------------------------------------------------------------------
+
+
+%----------------------------------------------------------------------------
+%	ADD YOUR DEFINITIONS AND COMMANDS (be careful of existing commands)
+%----------------------------------------------------------------------------
+
+% Names used by cleveref for the appendix cross-references:
+%   \cref{app:...} -> "appendix A"   (lower case, mid-sentence, as for
+%                                      "section", "figure", "table")
+%   \Cref{app:...} -> "Appendix A"   (capitalised, start of sentence)
+% To always get the capitalised form, set the third argument of \crefname
+% below to {Appendix}{Appendices} as well.
+\crefname{appendix}{appendix}{appendices}
+\Crefname{appendix}{Appendix}{Appendices}
+
+
+% Do not change Configuration_files/config.tex file unless you really know what you are doing.
+% This file ends the configuration procedures (e.g. customizing commands, definition of new commands)
+\input{Configuration_files/config}
+
+% Insert here the info that will be displayed into your Title page
+% -> title of your work
+\renewcommand{\title}{Gust load alleviation exploiting data driven methods}
+% -> author name and surname
+\renewcommand{\author}{Marco Niccolini}
+% -> MSc course
+\newcommand{\course}{Aeronautical Engineering - Ingegneria Aeronautica}
+% -> advisor name and surname
+\newcommand{\advisor}{Prof. Luca Dede'}
+% IF AND ONLY IF you need to modify the co-supervisors you also have to modify the file Configuration_files/title_page.tex (ONLY where it is marked)
+\newcommand{\firstcoadvisor}{Carlo Guastamacchia} % insert if any otherwise comment
+%\newcommand{\secondcoadvisor}{Name Surname} % insert if any otherwise comment
+% -> author ID
+\newcommand{\ID}{225067}
+% -> academic year
+\newcommand{\YEAR}{2025-2026}
+% -> abstract (only in English)
+\renewcommand{\abstract}{Here goes the Abstract in English of your thesis (in article format)
+followed by a list of keywords.
+The Abstract is a concise summary of the content of the thesis (single page of text)
+and a guide to the most important contributions included in your thesis.
+The Abstract is the very last thing you write.
+It should be a self-contained text and should be clear
+to someone who hasn't (yet) read the whole manuscript.
+The Abstract should contain the answers to the main research questions
+that have been addressed in your thesis.
+It needs to summarize the motivations and the adopted approach as well as
+the findings of your work and their relevance and impact.
+The Abstract is the part appearing in the record of your thesis inside POLITesi,
+the Digital Archive of PhD and Master Theses (Laurea Magistrale) of Politecnico di Milano.
+The Abstract will be followed by a list of four to six keywords.
+Keywords are a tool to help indexers and search engines to find relevant documents.
+To be relevant and effective, keywords must be chosen carefully.
+They should represent the content of your work and be specific to your field or sub-field.
+Keywords may be a single word or two to four words. }
+
+% -> key-words (only in English)
+\newcommand{\keywords}{here, the keywords, of your thesis}
+
+%-------------------------------------------------------------------------
+%	BEGIN OF YOUR DOCUMENT
+%-------------------------------------------------------------------------
+\begin{document}
+
+%-----------------------------------------------------------------------------
+% TITLE PAGE
+%-----------------------------------------------------------------------------
+% Do not change Configuration_files/TitlePage.tex (Modify it IF AND ONLY IF you need to add or delete the Co-advisors)
+% This file creates the Title Page of the document
+\input{Configuration_files/title_page}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%     THESIS MAIN TEXT     %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%-----------------------------------------------------------------------------
+% INTRODUCTION
+%-----------------------------------------------------------------------------
+\input{Thesis_article_format/Chapters/Introduction}
+\input{Thesis_article_format/Chapters/Chapter1/Chapter1}
+\input{Thesis_article_format/Chapters/Chapter2/Chapter2}
+\input{Thesis_article_format/Chapters/Chapter 3/Chapter3}
+
+%-----------------------------------------------------------------------------
+% CONCLUSION
+%-----------------------------------------------------------------------------
+\input{Thesis_article_format/Chapters/Conclusion}
+
+
+%-----------------------------------------------------------------------------
+% BIBLIOGRAPHY
+%-----------------------------------------------------------------------------
+\newpage
+\bibliography{bibliography.bib}
+
+%-----------------------------------------------------------------------------
+% APPENDIX
+%-----------------------------------------------------------------------------
+% Da qui in poi le sezioni vengono numerate come A, B, C... invece che 1, 2, 3...
+% e viene stampata automaticamente la scritta "Appendix" prima della lettera.
+\startappendices
+\input{Thesis_article_format/Chapters/appendixA}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%     ABSTRACT IN ITALIAN LANGUAGE AND ACKNOWLEDGMENTS     %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\cleardoublepage
+
+%-----------------------------------------------------------------------------
+% SOMMARIO
+%-----------------------------------------------------------------------------
+\section*{Abstract in lingua italiana}
+Qui va l'Abstract in lingua italiana della tesi seguito dalla lista di parole chiave.
+\vspace{15pt}
+\begin{tcolorbox}[arc=0pt, boxrule=0pt, colback=bluePoli!60, width=\textwidth, colupper=white]
+    \textbf{Parole chiave:} qui, le parole chiave, della tesi, in italiano
+\end{tcolorbox}
+
+%-----------------------------------------------------------------------------
+% ACKNOWLEDGEMENTS
+%-----------------------------------------------------------------------------
+\section*{Acknowledgements}
+Here you might want to acknowledge someone.
+
+%-------------------------------------------------------------------------
+%	END OF YOUR DOCUMENT
+%-------------------------------------------------------------------------
+\end{document}

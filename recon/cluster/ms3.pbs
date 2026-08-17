@@ -1,0 +1,41 @@
+#!/bin/bash
+#PBS -N msplit3
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#
+# D-RES arm A: mean-split + Fourier-feature encoding of the decoder (x,y) inputs,
+# scale sweep. qsub -v ARM=ms_ff,SEED=<int>,SC=<scales> (SC like "1_5", "5_20",
+# "10_40"; underscore -> comma). Everything else = the M-SPLIT protocol
+# (d_s=1, output-nl linear, restarts 2, adam 300, bfgs 2000, log-every 1).
+: "${SEED:?pass -v ARM=ms_ff,SEED=<int>,SC=<scales>}"
+: "${SC:?pass -v SC=<scales, underscore-separated>}"
+SCALES=${SC//_/,}
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+# dir = {arm}_s{seed} with arm=ff{SC}; dumps use the ms_{arm} convention so
+# meansplit_compare.py (regex (.+)_s(\d+) then results/ms_{arm}_...) picks them up.
+OUT=models/meansplit_study/ff${SC}_s${SEED}
+
+echo "=== msplit3 ff scales=$SCALES SEED=$SEED start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p $OUT; \
+      python3 -u train_fields.py --train data/FIELDS_div_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out $OUT --latents 1 \
+        --adam 300 --bfgs 2000 --restarts 2 --output-nl linear --log-every 1 \
+        --seed-base $SEED --mean-split --fourier-scales $SCALES --fourier-m 16 \
+        > $OUT/train.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/ms_ff${SC}_s${SEED}_rom_a025 > $OUT/recon.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 \
+        --out results/ms_ff${SC}_s${SEED}_rom_cc060 >> $OUT/recon.log 2>&1; \
+      echo MSPLIT3_ff${SC}_s${SEED}_DONE"
+echo "=== msplit3 ff scales=$SCALES SEED=$SEED end $(date) exit $? ==="

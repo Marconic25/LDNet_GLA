@@ -1,0 +1,36 @@
+#!/bin/bash
+#PBS -N expmov
+#PBS -q cpu
+#PBS -l walltime=00:30:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/expmov.log
+# Export a RECONSTRUCTED moving-mesh case that is sitting in a compute node's
+# /scratch_local into a ParaView .vtp/.pvd series (pyvista, NO CFD). Pin this to the
+# node that holds the case, e.g.:
+#   qsub -l select=1:ncpus=2:host=cpu02 -v SIM=sim_Cc_008_train,STRIDE=5 export_moving.pbs
+set -e
+WORK_BASE="/work/u10677113/NACA2312"
+: "${SIM:?pass -v SIM=sim_Cc_XXX}"
+STRIDE="${STRIDE:-5}"
+CASE="/scratch_local/$USER/fldrun_${SIM}"
+OUT="$WORK_BASE/recon_fields/$SIM/vtk_moving"
+EXPORTER="$WORK_BASE/recon/cluster/export_deformed.py"
+SRC_TRAJ="$WORK_BASE/dataset_v5/$SIM/structural_trajectory.csv"
+
+echo "=== expmov $SIM  node=$(hostname)  stride=$STRIDE ==="
+[ -d "$CASE" ] || { echo "case NOT on this node: $CASE" >&2; exit 2; }
+NT=$(ls -d "$CASE"/[0-9]* 2>/dev/null | grep -vc '/0$')
+echo "case=$CASE  root_timedirs=$NT"
+[ "$NT" -gt 1 ] || { echo "no reconstructed time dirs" >&2; exit 3; }
+
+mkdir -p "$OUT"
+cp "$SRC_TRAJ" "$CASE/structural_trajectory.csv" 2>/dev/null || true
+
+source ~/cosim_env/bin/activate 2>/dev/null || source "$WORK_BASE/my_venv/bin/activate" 2>/dev/null || true
+python3 -c "import pyvista; print('pyvista', pyvista.__version__)"
+
+python3 "$EXPORTER" --case "$CASE" --out "$OUT" --name "$SIM" --stride "$STRIDE"
+
+cp "$SRC_TRAJ" "$OUT/" 2>/dev/null || true
+echo "=== DONE -> $OUT ==="
+du -sh "$OUT"; ls -la "$OUT" | head

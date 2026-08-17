@@ -1,0 +1,51 @@
+#!/bin/bash
+#PBS -N msplit2
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#
+# M-SPLIT follow-up arms: qsub -v ARM=<arm>,SEED=<int>
+#   ms_t0      mean-split with trim-referenced mean (t=0 snapshot)      d_s=1
+#   ms_tik     mean-split + Tikhonov alpha=3e-4 (loads-sweep finding)   d_s=1
+#   ms_tik_d10 mean-split + Tikhonov, d_s=10 (d_s verdict cross-check)  d_s=10
+#   ms_wall    mean-split + wall distance & BL-mask decoder inputs (R2) d_s=1
+# (base|ms also accepted for reruns.) Protocol otherwise identical to the first
+# M-SPLIT study: output-nl linear, restarts 2, adam 300, bfgs 2000, log-every 1.
+: "${ARM:?pass -v ARM=<arm>,SEED=<int>}"
+: "${SEED:?pass -v ARM=<arm>,SEED=<int>}"
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+OUT=models/meansplit_study/${ARM}_s${SEED}
+DS=1
+case "$ARM" in
+  base)       FLAGS="";;
+  ms)         FLAGS="--mean-split";;
+  ms_t0)      FLAGS="--mean-split --mean-ref t0";;
+  ms_tik)     FLAGS="--mean-split --alpha-reg 3e-4";;
+  ms_tik_d10) FLAGS="--mean-split --alpha-reg 3e-4"; DS=10;;
+  ms_wall)    FLAGS="--mean-split --wall-feats --airfoil-nodes analysis_hmetric/airfoil_nodes.npy";;
+  *) echo "unknown ARM=$ARM"; exit 1;;
+esac
+
+echo "=== msplit2 ARM=$ARM SEED=$SEED DS=$DS start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p $OUT; \
+      python3 -u train_fields.py --train data/FIELDS_div_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out $OUT --latents $DS \
+        --adam 300 --bfgs 2000 --restarts 2 --output-nl linear --log-every 1 \
+        --seed-base $SEED $FLAGS \
+        > $OUT/train.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_$DS \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/ms_${ARM}_s${SEED}_rom_a025 > $OUT/recon.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_$DS \
+        --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 \
+        --out results/ms_${ARM}_s${SEED}_rom_cc060 >> $OUT/recon.log 2>&1; \
+      echo MSPLIT2_${ARM}_s${SEED}_DONE"
+echo "=== msplit2 ARM=$ARM SEED=$SEED end $(date) exit $? ==="

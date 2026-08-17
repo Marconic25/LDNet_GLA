@@ -1,0 +1,270 @@
+\section{Full-order model: numerical methods and co-simulation setup}
+\label{app:fom}
+
+This appendix reports the numerical solution of the full-order model \labelcref{eq:coupled_system} used to generate the dataset of \cref{subsec:dataset}: the scheme that couples fluid and structure in time, the fluid solver with its mesh and mesh-motion strategy, and the driver that orchestrates the two. None of these components is specific to the surrogate; they are collected here so that the campaign can be reproduced.
+
+\subsection{Partitioned coupling scheme}
+\label{subsec:partitioned}
+\label{subsec:fsi_formulation}
+\label{subsubsec:coupling}
+
+Fluid and structural equations must be integrated in time in a coordinated way. A monolithic approach~\cite{hubner2004monolithic,heil2004solver} would group the structural and fluid degrees of freedom into a single system solved simultaneously at each step, which maximises the temporal consistency of the coupling but requires direct access to the fluid degrees of freedom, an option not available when OpenFOAM~\cite{weller1998openfoam} is used as an external solver. The alternative is the partitioned approach~\cite{felippa2001partitioned,hou2012review}, in which the two solvers keep separate identities and exchange information only at the interface. In the present work fluid and structure are treated as black-box components coordinated by an external Python driver, so the partitioned approach is the natural choice.
+
+% ---------------------------------------------------------------------------
+% VERSIONE ESTESA del paragrafo qui sotto, accorciata su richiesta del relatore
+% ("Non è necessario spiegare tutto questo", commento del 30/07 sul PDF).
+% Conservata commentata, non eliminata, nel caso serva riprenderla.
+%
+% Within the partitioned family the schemes differ in the number of interface
+% iterations per coupling step. A strongly coupled scheme iterates the
+% fluid-structure pair within the same step until the interface residuals
+% converge, whereas a loosely coupled scheme performs a single pass per step and
+% accepts a staggering error associated with the one-step delay between the two
+% solvers~\cite{piperno1995,degroote2013partitioned}. The choice between them is
+% governed by the added-mass effect, which drives the artificial instability of
+% loosely coupled partitioned schemes for incompressible
+% flows~\cite{causin2005addedmass,forster2007added}. Its severity scales with the
+% mass ratio between the entrained fluid and the structure,
+% $\mu \;=\; \frac{\rho_f\,V_f}{m_s}\;$, where $\rho_f$ is the fluid density,
+% $V_f$ the reference volume of the entrained flow and $m_s$ the effective
+% structural mass of the wing. For the present aeronautical configuration this
+% ratio is $O(10^{-3})$, so the added mass is negligible and the loosely coupled
+% scheme is stable without sub-iterations: the one-window delay in the
+% information exchange does not compromise the temporal consistency of the
+% coupling. The loosely coupled scheme is therefore adopted, and the energy
+% consistency of the staggered exchange is verified a posteriori in
+% \cref{app:vv}.
+% ---------------------------------------------------------------------------
+
+Within the partitioned family, a strongly coupled scheme iterates the fluid-structure pair to interface convergence within each step, whereas a loosely coupled one performs a single pass and accepts a staggering error~\cite{piperno1995,degroote2013partitioned}. The choice is governed by the added-mass effect~\cite{causin2005addedmass,forster2007added}, whose severity scales with the mass ratio between the entrained fluid and the structure, $\mu = \rho_f V_f / m_s$, where $\rho_f$ is the fluid density, $V_f$ the reference volume of the entrained flow and $m_s$ the effective structural mass of the wing. Here $\mu = O(10^{-3})$, so the loosely coupled scheme is adopted and is stable without sub-iterations; the energy consistency of the staggered exchange is verified a posteriori in \cref{app:vv}.
+
+The co-simulation advances over temporal windows of $N_{\mathrm{win}}$ CFD steps each, with $N_{\mathrm{win}} = 50$ and $\Delta t_{\mathrm{CFD}} = 7\times10^{-5}$~s, giving windows of duration $\Delta t_{\mathrm{win}} = N_{\mathrm{win}}\,\Delta t_{\mathrm{CFD}} = 3.5\times 10^{-3}$~s. The $l$-th window spans the interval $[\tau_l,\,\tau_{l+1}]$ between the boundary instants $\tau_l = l\,\Delta t_{\mathrm{win}}$, $l = 0, 1, 2, \dots$; this window grid is distinct from the control grid $t_n$ of \cref{subsec:discretisation}. Within each window the fluid advances autonomously for $N_{\mathrm{win}}$ sub-steps, a strategy known as sub-cycling~\cite{piperno1995,felippa2001partitioned}, while the structure is updated once from the aerodynamic histories produced by the fluid over the window. The value $N_{\mathrm{win}} = 50$ balances two competing needs: a large $N_{\mathrm{win}}$ reduces the input/output and parallel-initialisation overhead incurred at each window reset, while a small $N_{\mathrm{win}}$ improves the coupling accuracy, since the staggering error of a loosely coupled scheme scales with the length of the exchange interval~\cite{farhat2006secondorder}. The adopted window is two orders of magnitude shorter than the slowest structural timescale of interest ($T_{\mathrm{flutter}} \simeq 0.4$~s), which keeps the staggering error negligible.
+
+The fluid-structure interface $\Gamma_I(t)$ is the bidirectional channel through which the two solvers communicate. In the fluid-to-structure direction the aerodynamic loads are obtained at each CFD step by evaluating the interface integrals \labelcref{eq:interface-loads,eq:interface-moment} over the \texttt{wing\_main} and \texttt{flap} patches. At the end of the window the driver reads the full time series $F_y(t)$ and $M_z(t)$ and passes it as the forcing of Equation~\eqref{eq:structural-state-space}. In the opposite direction the predicted structural motion $h^{\mathrm{pred}}(t)$, $\alpha^{\mathrm{pred}}(t)$ over the incoming window, defined in \labelcref{eq:first-order-hold}, and the prescribed flap schedule $\delta(t)$ are written to two motion tables in the \texttt{tabulated6DoFMotion} OpenFOAM format, which encode the wing and flap motion as sequences of rigid transformations in time. At the start of the next window the fluid mesh solver of \cref{subsubsec:fluidsolver} reads the new tables, computes the displacement field at the wing and flap nodes and deforms the grid accordingly. The resulting information flow is sketched in \cref{fig:fsi_scheme}.
+
+\begin{figure}[t]
+    \centering
+    \input{Thesis_article_format/Chapters/Chapter1/fsi_scheme}
+    \caption{Structure of the co-simulation: information flow between the fluid and structural solvers, and the external inputs imposed on them, the CS-25 gust and the flap deflection commanded by the controller.}
+    \label{fig:fsi_scheme}
+\end{figure}
+
+The structural state is advanced over each window by the adaptive RK45 pair of \cref{subsubsec:stepper}: the step is accepted when the local error estimate stays below the componentwise threshold $\mathrm{sc}_i = \mathrm{atol} + \mathrm{rtol}\,\lvert \zeta_i\rvert$, with the relative tolerance $\mathrm{rtol}=10^{-8}$ setting the significant digits kept in each degree of freedom and the absolute tolerance $\mathrm{atol}=10^{-10}$ acting as a floor when a component approaches zero. These tolerances make the structural integration error negligible. The step is capped at twice the CFD step, so that every stage falls inside the current co-simulation window, where the loads $F_y(t)$ and $M_z(t)$ are already available and are interpolated linearly. An explicit scheme is preferred to an implicit one (e.g.\ Newmark~\cite{newmark1959}): an implicit update would require the load $\mathbf{f}(\tau_{l+1})$ consistent with the still-unknown state $\boldsymbol{\zeta}(\tau_{l+1})$, a consistency that a loosely coupled partitioned scheme cannot provide without sub-iterations, since that load is produced by the fluid from the structural motion predicted by the first-order hold. The four-dimensional state, in turn, makes the cost of the explicit stages irrelevant.
+
+Because the loads over the incoming window are not yet available when the motion tables are written, the histories transmitted to the fluid are not the true structural response but its first-order prediction from the position and velocity at $\tau_l$:
+\begin{equation}
+    h^{\mathrm{pred}}(t) = h(\tau_l) + \dot h(\tau_l)\,(t - \tau_l),
+    \qquad
+    \alpha^{\mathrm{pred}}(t) = \alpha(\tau_l) + \dot\alpha(\tau_l)\,(t - \tau_l),
+    \qquad \text{in } [\tau_l,\,\tau_{l+1}].
+    \label{eq:first-order-hold}
+\end{equation}
+The first-order hold keeps the mesh velocity continuous across the window boundary, a property that a zero-order hold does not have, since the latter extrapolates only the position and leaves the mesh velocity discontinuous at each window reset; the resulting jump in grid velocity would produce a spurious Courant-number spike at the first sub-step of the new window, which the first-order hold removes. At the end of the window the new state $\boldsymbol{\zeta}(\tau_{l+1})$ produced by the structural integrator becomes the initial condition for the following window, realising an explicit sequential coupling in which the fluid moves according to the prediction and the structure responds to the loads produced by that prediction~\cite{farhat2006secondorder}.
+
+\subsection{Fluid solver, mesh and mesh motion}
+\label{openfoam}
+\label{subsubsec:fluidsolver}
+
+The flow is solved on the deformable domain $\Omega_f(t)$ in the Arbitrary Lagrangian-Eulerian (ALE) description~\cite{Donea2004ALE}: each grid point is given an arbitrary velocity $\mathbf{w}(\mathbf{x},t)$, generally different from the fluid velocity $\mathbf{u}$, so that the mesh conforms to the moving surface near $\Gamma_I(t)$ and stays almost fixed in the far field, limiting distortion. Mass and momentum conservation read
+\begin{equation}
+    \nabla \cdot \mathbf{u} = 0,
+    \qquad
+    \frac{\partial \mathbf{u}}{\partial t}\bigg|_{\boldsymbol\chi}
+    + \bigl[(\mathbf{u} - \mathbf{w}) \cdot \nabla\bigr]\mathbf{u}
+    = -\frac{1}{\rho}\nabla p + \nu\,\nabla^2 \mathbf{u},
+    \qquad \text{in } \Omega_f(t)\times(0,T],
+    \label{eq:ns-ale}
+\end{equation}
+with $\rho$ the air density and $\nu$ its kinematic viscosity. The time derivative is taken at fixed grid coordinate $\boldsymbol\chi$, so the convective velocity is the relative one $\mathbf{u}-\mathbf{w}$: the formulation recovers the Lagrangian description when $\mathbf{w}=\mathbf{u}$ and the Eulerian one when $\mathbf{w}=\mathbf{0}$. The grid velocity satisfies the Geometric Conservation Law, so that a uniform flow is reproduced without spurious mass sources due to mesh motion. The boundary and initial conditions coincide with those of the system \labelcref{eq:coupled_system}.
+
+The discretisation and numerical solution of Equation~\eqref{eq:ns-ale} are carried out by \texttt{pimpleFoam}, the incompressible transient solver of OpenFOAM~v7. The exact numerical settings are collected in the case dictionaries archived in the repository; the following text reports only the qualitative choices needed to reproduce and trust the data. The physical properties are those of standard air, density $\rho = 1.225$~kg/m\(^3\) and kinematic viscosity $\nu = 10^{-5}$~m\(^2\)/s.
+
+The main components of the case are collected in \Cref{tab:cfd_setup}. The spatial discretisation is a cell-centred finite-volume method (FVM)~\cite{ferziger2002cfd}, second-order accurate on the main convective and diffusive terms, with bounded total-variation-diminishing (TVD) limiters~\cite{sweby1984limiters} where distorted cells require them and a non-orthogonality correction on the Laplacian and surface-normal-gradient terms~\cite{jasak1996error}. Time integration is first-order implicit Euler~\cite{ferziger2002cfd}, which tolerates the step changes imposed by the adaptive Courant control and by the mesh deformation during the flap excursions. The high-Reynolds regime is closed with the $k$--$\omega$ SST model of Menter~\cite{menter1994sst}, chosen for its behaviour under the adverse pressure gradients and incipient separation expected on the suction side at high instantaneous incidence. The production grid has $374\,584$ cells, selected by the grid-convergence study of \cref{app:vv}.
+
+\begin{table}[t]
+    \centering
+    \begin{tabular}{|p{0.30\textwidth}|p{0.58\textwidth}|}
+    \hline
+    \rowcolor{bluePoli!40}
+    Component & Setting \T\B \\
+    \hline\hline
+    Solver & \texttt{pimpleFoam} (OpenFOAM~v7) \T\B \\
+    Turbulence model & $k$--$\omega$ SST, continuous wall functions \T\B \\
+    Inlet turbulence & $k = 24$~m\(^2\)/s\(^2\), $\omega = 32$~s\(^{-1}\) ($I = 5\%$, $\nu_t/\nu = 10$) \T\B \\
+    Spatial scheme & cell-centred FVM, 2nd order; TVD-limited momentum convection; bounded $k,\omega$ \T\B \\
+    Time scheme & implicit Euler; fixed $\Delta t_{\mathrm{CFD}} = 7\times10^{-5}$~s, observed $\mathrm{Co}_{\max} \simeq 2$ \T\B \\
+    Linear solvers & GAMG (pressure), smoothSolver ($\mathbf u$, $k$, $\omega$) \B \\
+    \hline
+    \end{tabular}
+    \\[6pt]
+    \caption{Main solver, turbulence and discretisation settings of the OpenFOAM case; exact dictionary values are in the repository.}
+    \label{tab:cfd_setup}
+\end{table}
+
+The mesh motion is the only non-standard component of the case: a custom solver maps each grid point from its reference position $\mathbf x_0$ to a displaced position $\mathbf x(t)$, deforming the mesh around two rigid bodies with independent kinematics, the wing and the flap. Each body $i\in\{\mathrm w,\mathrm f\}$ carries a rigid-body transformation $\mathsf T_i(t)$ --- a septernion, i.e.\ a unit quaternion for the rotation combined with a translation vector --- and a scalar weight field $w_i\in[0,1]$ that sets how rigidly a point follows that body. The weight comes from the distance $r_i(\mathbf x_0)$ of the point to the body surface: a normalised ramp $\hat s_i\in[0,1]$, equal to $1$ within the inner radius $d_i$, $0$ beyond the outer radius $d_o$ and linear in between, is smoothed by a cosine into $w_i$ for continuous derivatives at the endpoints,
+\begin{equation}
+    \hat s_i = \mathrm{clamp}\!\left(\frac{d_o - r_i(\mathbf x_0)}{d_o - d_i},\,0,\,1\right),
+    \qquad
+    w_i(\mathbf x_0) = \tfrac12\bigl[\,1 - \cos(\pi\,\hat s_i)\,\bigr].
+    \label{eq:slerp-weight}
+\end{equation}
+where $\mathrm{clamp}(v,\,0,\,1) = \min(\max(v,\,0),\,1)$ saturates the linear ramp at the edges of the band $[d_i,\,d_o]$. Each point is then displaced by the spherical linear interpolation~\cite{shoemake1985animating} between the identity transform $\mathsf I$ (no displacement) and the transform $\mathsf T_i$ of its dominant body --- the one with the largest weight at $\mathbf x_0$ --- interpolated by that weight $w_i(\mathbf x_0)$, so that the near field ($w_i = 1$) follows the body rigidly and the far field ($w_i = 0$) stays fixed,
+\begin{equation}
+    \mathbf x(t) = \mathrm{slerp}\bigl(\mathsf I,\ \mathsf T_i(t);\ w_i(\mathbf x_0)\bigr)\,\mathbf x_0 .
+    \label{eq:slerp}
+\end{equation}
+Because the flap sits just behind the wing, its weight must not move the mesh upstream of the gap between the two bodies. The flap weight $w_{\mathrm f}$ is therefore multiplied by a cosine ramp $g$ in the streamwise coordinate $x$, which vanishes ahead of the gap and rises to one across the band $[x_s,\,x_e]$ that spans it,
+\begin{equation}
+    w_{\mathrm f} \leftarrow g(x)\,w_{\mathrm f},
+    \qquad
+    g(x) = \tfrac12\Bigl[\,1 - \cos\!\Bigl(\pi\,\frac{x - x_s}{x_e - x_s}\Bigr)\Bigr]
+    \quad (x_s \le x \le x_e),
+    \label{eq:gap-ramp}
+\end{equation}
+with $g = 0$ for $x < x_s$ and $g = 1$ for $x > x_e$. The analytical blend leaves a small residual displacement gradient at the edge of the refined region; this is smoothed by solving a Laplacian for the background displacement field $\mathbf d$, with the surface displacement $\mathbf d_{\mathrm{surf}}$ imposed as Dirichlet data on the wing and flap and a diffusivity $D$ inversely proportional to the wall distance $r_{\mathrm{wall}}$ (a small floor $\varepsilon$ avoids division by zero). The large diffusivity near the walls drags the boundary-layer cells rigidly with the surface,
+\begin{equation}
+    \nabla\!\cdot\!\bigl(D\,\nabla\mathbf d\bigr) = \mathbf 0,
+    \qquad
+    D = \frac{1}{\max(r_{\mathrm{wall}},\,\varepsilon)},
+    \qquad
+    \mathbf d = \mathbf d_{\mathrm{surf}}\ \ \text{on the wing and flap}.
+    \label{eq:bg-laplacian}
+\end{equation}
+The prescribed transforms $\mathsf T_{\mathrm w}(t)$ and $\mathsf T_{\mathrm f}(t)$ are supplied by the motion tables rewritten at each window by the driver (\cref{python-struct}); \cref{fig:mesh} compares the grid at equilibrium and in a morphed configuration.
+
+The boundary conditions in \texttt{0.orig/} implement the continuous formulation of \cref{subsec:aeroelastic_airfoil} and are collected in Table~\ref{tab:bcs}. The inlet embeds the ``$1-\cos$'' gust profile~\eqref{eq:gust} as a \texttt{codedFixedValue}, with $U_\infty$, $W_0$, $t_0$ and $T_g$ injected by the driver at initialisation; the moving walls use \texttt{movingWallVelocity}, the no-slip condition extended to moving surfaces so that it stays consistent with the instantaneous mesh velocity. The \texttt{pointDisplacement} field is supplied by the motion solver on the wing and flap and fixed to zero elsewhere.
+
+\begin{table}[t]
+    \centering
+    \begin{tabular}{|p{0.26\textwidth}|p{0.60\textwidth}|}
+    \hline
+    \rowcolor{bluePoli!40}
+    Patch & Boundary condition \T\B \\
+    \hline\hline
+    Inlet & \texttt{codedFixedValue}: freestream $U_\infty$ + ``$1-\cos$'' gust \T\B \\
+    Outlet & \texttt{inletOutlet} on $\mathbf u$, fixed $p$ \T\B \\
+    Far field & \texttt{slip} \T\B \\
+    \texttt{wing\_main}, \texttt{flap} & \texttt{movingWallVelocity} (no-slip on the moving wall) \T\B \\
+    \texttt{front}, \texttt{back} & \texttt{empty} (two-dimensional extrusion) \B \\
+    \hline
+    \end{tabular}
+    \\[6pt]
+    \caption{Boundary conditions of the fluid case on velocity and pressure.}
+    \label{tab:bcs}
+\end{table}
+
+
+\begin{figure}[t]
+    \centering
+
+    % --- IMMAGINE A SINISTRA ---
+    \begin{minipage}[b]{0.48\textwidth} % Usiamo minipage per andare sul sicuro
+        \centering
+        \includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter1/non_deformed_mesh.png}
+        \caption{Mesh at equilibrium}
+        \label{fig:sinistra}
+    \end{minipage}
+    \hfill % Spinge l'altra immagine a destra
+    % --- IMMAGINE A DESTRA ---
+    \begin{minipage}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter1/deformed_mesh.png}
+        \caption{Mesh in morphed condition}
+        \label{fig:destra}
+    \end{minipage}
+
+    \vaddinfo % Spazio verticale opzionale prima della didascalia generale
+    \caption{Comparison between morphed and non mesh}
+    \label{fig:mesh}
+\end{figure}
+
+
+\subsection{Co-simulation driver}
+\label{python-struct}
+
+The partitioned scheme is orchestrated by a Python driver that implements both the structural integrator of Equation~\eqref{eq:structural-state-space} and the coordination of the OpenFOAM co-simulation. An external co-simulation framework is not used, because the two-degree-of-freedom interface is simple enough that a dedicated driver keeps full control over the information exchange between the solvers at a lower overhead.
+
+Execution is organised as an outer loop over the co-simulation windows. Before entering the loop the driver initialises the case: it regenerates the inlet gust boundary condition (a \texttt{codedFixedValue} populated with the current constants $U_\infty$, $W_0$, $T_g$, $t_0$), copies \texttt{0.orig} to \texttt{0}, clears the logs and residual processor directories of previous runs, runs \texttt{decomposePar} to decompose the domain over the requested number of MPI processes, and writes two zero-displacement motion tables spanning the whole simulation horizon. The initial structural state is $(h,\,\dot h,\,\alpha,\,\dot\alpha) = \mathbf 0$; the runs of the dataset campaign bypass this cold start and restore instead the structural state and the decomposed fluid fields stored in the pre-gust checkpoint.
+
+The per-window sequence is given in Algorithm~\ref{alg:cosim}.
+
+\begin{algorithm}[H]
+\caption{Per-window sequence of the partitioned co-simulation driver}
+\label{alg:cosim}
+\begin{algorithmic}[1]
+\FOR{each window $[\tau_l,\,\tau_{l+1}]$}
+    \STATE predict $h^{\mathrm{pred}}(t),\,\alpha^{\mathrm{pred}}(t)$ by the first-order hold~\eqref{eq:first-order-hold}; sample the flap schedule $\delta(t)$
+    \STATE write \texttt{wingMotion.dat}, \texttt{flapMotion.dat} (\texttt{tabulated6DoFMotion}) with the hinge translation and the total flap rotation $\alpha+\delta$
+    \STATE run \texttt{pimpleFoam} in parallel over $[\tau_l,\,\tau_{l+1}]$
+    \STATE \texttt{reconstructPar}; read $F_y(t),\,M_z(t)$ over \texttt{wing\_main} and \texttt{flap}
+    \STATE integrate the structure~\eqref{eq:structural-state-space} over $[\tau_l,\,\tau_{l+1}]$ by RK45 $\Rightarrow \boldsymbol{\zeta}(\tau_{l+1})$
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+The loop terminates when $\tau_l$ reaches the final simulation time.
+
+
+\section{Verification and validation of the full-order model}
+\label{app:vv}
+
+This appendix collects the verification studies of the FSI solver of \cref{app:fom}: the grid-convergence study that selects the mesh, the temporal studies that select the coupling window and the CFD time step, and the consistency check of the loosely coupled scheme. Scripts and data of the three analyses are archived in the \texttt{validation/} folder of the repository (\texttt{grid\_convergence/}, \texttt{temporal/}, \texttt{courant\_mild/}, \texttt{coupling/}).
+
+\subsection{Grid convergence}
+\label{subsubsec:grid_convergence}
+Four sets of mesh grids of increasing resolution were solved at the trim condition with the steady RANS solver \texttt{simpleFoam}. The first grid is $36\,042$ cells, while the finest is $1\,911\,931$ cells. The other two are $75\,934$, $374\,584$ cells respectively. Between the two finest grids, $C_L$ changes by $0.61\%$ and the Grid Convergence Index~\cite{celik2008procedure} on the $374\,584$-cell grid is $0.84\%$; $C_D$ changes by $1.02\%$, marginally above the $1\%$ criterion, which is acceptable for an application dominated by lift loads. The $374\,584$-cell grid is adopted for the dataset generation and all co-simulations.
+
+\subsection{Time step and Courant number}
+\label{subsubsec:temporal}
+Two studies select the temporal discretisation of the co-simulation on the mesh chosen above, one for each of the two quantities that define it, linked by $\Delta t_{\mathrm{win}} = N_{\mathrm{win}}\,\Delta t_{\mathrm{CFD}}$: a refinement of the coupling window of \cref{subsec:partitioned} at fixed CFD time step, and a CFD time-step sweep at fixed coupling window. The outcome is the pair adopted for the dataset generation, $N_{\mathrm{win}} = 50$ steps of $\Delta t_{\mathrm{CFD}} = 7\times10^{-5}$~s, i.e.\ windows of $\Delta t_{\mathrm{win}} = 3.5$~ms.
+
+The coupling window is refined on a flap step from $0^\circ$ to $15^\circ$ over $[0,0.2]$~s without gust, up to $1$~s, with the CFD time step fixed at $7\times10^{-5}$~s; only the number of CFD steps per window $N_{\mathrm{win}}$ varies. \Cref{tab:appA_window} reports the steady lift $\bar C_L$, averaged over $t\in[0.6,1.0]$~s, and the NRMSE of $C_L(t)$ over $t\in[0.25,1.0]$~s with respect to the finest window, normalised by the reference mean. Over a tenfold window range all metrics stay below $1\%$, and consecutive variations of $\bar C_L$ are $0.016\%$, $0.001\%$ and $0.049\%$: the $50$-step window is converged with a factor-two margin and is selected for the co-simulation, balancing coupling accuracy against the per-window overhead discussed in \cref{subsec:partitioned}.
+
+\begin{table}[t]
+    \centering
+    \begin{tabular}{|c|c|c|c|}
+    \hline
+    \rowcolor{bluePoli!40}
+    $N_{\mathrm{win}}$ & $\Delta t_{\mathrm{win}}$ [ms] & $\bar C_L$ & NRMSE [\%] \T\B \\
+    \hline\hline
+    100 & 7.00 & 1.03295 & 0.602 \T\B \\
+    \hline
+    50  & 3.50 & 1.03278 & 0.697 \T\B \\
+    \hline
+    25  & 1.75 & 1.03279 & 0.352 \T\B \\
+    \hline
+    10  & 0.70 & 1.03229 & reference \B \\
+    \hline
+    \end{tabular}
+    \\[6pt]
+    \caption{Coupling-window refinement at fixed $\Delta t_{\mathrm{CFD}} = 7\times10^{-5}$~s on the flap-step case; the $50$-step row is the selected setting.}
+    \label{tab:appA_window}
+\end{table}
+
+The CFD time step is swept on a reference gust case with the coupling window fixed at the value of $3.5$~ms selected above: the ``$1-\cos$'' pulse of \cref{eq:gust} over $t\in[0.1,0.9]$~s with $W_0=5$~m/s, gust-to-freestream ratio $r_g=0.0625$. Adaptive time stepping is enabled with maximum Courant number $\mathrm{Co}_{\max}\in\{1,2,4\}$ and $\Delta t_{\max} = 5\times10^{-4}$~s, warm-started from the checkpoint of the fixed-step run; the reference is the fixed-step configuration $\Delta t_{\mathrm{CFD}} = 7\times10^{-5}$~s. \Cref{tab:appA_courant} reports the average time step, the peak lift increment $\Delta C_L^{\mathrm{peak}}$, the maximum deviation of $C_L$ from the pre-gust baseline, and its relative deviation from the fixed-step reference.
+
+\begin{table}[t]
+    \centering
+    \begin{tabular}{|c|c|c|c|}
+    \hline
+    \rowcolor{bluePoli!40}
+    Case & mean $\Delta t$ [$10^{-5}$~s] & $\Delta C_L^{\mathrm{peak}}$ & dev.\ [\%] \T\B \\
+    \hline\hline
+    fixed $\Delta t$ & 7.00 & 0.1288 & --- \T\B \\
+    \hline
+    $\mathrm{Co}_{\max}=4$   & 12.6 & 0.1262 & $-2.0$ \T\B \\
+    \hline
+    $\mathrm{Co}_{\max}=2$   & 6.30 & 0.1302 & $+1.1$ \T\B \\
+    \hline
+    $\mathrm{Co}_{\max}=1$   & 3.16 & 0.1344 & $+4.3$ \B \\
+    \hline
+    \end{tabular}
+    \\[6pt]
+    \caption{CFD time-step sweep at fixed coupling window on the reference gust case; the fixed-$\Delta t$ row is the reference of the deviations.}
+    \label{tab:appA_courant}
+\end{table}
+
+Coarsening the step with respect to the fixed-step reference leaves the peak within $2\%$, and refining it changes the peak by $+1.1\%$ at the adjacent step and $+4.3\%$ at $\mathrm{Co}_{\max}=1$, with the peak time unchanged within $0.4\%$, consistent with the first-order accuracy of the temporal discretisation. The fixed step $\Delta t_{\mathrm{CFD}} = 7\times10^{-5}$~s is therefore selected for the dataset generation.
+
+\subsection{Coupling scheme}
+\label{subsubsec:coupling_check}
+The loosely coupled, single-pass scheme of \cref{subsec:partitioned}, justified a priori by the low added-mass ratio of the configuration, is checked a posteriori by the interface energy balance on a full gust run of the dataset campaign. The recorded aerodynamic load histories over the $858$ windows are re-integrated by the structural driver of \cref{python-struct} from the warm-start initial state, and the per-window mismatch between the work done by the aerodynamic loads and the change in mechanical plus dissipated structural energy is monitored. The global balance closes to $0.78\%$, with $3.997$~J of fluid work against a mechanical-energy change of $0.027$~J plus a structural dissipation of $3.938$~J, and the per-window imbalance has median $1.9\times10^{-5}$ and maximum $4.2\times10^{-3}$. The staggered exchange is therefore energetically consistent over the trajectory, and the loosely coupled scheme is adopted for the whole campaign.

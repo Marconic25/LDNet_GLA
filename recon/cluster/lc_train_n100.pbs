@@ -1,0 +1,37 @@
+#!/bin/bash
+#PBS -N lcN100
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=48:00:00
+#PBS -j oe
+#
+# Learning-curve training, final rung N=100 (-v DS=k[,DYNL=..,RECL=..]).
+# Protocol identical to final_div / lc_N30 / lc_N60. DYNL/RECL enable the L12 arm.
+
+: "${DS:?must pass -v DS=<latent dim>}"
+DYNL=${DYNL:-2}
+RECL=${RECL:-4}
+if [ "$DYNL" = "2" ] && [ "$RECL" = "4" ]; then OUT=models/lc_N100; TAG=n100; else OUT=models/lc_N100_L12; TAG=n100l12; fi
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+
+echo "=== lcN100 ds=$DS dyn=$DYNL rec=$RECL out=$OUT start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p $OUT; \
+      python3 -u train_fields.py --train data/FIELDS_lc_N100_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out $OUT --latents $DS --dyn-layers $DYNL --rec-layers $RECL \
+        --adam 300 --bfgs 2000 --restarts 2 --output-nl linear --log-every 1 \
+        > $OUT/train_ds$DS.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_$DS \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/lc_${TAG}_rom_a025_l$DS > $OUT/recon_ds$DS.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_$DS \
+        --data data/FIELDS_B038.h5 --index 0 --name sim_B_038 \
+        --out results/lc_${TAG}_rom_b038_l$DS >> $OUT/recon_ds$DS.log 2>&1; \
+      echo LCN100_DS${DS}_DYN${DYNL}_DONE"
+echo "=== lcN100 ds=$DS end $(date) exit $? ==="

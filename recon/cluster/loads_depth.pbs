@@ -1,0 +1,33 @@
+#!/bin/bash
+#PBS -N loaddep
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#
+# Depth sweep on the LOADS model (F_y, M_z) — direct analogue of the field depth study,
+# but on scalar loads (no field extraction). One job = one (depth, seed); both latents
+# d_s in {1,10} in the sweep. qsub -v RUNL=<total layers>,SEED=<seed base>.
+# Depth ratio dyn:rec = 1:2 (RUNL=6->2/4, 12->4/8, 24->8/16), matching the field ladder.
+
+: "${RUNL:?pass -v RUNL=<total layers>,SEED=<seed base>}"
+: "${SEED:?pass -v RUNL=<total layers>,SEED=<seed base>}"
+DYNL=$((RUNL / 3))
+RECL=$((2 * RUNL / 3))
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+
+echo "=== loaddep L=$RUNL (dyn ${DYNL}x7, rec ${RECL}x24) seed=$SEED start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      LATENT_SWEEP=${LAT:-1,10} ADAM=200 BFGS=20000 ALPHA_REG=3e-4 \
+      DYN_LAYERS=$DYNL DYN_WIDTH=7 REC_LAYERS=$RECL REC_WIDTH=24 SEED_BASE=$SEED \
+      SRC_OVERRIDE=/work/u10677113/LDNet_GLA/src \
+      DATA_OVERRIDE=/work/u10677113/LDNet_GLA/data \
+      RESULTS_OVERRIDE=models/loads_depth_reg/L${RUNL}_s${SEED} \
+      python3 -u loads_depth/train_loads_depth.py > models/loads_depth_reg/train_L${RUNL}_s${SEED}.log 2>&1; \
+      echo LOADDEP_L${RUNL}_S${SEED}_DONE"
+echo "=== loaddep L=$RUNL seed=$SEED end $(date) exit $? ==="

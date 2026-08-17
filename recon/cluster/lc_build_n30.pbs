@@ -1,0 +1,20 @@
+#!/bin/bash
+#PBS -N lcbuild
+#PBS -q cpu
+#PBS -l select=1:ncpus=4
+#PBS -l walltime=04:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon/models/lc_N30_build_pbs.log
+# Builds the N=30 learning-curve H5 datasets (see lc_build_n30_inner.sh).
+# Submitted with afterany deps on the pending rung-30 extraction jobs.
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+
+echo "=== lcbuild start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; \
+             bash /work/u10677113/NACA2312/recon/cluster/lc_build_n30_inner.sh"
+echo "=== lcbuild end $(date) exit $? ==="

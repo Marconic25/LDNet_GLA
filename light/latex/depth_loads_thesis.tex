@@ -1,0 +1,60 @@
+% =====================================================================
+% Decoder-depth ablation of the load-reconstruction surrogate
+% ---------------------------------------------------------------------
+% Drop-in for Sec. 4.1 (subsec:training_results), subsubsection
+% "Network depth": replaces the placeholder paragraph, KEEPING the
+% existing \subsubsection{Network depth} heading in chapter3.tex.
+% Numbers are the regularized production trainer (Tikhonov
+% alpha_reg = 3e-4, tail-compressing output, best-validation selection,
+% six-signal input), two seeds {0,100}; identical to the finalized loads
+% model except for the decoder depth. Source table:
+% recon/analysis/loads_depth_reg_table.csv
+% (columns depth_L, seed, d_s, NRMSE_Fy, NRMSE_Mz, NRMSE_combined).
+% =====================================================================
+
+The final architectural degree of freedom is the decoder depth $L$, the
+total number of hidden layers, split between $\mathcal{NN}_\mathrm{dyn}$ and
+$\mathcal{NN}_\mathrm{rec}$ in the ratio $1{:}2$; the baseline retained
+elsewhere in this work is $L=6$, with two dynamics and four reconstruction
+layers. With the six-signal input fixed, $L$ is swept over $\{6,12,24\}$ at
+the two latent dimensions that bracket the sweep of \cref{tab:latent_sweep},
+$d_s\in\{1,10\}$, each configuration trained twice from independent seeds with
+the regularized trainer described above and the combined NRMSE of
+\cref{eq:acc_metrics}. \Cref{tab:depth_loads} reports the results. Doubling the
+baseline depth to $L=12$ lowers the combined NRMSE by about $20\%$ at $d_s=1$
+and, over the better of the two $L=6$ seeds, by about $30\%$ at $d_s=10$, the
+most accurate model being $L=12$ at $d_s=10$ with a combined NRMSE of
+$9\cdot10^{-4}$. The added depth also removes the initialisation sensitivity of
+the higher-capacity model: at $L=6$ the $d_s=10$ error swings from
+$1.35\cdot10^{-3}$ to $6.17\cdot10^{-3}$ between the two seeds, whereas at
+$L=12$ both seeds settle near $9\cdot10^{-4}$; at $d_s=1$ the reconstruction is
+already seed-robust at the baseline depth. Beyond $L=12$ the training
+collapses: at $L=24$ the combined NRMSE rises to $5$--$22\cdot10^{-3}$ for every
+configuration and remains seed-dependent, the deep $\tanh$ decoder not being
+reliably trainable by the L-BFGS phase at this depth. The production depth
+$L=6$ is therefore a conservative choice, and a moderate increase to $L=12$
+would improve the load reconstruction; the baseline depth is retained for the
+closed-loop model of \cref{subsec:mpc_results}.
+
+\begin{table}[htbp]
+\centering
+\caption{Open-loop test-set reconstruction accuracy of the aerodynamic loads
+($F_y$, $M_z$; combined NRMSE, $\times10^{-3}$) as a function of the decoder
+depth $L$ and the latent dimension $d_s$, at the fixed six-signal input, for two
+training seeds $\{0,100\}$. $L=6$ is the baseline depth used elsewhere in this
+work; its entries are the two-seed values of that architecture and need not
+coincide with the best-of-runs selection of \cref{tab:latent_sweep}.}
+\label{tab:depth_loads}
+\begin{tabular}{cc ccc}
+\hline
+\rowcolor{bluePoli!40}
+$d_s$ & seed & $L=6$ & $L=12$ & $L=24$ \T\B \\
+\hline\hline
+$1$  & $0$   & $3.66$ & $2.92$ & $9.53$ \T\B \\
+$1$  & $100$ & $3.68$ & $3.07$ & $5.18$ \T\B \\
+\hline
+$10$ & $0$   & $1.35$ & $0.949$ & $22.2$ \T\B \\
+$10$ & $100$ & $6.17$ & $0.895$ & $9.18$ \B \\
+\hline
+\end{tabular}
+\end{table}

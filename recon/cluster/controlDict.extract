@@ -1,0 +1,89 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  7
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+// Extraction controlDict OWNED by the recon field pipeline. purgeWrite 0 so
+// every per-window field write survives to reconstructPar (the whole point of a
+// field extraction). Independent of the shared cosim_main controlDict, which the
+// verification campaign mutates (purgeWrite 2, 0.5 ms window). The cosim_driver
+// rewrites startFrom/startTime/stopAt/endTime/writeInterval in place per window and
+// PRESERVES purgeWrite, so 0 holds for the whole run.
+
+application     pimpleFoam;
+
+startFrom       latestTime;
+startTime       5.9992800000e+00;
+stopAt          endTime;
+endTime         5.9997800000e+00;
+
+deltaT          7e-5;
+
+writeControl    timeStep;
+writeInterval   7;
+
+purgeWrite      0;
+writeFormat     binary;
+writePrecision  10;
+writeCompression off;
+
+timeFormat      general;
+timePrecision   6;
+
+runTimeModifiable true;
+
+adjustTimeStep  no;
+maxCo           2;
+
+libs
+(
+    "libfvMotionSolvers.so"
+);
+
+functions
+{
+    forces
+    {
+        type                forces;
+        libs                ("libforces.so");
+        writeControl        timeStep;
+        writeInterval       5;
+        patches             (wing_main flap);
+        rho                 rhoInf;
+        log                 true;
+        rhoInf              1.225;
+        CofR                (0.40 0.0 0.125);
+    }
+
+    forceCoeffs
+    {
+        type                forceCoeffs;
+        libs                ("libforces.so");
+        writeControl        timeStep;
+        writeInterval       5;
+        patches             (wing_main flap);
+        rho                 rhoInf;
+        log                 true;
+        rhoInf              1.225;
+        magUInf             80;
+        lRef                1;
+        Aref                0.05;
+        CofR                (0.40 0.0 0.125);
+        liftDir             (0 1 0);
+        dragDir             (1 0 0);
+        pitchAxis           (0 0 1);
+    }
+}
+
+// ************************************************************************* //

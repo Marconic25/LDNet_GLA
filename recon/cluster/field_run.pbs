@@ -22,7 +22,10 @@ WORK_BASE="/work/u10677113/NACA2312"
 SRC_PARAMS="$WORK_BASE/dataset_v5/$SIM/sim_params.csv"
 SCRATCH="/scratch_local/$USER/fldrun_${SIM}"
 CONTAINER_ABS="/work/u10677113/of7.sif"
-CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint"
+# PINNED to the frozen baseline (window_idx=0, trim @ t=3.0): the live checkpoint/
+# mutates under other campaigns (2026-07-18: window_idx=858 -> replay ran only the
+# last 3 windows -> 3-snapshot garbage extractions).
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
 WRAPPER_DIR="$SCRATCH/bin_of7"     # per-job: avoid concurrent-write races across parallel jobs
 OUT_PERSIST="$WORK_BASE/recon_fields/$SIM"
 EXTRACTOR="$WORK_BASE/recon/extract_fields.py"
@@ -61,7 +64,15 @@ for proc in "$CHECKPOINT_SRC"/processor*/; do
 done
 
 # ── Keep all per-window field writes ──
-sed -i -E 's/purgeWrite[[:space:]]+[0-9]+/purgeWrite      0/' "$SCRATCH/system/controlDict"
+# Install the pipeline-owned extraction controlDict (purgeWrite 0) — see field_run_flap.pbs
+# for the 2026-07-21 root cause (shared controlDict mutated to purgeWrite 2 by another campaign).
+cp "$WORK_BASE/recon/cluster/controlDict.extract" "$SCRATCH/system/controlDict"
+echo "controlDict purgeWrite check: $(grep -E '^purgeWrite' "$SCRATCH/system/controlDict")"
+
+# TRUE ROOT CAUSE (2026-07-21): shared cosim_driver.py (modified 2026-07-14 22:44) purges
+# all but the last 3 processor time dirs each window. Use our PINNED copy (keep all).
+cp "$WORK_BASE/recon/cluster/cosim_driver_extract.py" "$SCRATCH/cosim_driver.py"
+echo "driver purge check: $(grep -c 'numeric\[:0\]' "$SCRATCH/cosim_driver.py") (expect 1 = purge disabled)"
 
 cd "$SCRATCH"
 source ~/cosim_env/bin/activate 2>/dev/null || \

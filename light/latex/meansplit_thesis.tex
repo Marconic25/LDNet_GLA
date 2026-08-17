@@ -1,0 +1,114 @@
+% =====================================================================
+% Field reconstruction and the near-wall bias (mean-split study)
+% ---------------------------------------------------------------------
+% Drop-in subsubsection for Sec. 4.1 (subsec:training_results), replacing
+% the commented placeholder "Network depth and field reconstruction".
+% Requires in the preamble:  \input{.../meansplit_numbers.tex}
+% Figures (Thesis_article_format/Chapters/Chapter 3/Images/):
+%   fig_meansplit_decomp.png   fig_meansplit_fields.png
+% Numbers are verified against analysis_meansplit/meansplit_arm_summary.csv
+% (30 runs, 5 seeds/arm; see recon/analysis/MEANSPLIT_NOTES.md).
+% =====================================================================
+
+\subsubsection{Field reconstruction and the near-wall bias}
+\label{sssec:field_recon}
+
+The same latent-dynamics/reconstruction pair used for the loads can be queried over
+the full spatial domain: replacing the sectional-force head with a three-output head
+$(v_x,v_y,p)$ turns $\mathcal{NN}_\mathrm{rec}(z(t),u(t),x,y)$ into a coordinate
+decoder of the flow field, trained by teacher forcing against the URANS snapshots.
+This exercises the surrogate far more severely than the integrated loads, and exposes
+where its representation is weakest. Measuring the reconstruction error per field and
+per spatial region\,---\,near-airfoil, near-wake, far-field and the airfoil surface,
+each normalised by that field's range\,---\,the $x$-velocity error concentrates in the
+boundary layer and near wake, reaching \msCcBaseNear\ (gust\,+\,flap) and \msABaseNear\
+(gust only) NRMSE in the near-airfoil band, several times the far-field value that the
+global metric is dominated by. Decomposing this error into a time-mean (static) part
+and a fluctuating (dynamic) part reveals that it is almost entirely a persistent
+mean-flow bias: the static component accounts for $97\%$ of the near-airfoil $v_x$
+error (red bars, \cref{fig:meansplit_decomp}). The plain tanh coordinate decoder,
+with raw $(x,y)$ inputs, smears the sharp mean boundary-layer gradient and never
+recovers it, while tracking the gust/flap fluctuations comparatively well.
+
+\paragraph{Mean-field split.} Because the offending component is static, it need not be
+learned at all. We store the training-set mean field $\bar{u}(x,y)$ once and train the
+decoder on the fluctuations $u-\bar{u}$, recomputing the min--max normalisation on the
+fluctuation ranges and adding $\bar{u}$ back at inference; the reported errors remain in
+total-field units and directly comparable to the baseline. This is the cheapest possible
+change\,---\,no new inputs, architecture or loss terms, and the latent dynamics are
+untouched\,---\,and it mirrors the mean/POD-mode split standard in projection-based
+reduced-order models~\cite{BennerGugercinWillcox2015}. The near-airfoil $v_x$ error drops to
+\msCcMsNear\ (a factor \msCcFactor) on the gust\,+\,flap case and \msAMsNear\ (a factor
+\msAFactor) on the gust-only case; the static share of the near-wall error collapses
+from $97\%$ to $3\%$ (blue bars, \cref{fig:meansplit_decomp}), while the dynamic
+component is left unchanged\,---\,the split removes the bias without disturbing what the
+network already captured. \Cref{tab:meansplit} lists the region-resolved figures, and
+\cref{fig:meansplit_fields} shows the effect in physical space: the error halo that
+surrounds the entire profile in the baseline is all but eliminated, leaving only a
+localised residual at the flap gap. The global combined metric moves less (from
+$1.4\cdot10^{-2}$ to $7.2\cdot10^{-3}$) because it is dominated by the already-easy
+far field and mixes the three physical units, a known artefact of the range-normalised
+combined NRMSE; the per-field, per-region view is the informative one.
+
+\paragraph{What the residual is.} The error that survives is dynamic, not static, and it
+sits on the airfoil surface where the flap deflects (\cref{fig:meansplit_fields}, right).
+A short ablation confirms that this floor is not reachable through the decoder inputs:
+referencing the mean to the trim state instead of the ensemble mean, adding a
+Tikhonov penalty, and appending wall-distance and boundary-layer-mask input
+features\,---\,the standard remedy for near-wall gradients in steady
+surrogates~\cite{Catalani2025}\,---\,each match but none beat the plain split beyond
+seed scatter, and the wall features help only on the gust-only case, where the geometry
+is static, giving no gain once the flap moves. Regularisation does not alter the
+$d_s=1$ selection of \cref{subsec:training_results} for the field either. The remaining
+near-wall error is therefore a property of the fluctuation dynamics captured by the
+low-dimensional latent state, not of the spatial decoder, and would be addressed on the
+dynamics side rather than by further input engineering.
+
+% --------------------------------------------------------------------- table
+\begin{table}[htbp]
+\centering
+\caption{Field-reconstruction $v_x$ error (NRMSE, normalised by the field range) by
+spatial region, baseline coordinate decoder versus the mean-field split, on the two
+test trajectories ($d_s=1$; mean over five seeds). ``static'' is the fraction of the
+error carried by the time-mean bias.}
+\label{tab:meansplit}
+\begin{tabular}{llccc}
+\toprule
+Trajectory & Region & Baseline & Mean-split & Factor \\
+\midrule
+gust only
+ & near-airfoil    & $0.194$ & $0.0082$ & $24\times$ \\
+ & near-wake       & $0.0091$ & $0.0028$ & $3.2\times$ \\
+ & far-field       & $0.0852$ & $0.0027$ & $31\times$ \\
+ & airfoil surface & $0.0420$ & $0.0112$ & $3.7\times$ \\
+\midrule
+gust\,+\,flap
+ & near-airfoil    & $0.140$ & $0.0244$ & $5.7\times$ \\
+ & near-wake       & $0.0104$ & $0.0074$ & $1.4\times$ \\
+ & far-field       & $0.0614$ & $0.0058$ & $11\times$ \\
+ & airfoil surface & $0.0384$ & $0.0282$ & $1.4\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --------------------------------------------------------------------- figures
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_meansplit_decomp.png}
+\caption{Static (solid) versus dynamic (hatched) $x$-velocity reconstruction error by
+region, for the baseline coordinate decoder (red) and the mean-field split (blue), on
+the gust-only (left) and gust\,+\,flap (right) test trajectories. The baseline error is
+an almost purely static near-wall bias; the split removes it while leaving the dynamic
+component unchanged.}
+\label{fig:meansplit_decomp}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_meansplit_fields.png}
+\caption{Near-airfoil $x$-velocity at the gust peak of the gust\,+\,flap trajectory:
+reference field (left) and absolute reconstruction error for the baseline (centre) and
+the mean-field split (right), on a common colour scale. The baseline error surrounds the
+whole profile; after the split only a localised residual at the flap gap remains.}
+\label{fig:meansplit_fields}
+\end{figure}

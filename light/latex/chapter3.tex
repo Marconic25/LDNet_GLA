@@ -1,240 +1,248 @@
-\section{Optimal controller built around LDNet}
-\label{sec:controller}
+\section{Results}
+\label{sec:results}
 
-The control objective is to ensure compliance with the structural requirements of the \emph{Certification Specifications CS-25}, mitigating the loads induced by discrete gusts and continuous atmospheric turbulence such that wing and fuselage stresses remain within the limits of strength, elastic deformation, and structural integrity prescribed by \mbox{CS~25.341} and \mbox{CS~25.305}, while preserving flight safety margins without compromising the airframe fatigue endurance. Since the vertical gust induces a pronounced peak in the lift coefficient resulting in increased bending moment at the root, in order to simplify the analysis the objective function was defined to penalize exclusively the lift deviation $\Delta C_L = C_L - C_{L,\text{trim}}$ and the control effort $\delta$, thereby avoiding the excitation of undesirable pitch oscillations with the flap deployment. Mathematically it is expressed as following:
+This section reports the results of the study. \Cref{subsec:training_results} assesses the accuracy of the trained LDNet on the held-out test set and documents the hyperparameter selection. \Cref{subsec:mpc_results} evaluates the closed-loop controller over the CS-25 discrete-gust envelope in nominal conditions, and \cref{subsec:noise_results,subsec:systematic_results} probe its robustness to stochastic measurement noise and to systematic sensing and model errors.
 
-\begin{equation}
-\min_{\delta(t)} \; J\bigl(\delta(t)\bigr) = \Bigl(C_L\bigl(t+\Delta t; \delta(t)\bigr) - C_{L,\text{trim}}\Bigr)^2 + R\,\delta(t)^2
-\end{equation}
+\subsection{Surrogate accuracy and hyperparameter tuning}
+\label{subsec:training_results}
 
-subject to
+The analysis of this subsection is deliberately performed in open loop: the networks are driven by the reference structural signals of each trajectory, in the teacher-forcing regime of \cref{subsec:training}, and the reconstruction error of the loads on the held-out test set is measured by the metrics~\eqref{eq:acc_metrics}. Decoupled from the error propagation of an autonomous rollout, this error isolates how accurately the model has learned the load mapping, and it is on this learning accuracy that the selection of the inputs and of $d_s$ is based. All models below are trained with Tikhonov regularization of the network weights~\cite{Regazzoni}: a penalty term, the mean of the squared kernels of $\mathcal{NN}_\mathrm{dyn}$ and $\mathcal{NN}_\mathrm{rec}$ weighted by $\alpha_\mathrm{reg}=3\cdot10^{-4}$, is added to the training loss. Training is stopped at the minimum of the validation loss, which is computed without that term. The closed-loop rollout is instead the mode in which the model is used: trained on the rollout loss~\eqref{eq:rollout_loss} with the damped latent update~\eqref{eq:latent_dyn}, the model runs in rollout inside the control loop of the gust-load-alleviation study of \cref{subsec:mpc_results}.
 
-\begin{equation}
-\bigl|\delta(t)\bigr| \leq \delta_{\max}, \qquad \frac{\bigl|\delta(t) - \delta(t-\Delta t)\bigr|}{\Delta t} \leq \dot{\delta}_{\max},
-\end{equation}
+\subsubsection{Input selection}
 
-where $C_L\bigl(t+\Delta t; \delta(t)\bigr)$ denotes the lift coefficient predicted at the end of the time interval $[t, t+\Delta t]$ when the constant flap deflection $\delta(t)$ is applied over that interval, obtained by advancing the aerodynamic model and the structural dynamics by one step. As highlighted in the objective function, the predicted lift coefficient $C_L\bigl(t+\Delta t; \delta(t)\bigr)$ is obtained from the internal aerodynamic model, which evaluates the candidate flap deflection $\delta(t)$ together with the preview gust velocity ${W}(t+\Delta t)$.  Since the gust profile follows a deterministic 1-cosine
-shape, the value ${W}(t+\Delta t)$ is known one step ahead and constitutes a minimal
-feedforward preview of the incoming disturbance. By sampling this predicted response over the admissible control interval, the optimizer is able to compute the optimal deflection $\delta^*(t)$ that minimizes the cost while satisfying the actuator constraints.
+The first study fixes the outputs $(F_y,M_z)$ and varies the signals fed to the networks, to
+establish how much of the structural state the load reconstruction requires. Three
+configurations are compared: gust and flap only $\{W,\delta\}$; the same augmented with the
+plunge and pitch $\{W,\delta,h,\alpha\}$; and the full structural state
+$\{W,\delta,h,\dot h,\alpha,\dot\alpha\}$, which adds the plunge and pitch rates.
+Figure~\ref{fig:input_study} reports NRMSE and $1-\rho$ against the latent dimension $d_s$ for
+the three sets. The gust-and-flap pair alone is inadequate: without the structural state the
+latent dynamics must reproduce the aeroelastic response unaided, and the combined NRMSE is the
+largest and most erratic of the three sets (between $3.9\cdot10^{-3}$ and $3.2\cdot10^{-2}$).
+Adding the plunge and pitch positions stabilises the reconstruction, but the four-signal set
+does not improve beyond $4.0\cdot10^{-3}$ at any latent dimension. The velocity rates
+$\dot h,\dot\alpha$ are what admit the accurate regime: only the full six-signal set reaches a
+combined NRMSE of $1.3$--$1.4\cdot10^{-3}$, three times below the four-signal floor. The full
+six-signal set is adopted for the remainder of this work.
+% TODO: PCA on the inputs (deferred).
 
-\subsection{Control loop architecture}
-To keep the treatment as focused as possible on the role of the data-driven model in the control loop, it was decided to assume direct access to both the current structural state and the gust velocity, without the need for a state observer. The gust is measured via feedforward sensing (Livne et al., 2001; Regan \& Jutras, 2018), while the structural state vector can be reconstructed through integration of accelerometer measurements---a well-established procedure that adds no value to the present discussion. 
-
-\begin{figure}[htbp]
+\begin{figure}[t]
 \centering
-\begin{tikzpicture}[
-    scale=0.9, transform shape,
-    font=\small,
-    block/.style={draw, very thick, fill=white, minimum height=1.4cm,
-                  minimum width=2.6cm, align=center, rounded corners=3pt},
-    arrow/.style={->, very thick, >=Stealth},
-    node distance=1.8cm and 2.0cm
-]
-
-% --- References (left) ---
-\node (cltrim) {$C_{L,\text{trim}}$, $\mathbf{x}_{\text{trim}}$};
-
-% --- Controller ---
-\node [block, right=1.6cm of cltrim, yshift=-0.25cm] (ctrl)
-      {One-step Optimal\\Controller};
-
-% --- NN (Aerodynamic Model) ---
-\node [block, right=2.0cm of ctrl] (nn)
-      {$\mathcal{N}\mathcal{N}$\\(rollout chain )};
-
-% --- Struct ---
-\node [block, right=2.0cm of nn] (struct) {Structural dynamics};
-
-% --- Output x(t) ---
-\node [right=1.0cm of struct] (outx) {$\mathbf{x}(t)$};
-
-% --- Gust nodes: preview to controller, current to plant --- % PREVIEW
-\node [above=1.2cm of ctrl] (wpreview) {$W(t{+}\Delta t)$}; % PREVIEW
-\node [above=1.2cm of nn]   (wt)       {$W(t)$};
-
-% --- References to controller ---
-\draw [arrow] (cltrim) -- (ctrl);
-
-% --- Preview gust to controller --- % PREVIEW
-\draw [arrow] (wpreview) -- (ctrl.north); % PREVIEW
-
-% --- True gust to NN (plant advancement) ---
-\draw [arrow] (wt) -- (nn);
-
-% --- Controller to NN ---
-\draw [arrow] (ctrl) -- node[above] {$\delta^*(t)$} (nn);
-
-% --- NN to Struct ---
-\draw [arrow] (nn) -- node[above] {$F_y(t),\,M_z(t)$} (struct);
-
-% --- Struct to output ---
-\draw [arrow] (struct) -- (outx);
-
-% --- State feedback x(t) to NN ---
-\coordinate (Sx) at ($(struct.east)!0.5!(outx.west)$);
-\draw [arrow] (Sx) -- ++(0,-1.2)
-              -| node[pos=0.25,below] {$\mathbf{x}(t)$} (nn.south);
-
-% --- State feedback x(t) to controller ---
-\draw [arrow] (Sx) -- ++(0,-2.4)
-              -| node[pos=0.25,below] {$\mathbf{x}(t)$} (ctrl.south);
-
-% --- Fy(t) feedback to controller ---
-\coordinate (Fy) at ($(nn.east)!0.25!(struct.west)$);
-\draw [arrow] (Fy) -- ++(0,-1.8)
-              -| node[pos=0.25,below] {$F_y(t), M_z(t)$} (ctrl.south);
-
-\end{tikzpicture}
-\caption{Block diagram of the one-step optimal control loop with one-step gust
-preview. The controller receives the trim references $C_{L,\text{trim}}$ and
-$\mathbf{x}_{\text{trim}}$, the structural state $\mathbf{x}(t)$, the
-aerodynamic force $F_y(t)$, and the preview gust velocity $W(t+\Delta t)$, and
-outputs the optimal flap deflection $\delta^*(t)$. The aerodynamic model
-(LDNet) uses the true gust $W(t)$ during candidate evaluation and plant
-advancement, while $W(t+\Delta t)$ is used exclusively within the optimisation
-to define the causal gate and the cost landscape.}
-\label{fig:control_loop}
+\includegraphics[width=0.55\textwidth]{Thesis_article_format/Chapters/Chapter2/Images/fig_ch2_input_study.png}
+\caption{Open-loop test-set accuracy of the load reconstruction (NRMSE, top; Pearson
+dissimilarity $1-\rho$, bottom; combined value) versus latent dimension $d_s$, for the three
+input configurations $\{W,\delta\}$, $\{W,\delta,h,\alpha\}$ and the full structural state
+$\{W,\delta,h,\dot h,\alpha,\dot\alpha\}$.}
+\label{fig:input_study}
 \end{figure}
 
+\subsubsection{Latent-state dimension}
 
-At each sampling instant $t$, the one-step optimal controller executes the following sequence:
+With the six-signal input fixed, the latent dimension is swept over $d_s\in\{1,3,5,10\}$; for
+each value two independent training runs are performed (three at $d_s=10$) and the run with the
+lowest validation loss is retained. \Cref{fig:input_study} and \cref{tab:latent_sweep}
+report the resulting test-set accuracy. A single latent state caps the combined NRMSE at
+$4.6\cdot10^{-3}$; with more states the optimiser can reach a deep minimum of the validation
+loss ($\approx 2\cdot10^{-5}$) where the combined NRMSE drops to $1.4\cdot10^{-3}$ at $d_s=3$
+and $1.3\cdot10^{-3}$ at $d_s=10$, with $1-\rho\le2\cdot10^{-5}$. The weight regularization is
+what makes this capacity usable. A larger $d_s$ multiplies the degrees of freedom of the
+latent dynamics, and on a training set of $100$ trajectories the unregularized optimiser
+spends them on trajectory-specific detail that does not transfer to unseen data; the Tikhonov
+penalty shrinks the weights and thereby bounds the local gains of the learned maps, keeping
+the latent dynamics smooth, so the additional states are spent on the aeroelastic response
+shared across trajectories. Without it the higher-dimensional models overfit the latent
+dynamics and lose to $d_s=1$, consistently with the role of tuned L2 regularization in
+restoring a monotone benefit of model capacity~\cite{nakkiran2021optimal}. The deep minimum is
+not reached in every run --- at $d_s=5$ neither of its two runs located it --- a residue of the
+sensitivity of the full-batch optimisation to its trajectory, which the multiple-run protocol
+mitigates. The latent dimension is set to $d_s=10$, the most accurate configuration, which is
+also the value adopted for the closed-loop rollout (\cref{subsec:mpc_results}).
 
-\begin{enumerate}
-    \item Reference lift evaluation: the lift coefficient is evaluated with zero flap deflection using the current structural state $\mathbf{x}(t)$, the latent state $\mathbf{z}(t)$ updated from the previous controller iteration, and the preview gust velocity $W(t+\Delta t)$:
-    \begin{equation}
-    C_L^{(0)}(t) = \mathcal{N}\mathcal{N}_{\text{rec}}\bigl(\mathbf{z}(t), \mathbf{x}(t), \delta=0, W(t+\Delta t)\bigr).
-    \end{equation}
-    This value determines the sign of the lift excursion relative to trim and defines the deflection sign rule.Using the one-step preview here allows the
-    causal gate to anticipate the incoming gust by one time step, initiating the corrective deflection before the disturbance reaches its current value.
-    
-    \item Candidate grid generation and aerodynamic prediction: A uniform grid of $G$ candidate deflections $\{\delta_1,\dots,\delta_G\}$ spanning $[-\delta_{\max},+\delta_{\max}]$ is generated. For each candidate $\delta_j$, the aerodynamic coefficients at the next step are predicted by advancing the latent dynamics
-\begin{equation}
-\dot{\mathbf{z}}(t) = \mathcal{N}\mathcal{N}_{\text{dyn}}\bigl(\mathbf{z}(t), \mathbf{x}(t), \delta_j, W(t+\Delta t)\bigr),
-\end{equation}
-and reconstructing
-\begin{equation}
-\bigl(C_L(t+\Delta t;\delta_j),\, C_M(t+\Delta t;\delta_j)\bigr) = \mathcal{N}\mathcal{N}_{\text{rec}}\bigl(\mathbf{z}(t+\Delta t), \mathbf{x}(t), \delta_j, W(t+\Delta t)\bigr).
-\end{equation}
-The corresponding perturbation forces
-\begin{equation}
-F_y(t+\Delta t;\delta_j) = q_{\infty}\,C_L(t+\Delta t;\delta_j) - F_{y,\text{trim}}, \quad
-M_z(t+\Delta t;\delta_j) = q_{\infty}\,C_M(t+\Delta t;\delta_j)\,c_{\text{ref}} - M_{z,\text{trim}},
-\end{equation}
-with $q_{\infty}=\tfrac{1}{2}\rho U^2 S_{\text{ref}}$, are used to advance the structural state by one Runge--Kutta 4 step, yielding the predicted state $\mathbf{x}(t+\Delta t;\delta_j)$ and the predicted lift $C_L(t+\Delta t;\delta_j)$.
-    
-    \item Cost evaluation: the cost is evaluated for every candidate $\delta_j$:
-    \begin{equation}
-    J(\delta_j) = \bigl(C_L(t+\Delta t;\delta_j) - C_{L,\text{trim}}\bigr)^2 + R\,\delta_j^2.
-    \end{equation}
-    
-    \item Masking of inadmissible candidates: the physical deflection mask restricts the search to deflections that reduce the lift excursion:
-    \begin{equation}
-    \mathcal{M}_{\text{causal}} = \begin{cases}
-    \{\delta_j \leq 0\} & \text{if } C_L^{(0)}(t) \geq C_{L,\text{trim}}, \\[4pt]
-    \{\delta_j \geq 0\} & \text{if } C_L^{(0)}(t) < C_{L,\text{trim}},
-    \end{cases}
-    \end{equation}
-    while the rate limit mask enforces actuator bandwidth:
-    \begin{equation}
-    \mathcal{M}_{\text{rate}} = \bigl\{\delta_j : |\delta_j - \delta(t-\Delta t)| \leq \dot{\delta}_{\max}\,\Delta t\bigr\}.
-    \end{equation}
-    Candidates violating either constraint are assigned infinite cost:
-    \begin{equation}
-    J(\delta_j; ) \leftarrow \infty \quad \text{if } \delta_j \notin \mathcal{M}_{\text{causal}} \cap \mathcal{M}_{\text{rate}}.
-    \end{equation}
-    
-    \item Optimal deflection selection: the minimizer over the masked grid is selected:
-    \begin{equation}
-    \delta^* = \arg\min_{\delta_j} J(\delta_j).
-    \end{equation}
-    
-    
-   \item Command application and system advancement: The optimal command is applied to advance the true aerodynamic and structural states by one time step:
-\begin{equation}
-\bigl(C_L(t+\Delta t),\, C_M(t+\Delta t)\bigr) = \mathcal{N}\mathcal{N}_{\text{rec}}\bigl(\mathbf{z}(t+\Delta t),\, \mathbf{x}(t),\, \delta^*(t),\, W(t)\bigr),
-\end{equation}
-\begin{equation}
-F_y(t+\Delta t) = q_{\infty}\,C_L(t+\Delta t) - F_{y,\text{trim}}, \quad
-M_z(t+\Delta t) = q_{\infty}\,C_M(t+\Delta t)\,c_{\text{ref}} - M_{z,\text{trim}},
-\end{equation}
-followed by the RK4 structural integration yielding $\mathbf{x}(t+\Delta t)$. The latent state $\mathbf{z}(t)$ is updated with the leak term for the next control cycle:
-\begin{equation}
-\mathbf{z}(t+\Delta t) = \mathbf{z}_{\text{new}} - \lambda\,\mathbf{z}(t),
-\end{equation}
-where $\lambda$ is the latent leak coefficient and $\mathbf{z}_{\text{new}}$ is the state returned by the aerodynamic model.
+A configuration at $d_s=20$, trained with the same protocol and three restarts, shows the same
+behaviour at the upper end of the range. Its best validation loss is $2.63\cdot10^{-4}$,
+against $2.09\cdot10^{-5}$ at $d_s=3$ and $1.94\cdot10^{-5}$ at $d_s=10$: the deep minimum was
+reached in none of the three restarts, and the value sits with those of the $d_s=1$ and
+$d_s=5$ cells, which missed it as well. The combined test NRMSE is $7.5\cdot10^{-3}$ with six
+inputs, $5.1\cdot10^{-3}$ with four and $1.1\cdot10^{-2}$ with two. Two of the three six-input
+restarts stop before $300$ iterations on a memoryless solution, with a combined NRMSE of
+$5.9\cdot10^{-2}$ and $\rho(F_y)<0.3$.
 
 
+\begin{table}[t]
+\centering
+\begin{tabular}{|c|c|c|c|c|c|c|}
+\hline
+\rowcolor{bluePoli!40}
+ & \multicolumn{3}{c|}{NRMSE} & \multicolumn{3}{c|}{$1-\rho$} \T\B \\
+\cline{2-7}
+\rowcolor{bluePoli!40}
+$d_s$ & $F_y$ & $M_z$ & comb. & $F_y$ & $M_z$ & comb. \T\B \\
+\hline\hline
+$1$  & $8.8\cdot10^{-3}$ & $2.9\cdot10^{-3}$ & $4.6\cdot10^{-3}$ & $2.6\cdot10^{-3}$ & $6.2\cdot10^{-4}$ & $2.0\cdot10^{-4}$ \T\B \\
+\hline
+$3$  & $2.8\cdot10^{-3}$ & $1.6\cdot10^{-3}$ & $1.4\cdot10^{-3}$ & $2.8\cdot10^{-4}$ & $2.0\cdot10^{-4}$ & $2.0\cdot10^{-5}$ \T\B \\
+\hline
+$5$  & $9.3\cdot10^{-3}$ & $4.8\cdot10^{-3}$ & $4.8\cdot10^{-3}$ & $3.2\cdot10^{-3}$ & $1.8\cdot10^{-3}$ & $2.2\cdot10^{-4}$ \T\B \\
+\hline
+$10$ & $2.4\cdot10^{-3}$ & $1.6\cdot10^{-3}$ & $1.3\cdot10^{-3}$ & $2.1\cdot10^{-4}$ & $2.0\cdot10^{-4}$ & $1.5\cdot10^{-5}$ \B \\
+\hline
+\end{tabular}
+\\[6pt]
+\caption{Open-loop test-set reconstruction accuracy of the aerodynamic loads as a function of
+the latent dimension $d_s$, with the six-signal input: NRMSE and Pearson dissimilarity $1-\rho$ for
+$F_y$, $M_z$ and the combined output. For each $d_s$ the best of the independent training runs,
+selected on the validation loss, is reported.}
+\label{tab:latent_sweep}
+\end{table}
 
-\subsection{Numerical optimization methods}
+\subsubsection{Network depth}
 
-The optimal flap deflection is computed by solving a scalar bounded optimization
-problem in two stages: a coarse global search on a uniform grid, followed by a
-parabolic sub-cell refinement.
+The last architectural degree of freedom is the depth of the two networks. The layer widths
+are held at their baseline values, $7$ neurons for $\mathcal{NN}_\mathrm{dyn}$ and $24$ for
+$\mathcal{NN}_\mathrm{rec}$, and the total number of hidden layers $L$ is doubled twice over
+$L\in\{6,12,24\}$, split between the two networks in the fixed ratio $1{:}2$ of the baseline
+architecture; \cref{tab:depth_arch} lists the three configurations and the number of trainable
+weights $P$ that each of them carries. Every depth is trained at the two latent dimensions that
+bracket the sweep of \cref{tab:latent_sweep}, $d_s\in\{1,10\}$, and each of the six resulting
+configurations is trained twice: the two runs share data, architecture and training schedule,
+and differ only in the random initialisation of the network weights, so that the effect of
+depth can be told apart from the run-to-run scatter seen in the latent sweep. The six-signal
+input, the regularized trainer and the metrics of \cref{eq:acc_metrics} are those used above.
+\Cref{tab:depth_loads} collects the test-set error of the twelve runs.
 
-A uniform grid of $G = 161$ candidate deflections is generated over the full
-actuator range:
-\begin{equation}
-    \Delta_G = \left\{\delta_j = -\bar\delta_{\max} + \frac{j-1}{G-1}\,
-    2\bar\delta_{\max} \;\Big|\; j = 1,\dots,G \right\},
-    \qquad \bar\delta_{\max} = 14^{\circ}.
-\end{equation}
-Each candidate is assigned a cost of $+\infty$ if it violates either of two
-feasibility constraints explained in the previous subsection.
+Doubling the baseline depth improves the reconstruction at both latent dimensions, by about one
+fifth at $d_s=1$ and by about one third at $d_s=10$, where $L=12$ is the most accurate
+configuration of the entire hyperparameter study with a combined $\mathrm{NRMSE}=9\cdot10^{-4}$.
+The stronger effect is on the spread between the two runs: at $L=6$ the two $d_s=10$ runs land
+at $1.35\cdot10^{-3}$ and $6.17\cdot10^{-3}$, a factor of $4.6$ apart, whereas at $L=12$ they
+agree to within $6\%$, so the added layers remove the initialisation sensitivity that the
+multiple-run protocol of the latent sweep was introduced to mitigate. Depth does not, however,
+replace latent capacity: at $d_s=1$ the deeper network stops at $2.9\cdot10^{-3}$, twice the
+error that $d_s=10$ already reaches at the baseline depth, so the latent dimension sets the
+accuracy level and the depth decides how reliably the training attains it.
 
-The aerodynamic response of all $G$ admissible candidates is evaluated
-simultaneously in a single batched call to the LDNet reconstruction network,
-with the latent state $\mathbf{z}(t)$ held fixed:
-\begin{equation}
-    \bigl[C_{L,j}\bigr]_{j=1}^{G}
-    = \mathcal{N}\mathcal{N}_{\text{rec}}\!\bigl(
-      [\mathbf{z}(t)]^{\times G},\;
-      [\mathbf{x}(t)]^{\times G},\;
-      \boldsymbol{\delta}_G,\;
-      W_{\mathrm{used}},\; U_\infty\bigr).
-\end{equation}
-The cost assigned to each candidate is
-\begin{equation}
-    J(\delta_j) = \bigl(C_{L,j} - C_{L,\mathrm{trim}}\bigr)^2 + R\,\delta_j^2,
-    \qquad R = 3\times 10^{-4},
-\end{equation}
-and the grid minimiser is $\delta^*_{\mathrm{grid}} = \delta_{j^*}$, where
-$j^* = \arg\min_j J(\delta_j)$.
+The ladder ends at $L=24$, where the combined NRMSE rises to between $5.2\cdot10^{-3}$ and
+$2.2\cdot10^{-2}$, above every baseline value at the same latent dimension and still strongly
+dependent on the initialisation: a plain $\tanh$ stack of this depth, without residual
+connections or a depth-aware initialisation, saturates and attenuates the gradient layer after
+layer~\cite{glorot2010}, and neither run reaches a usable minimum within the iteration budget. The closed-loop model of \cref{subsec:mpc_results} keeps the baseline $L=6$;
+what the sweep adds is that this depth is a conservative choice rather than an optimal one, and
+that a moderate deepening to $L=12$, at roughly twice the number of weights, would improve the
+open-loop load reconstruction by about a third.
 
-The resolution of the grid search is $\Delta = 2\bar\delta_{\max}/(G-1)
-\approx 0.175^{\circ}$, which introduces a discrete staircase in the control
-output. A continuous minimum is recovered by quadratic interpolation: whenever
-$j^*$ is an interior grid point and both neighbours carry a finite cost, a
-quadratic polynomial $\hat{J}(\delta) = a\delta^2 + b\delta + c$ is fitted to
-the three points
-$(\delta_{j^*-1}, J_{j^*-1})$, $(\delta_{j^*}, J_{j^*})$,
-$(\delta_{j^*+1}, J_{j^*+1})$, and its minimum is located analytically by
-setting $\hat{J}'(\delta^*) = 0$:
-\begin{equation}
-    \delta^* = \delta^*_{\mathrm{grid}}
-    + \frac{J_{j^*-1} - J_{j^*+1}}
-           {2\bigl(J_{j^*-1} - 2J_{j^*} + J_{j^*+1}\bigr)}\,\Delta,
-\end{equation}
-provided the denominator exceeds a numerical threshold of $10^{-30}$, ensuring
-the curvature of the fitted quadratic is genuine.
-This step requires no additional cost evaluations and preserves the branch
-selected by the grid search. The result is finally clipped to enforce both
-the rate and magnitude limits:
-\begin{equation}
-    \delta(t) = \mathrm{clip}\!\left(\delta^*,\;
-    \bigl[\delta(t-\Delta t) - \dot\delta_{\max}\Delta t,\;
-           \delta(t-\Delta t) + \dot\delta_{\max}\Delta t\bigr]\right)
-    \cap \bigl[-\bar\delta_{\max},\,\bar\delta_{\max}\bigr].
-\end{equation}
+\begin{table}[t]
+\centering
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+\rowcolor{bluePoli!40}
+ & \multicolumn{2}{c|}{hidden layers $\times$ width} & \multicolumn{2}{c|}{$P$} \T\B \\
+\cline{2-5}
+\rowcolor{bluePoli!40}
+$L$ & $\mathcal{NN}_\mathrm{dyn}$ & $\mathcal{NN}_\mathrm{rec}$ & $d_s=1$ & $d_s=10$ \T\B \\
+\hline\hline
+$6$  & $2\times7$ & $4\times24$  & $2217$ & $2568$  \T\B \\
+\hline
+$12$ & $4\times7$ & $8\times24$  & $4729$ & $5080$  \T\B \\
+\hline
+$24$ & $8\times7$ & $16\times24$ & $9753$ & $10104$ \B \\
+\hline
+\end{tabular}
+\\[6pt]
+\caption{Architectures of the depth sweep: total number of hidden layers $L$, number and width
+of the hidden layers of each network, and number of trainable weights $P$ at the two latent
+dimensions swept. $L=6$ is the baseline architecture used elsewhere in this work.}
+\label{tab:depth_arch}
+\end{table}
 
-\subsection{Results}
+\begin{table}[t]
+\centering
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+\rowcolor{bluePoli!40}
+ & \multicolumn{2}{c|}{$d_s=1$} & \multicolumn{2}{c|}{$d_s=10$} \T\B \\
+\cline{2-5}
+\rowcolor{bluePoli!40}
+$L$ & best & worst & best & worst \T\B \\
+\hline\hline
+$6$  & $3.66\cdot10^{-3}$ & $3.68\cdot10^{-3}$ & $1.35\cdot10^{-3}$ & $6.17\cdot10^{-3}$ \T\B \\
+\hline
+$12$ & $2.92\cdot10^{-3}$ & $3.07\cdot10^{-3}$ & $8.95\cdot10^{-4}$ & $9.49\cdot10^{-4}$ \T\B \\
+\hline
+$24$ & $5.18\cdot10^{-3}$ & $9.53\cdot10^{-3}$ & $9.18\cdot10^{-3}$ & $2.22\cdot10^{-2}$ \B \\
+\hline
+\end{tabular}
+\\[6pt]
+\caption{Open-loop test-set reconstruction accuracy of the aerodynamic loads as a function of the
+network depth, with the six-signal input: combined NRMSE for the architectures of
+\cref{tab:depth_arch} at the two latent dimensions. Each configuration is trained twice from two
+different random initialisations of the weights, and both outcomes are reported: the better of
+the two is the model one would retain, the worse measures how repeatable the training is. The
+$L=6$ row is the baseline architecture; its values come from this two-run replication and
+therefore do not coincide exactly with the best-of-runs entries of \cref{tab:latent_sweep}.}
+\label{tab:depth_loads}
+\end{table}
 
-The controller is evaluated over an 18-cell parametric grid that spans the
+\subsubsection{Field reconstruction}
+% TODO: placeholder — inserire i risultati della ricostruzione dei campi distribuiti (query points fuori superficie).
+[Placeholder --- accuracy of the meshless reconstruction of the distributed fields at off-surface query points; results to be added.]
+
+\subsubsection{Rollout model for control}
+
+The retained surrogate uses $d_s=10$ latent states, the six input signals and the freestream
+parameter $U_\infty$. The dynamics network $\mathcal{NN}_\mathrm{dyn}$ has two hidden layers of
+$7$ neurons and the reconstruction network $\mathcal{NN}_\mathrm{rec}$ four hidden layers of
+$24$ neurons, all with $\tanh$ activation and the tail-compressing nonlinear output layer
+($\beta=0.05$); the integration and reference time steps are
+$\Delta t=\Delta t_\mathrm{ref}=2\cdot10^{-3}$~s. Training uses the two-stage teacher-forced
+schedule of \cref{subsubsec:training_algorithm} ($200$ Adam epochs at learning rate $10^{-2}$
+followed by L-BFGS) with the weight regularization and validation early stopping described
+above; the selected model attains the combined $\mathrm{NRMSE}=1.3\cdot10^{-3}$ of
+\cref{tab:latent_sweep}. Figure~\ref{fig:loss} shows the corresponding training history. The
+two-stage schedule is clearly delineated: during the $200$ Adam epochs the objective stalls on
+a plateau near $1.5\cdot10^{-2}$, and it is the subsequent L-BFGS phase that resumes the descent
+and lowers the loss by roughly three orders of magnitude. The curve flattens over the last
+decade of epochs, reaching a training loss $\mathcal{L}_\mathrm{train}\approx4\cdot10^{-5}$ and a
+validation loss $\mathcal{L}_\mathrm{val}\approx2\cdot10^{-5}$
+at the retained minimum near epoch $8.8\cdot10^{3}$: the model is converged rather
+than truncated by the iteration budget. Training and validation track each other throughout,
+with the validation curve sitting slightly below because the Tikhonov term enters the training
+objective only; the absence of any late divergence between the two confirms that the regularized
+high-capacity model does not overfit. Starting from the configuration selected by the teacher-forced study, the model deployed in the
+controller is trained anew in closed-loop rollout on the loss~\eqref{eq:rollout_loss} with the
+damped latent update~\eqref{eq:latent_dyn}: same architecture, inputs and latent dimension,
+with the decay coefficient $\lambda$ optimised for the selected configuration. It is this
+rollout model that runs inside the control loop of the gust-load-alleviation studies of
+\cref{subsec:mpc_results}.
+
+
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.45\textwidth]{Thesis_article_format/Chapters/Chapter2/Images/fig_ch2_loss.png}
+\caption{Training history of the selected $d_s=10$ six-signal model (log--log): training loss
+(with the Tikhonov term) and validation loss (without it) versus epoch. The dashed line marks
+the transition from the Adam warm-up to the L-BFGS phase; training is stopped at the minimum of
+the validation loss.}
+\label{fig:loss}
+\end{figure}
+
+% ---- Prepared placeholders (to be written when the field-reconstruction study is ready) ----
+% \subsubsection{Latent leak $\lambda$}                       % stability-vs-accuracy trade-off (train_lambdas.sh)
+% \subsubsection{Network depth and field reconstruction}      % velocity fields ux,uy; deeper NNrec
+
+\subsection{Gust load alleviation over the discrete-gust envelope}
+\label{subsec:mpc_results}
+
+The controller is evaluated over a parametric grid of 18 gust cases that spans the
 CS-25.341 discrete gust envelope: gust amplitude $W_0 \in \{10,\,20,\,30\}$~m/s
 and gust duration $T_g \in \{0.3,\,0.4,\,0.5,\,0.7,\,1.0,\,1.2\}$~s.
-Each cell is characterised by the gust gradient distance
-$H = U_\infty T_g / 2$ and the reduced frequency
-$k = \pi / (U_\infty T_g)$, which together locate the cell in the
-aerodynamically relevant parameter space.
+Each case is located in the aerodynamically relevant parameter space by two derived
+quantities. The gust gradient distance $H = U_\infty T_g / 2$ is the distance flown
+while the gust builds up to its peak; it is the length with which CS-25.341
+parametrises the discrete-gust envelope, and is reported in feet for that reason. The
+reduced frequency $k = \pi\,c_{\mathrm{ref}} / (U_\infty T_g)$ is the gust circular
+frequency $2\pi/T_g$ made nondimensional with the chord and the freestream speed, and
+measures how unsteady the aerodynamic response to the gust is.
 
 The primary performance metric is the fractional reduction of the peak
 lift-coefficient excursion with respect to the open-loop reference:
@@ -243,45 +251,311 @@ lift-coefficient excursion with respect to the open-loop reference:
                          - \max_t |C_L^{\mathrm{CL}}(t) - C_{L,\mathrm{trim}}|}
                          {\max_t |C_L^{\mathrm{OL}}(t) - C_{L,\mathrm{trim}}|}
                     \times 100\%,
+\label{eq:clred}
 \end{equation}
-where the maximum is taken over the gust window $t \in [0,\, T_g + 0.5\,\mathrm{s}]$.
+where the maximum is taken over the gust window $t \in [0,\, T_g + 0.5\,\mathrm{s}]$ and
+$C_{L,\mathrm{trim}}$ is the target the controller drives the lift towards, the same
+reference whose deviations the MPC cost~\eqref{eq:mpc_cost} penalises: CLred is therefore
+the fraction of the open-loop excursion about that target that the controller removes.
 A secondary stability check excludes any tuning that causes any of
 $\dot\alpha$, $\ddot\alpha$, or $\ddot h$ to exceed three times the
-corresponding open-loop peak; the effort weight $R$ is selected per cell
-as the value maximising CLred subject to this constraint.
+corresponding open-loop peak. For each gust case the effort weight
+of the cost~\eqref{eq:mpc_cost} is swept over
+$R \in \{10^{-4},\,3\cdot10^{-4},\,10^{-3},\,3\cdot10^{-3},\,10^{-2}\}$,
+five half-decade steps, and the selected value, written $R^{\star}$, is the
+one maximising CLred among those that satisfy the check. The weight is
+therefore tuned case by case rather than held fixed over the envelope, and
+$R^{\star}$ is reported for every case alongside CLred.
 The pitch ratio, defined as the ratio of the closed-loop to open-loop peak
-pitch excursion, is reported alongside CLred to make explicit any structural
-load trade-off introduced by the flap.
+pitch excursion, is monitored alongside CLred to make explicit any structural
+load trade-off introduced by the flap. In this nominal evaluation the sensing
+chain is noise-free, so the preview vector coincides with the sampled true
+gust profile~\eqref{eq:gust}.
+\Cref{tab:results_setup} collects the numerical values of the structural,
+aerodynamic and actuator parameters shared by every run of this section;
+the symbols are those of the structural model~\eqref{eq:eom}--\eqref{eq:matrices}.
+The structural and flap values are adapted from the typical-section aeroelastic
+benchmark of Hodges and Pierce~\cite{hodges2011aeroelasticity}.
 
-Figure~\ref{fig:summary_lines} shows CLred as a function of $T_g$ for each
-gust amplitude. For all three amplitudes the curves
-share a common trend: CLred peaks near $T_g \approx 0.7$~s and falls at both
-extremes, with the sharpest degradation at the shortest durations ($T_g = 0.3$~s,
-high $k$) where the aerodynamic nonlinearity is most pronounced and the gust
-energy is concentrated at frequencies that are harder to track with a single
-flap step.
-
-\begin{figure}[H]
+\begin{table}[t]
     \centering
-    \includegraphics[width=0.7\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/summary_lines.png}
-    \caption{CLred as a function of gust duration $T_g$ for $W_0 \in \{10, 20, 30\}$~m/s.
-             Each point corresponds to the $R^*$ that maximises CLred without
-             triggering the structural explosion constraint.}
-    \label{fig:summary_lines}
+    \begin{tabular}{|p{0.16\textwidth}|p{0.22\textwidth}|p{0.50\textwidth}|}
+    \hline
+    \rowcolor{bluePoli!40}
+    Symbol & Value & Description \T\B \\
+    \hline\hline
+    $U_\infty$ & $80$~m/s & freestream velocity \T\B \\
+    $\rho$ & $1.225$~kg/m$^3$ & air density \T\B \\
+    $c_{\mathrm{ref}}$ & $1$~m & chord \T\B \\
+    $S_{\mathrm{ref}}$ & $0.05$~m$^2$ & reference surface \T\B \\
+    $C_{L,\text{trim}}$ & $0.868$ & trim lift coefficient (surrogate at the trim state) \T\B \\
+    \hline
+    $m_w$ & $19.24$~kg & wing mass \T\B \\
+    $I_w$ & $1.155$~kg\,m$^2$ & wing inertia about the elastic axis \T\B \\
+    $k_h$ & $25\,460$~N/m & plunge stiffness \T\B \\
+    $d_h$ & $88.0$~N\,s/m & plunge damping \T\B \\
+    $k_\alpha$ & $9530$~N\,m/rad & pitch stiffness \T\B \\
+    $d_\alpha$ & $19.8$~N\,m\,s/rad & pitch damping \T\B \\
+    $x_{\mathrm{EA}}$ & $0.40$~m ($40\%\,c_{\mathrm{ref}}$) & chordwise station of the elastic axis from the leading edge \T\B \\
+    \hline
+    $m_f$ & $1.19$~kg & flap mass \T\B \\
+    $I_{f,\mathrm{CG}}$ & $0.006$~kg\,m$^2$ & flap inertia about its centre of gravity \T\B \\
+    $x_{\mathrm{hinge},0}$ & $0.779$~m & chordwise station of the flap hinge from the leading edge \T\B \\
+    $\delta_{\max}$ & $14^{\circ}$ & flap deflection limit \T\B \\
+    $\dot\delta_{\max}$ & $300~^{\circ}$/s & flap rate limit \B \\
+    \hline
+    \end{tabular}
+    \\[6pt]
+    \caption{Aerodynamic, structural and actuator parameters shared by all
+    the simulations of this section. The flap inertias about the elastic axis
+    and about the hinge, $I_{f,\mathrm{EA}}$ and $I_{f,\mathrm{hinge}}$, and the
+    mass coupling follow from $m_f$, $I_{f,\mathrm{CG}}$ and the hinge offset
+    $d_x = 0.379$~m through \cref{eq:matrices}.}
+    \label{tab:results_setup}
+\end{table}
+
+\subsubsection{Performance over the discrete-gust envelope}
+
+\Cref{fig:mpc_traces} shows the nominal closed-loop response at two
+representative gust cases, the severe short gust ($W_0 = 30$~m/s,
+$T_g = 0.4$~s) and a longer one ($W_0 = 30$~m/s, $T_g = 0.7$~s). The preview
+lets the flap deploy while the gust is still building up, and the closed-loop
+lift remains confined to a narrow band around trim: the peak excursion is
+reduced by $80.5\%$ and $91.8\%$ respectively, with at most $10.5^{\circ}$ of
+deflection and closed-loop pitch excursions comparable to or smaller than the
+open-loop ones (ratios $1.02$ and $0.75$).
+
+\begin{figure}[t]
+    \centering
+    \subfloat[$W_0 = 30$~m/s, $T_g = 0.4$~s.\label{fig:mpc_traces_severe}]{%
+        \includegraphics[width=0.48\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_trace_W30Tg04.png}}
+    \hfill
+    \subfloat[$W_0 = 30$~m/s, $T_g = 0.7$~s.\label{fig:mpc_traces_long}]{%
+        \includegraphics[width=0.48\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_trace_W30Tg07.png}}
+    \caption{Nominal (noise-free) closed-loop response at two points of the
+    parametric grid: gust profile (top), lift coefficient against the
+    open-loop reference (middle), commanded flap deflection (bottom), over
+    the evaluation window $t \in [0,\,T_g + 0.5~\mathrm{s}]$.}
+    \label{fig:mpc_traces}
 \end{figure}
 
-Figure~\ref{fig:traj_W10_Tg04} shows the closed-loop trajectories for
-$W_0 = 10$~m/s, $T_g = 0.4$~s ($H = 52$~ft, $k = 0.098$, CLred $= +93.2\%$).
+The full grid is reported in \cref{tab:cs25_grid}. In
+the central portion of the gradient range ($T_g = 0.5$--$0.7$~s) the
+controller removes more than $81\%$ of the peak excursion at every amplitude,
+and more than $88\%$ for $W_0 \le 20$~m/s. Performance degrades toward both
+ends of the envelope, for different reasons. At the sharp--severe corner
+($W_0 = 30$~m/s, $T_g = 0.3$~s) the reduction is limited to $39.4\%$ and is
+only weakly sensitive to the effort weight (below $5$ percentage points of
+variation over two decades of $R$, with no stability violation): the peak
+gust slope $\pi W_0/T_g$ corresponds to an equivalent-incidence rate
+$\dot{W}/U_\infty \approx 225~^{\circ}$/s, comparable to the actuator rate
+limit itself, so the flap---aerodynamically less effective than
+incidence---cannot track the gust ramp regardless of the tuning. At the
+long-gust corner the stability check becomes the active constraint: the
+large sustained deflection required to cancel a quasi-steady gust drives the
+pitch degree of freedom, whose open-loop peaks---and hence the $3\times$
+bounds---are small for slow gusts;
+aggressive tunings amplify the pitch excursion (ratios up to $1.9$) and
+violate the $\dot\alpha$ bound, so the selected weight rises to
+$R^{\star} = 10^{-2}$ and the reduction settles at $41.7\%$
+($W_0 = 30$~m/s) and $58.2\%$ ($W_0 = 20$~m/s) at $T_g = 1.2$~s. Across the
+whole grid the actuator never saturates ($|\delta|_{\max} \le 12.2^{\circ} <
+\delta_{\max}$) and no selected tuning violates the stability check; the
+pitch ratio spans $0.57$--$1.47$.
 
 
-\begin{figure}[H]
+
+\begin{table}[t]
     \centering
-    \includegraphics[width=0.70\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/traj_W10_Tg040.png}
-    \caption{Closed-loop trajectories for $W_0 = 10$~m/s, $T_g = 0.4$~s
-             ($H = 52$~ft, $k = 0.098$, $R^* = 10^{-4}$, DAMULT$=3$).
-             From top to bottom: lift coefficient $C_L$, flap deflection $\delta$,
-             gust profile $W$, and pitch rate $\dot\alpha$.
-             The shaded region marks the gust window $[0,\, T_g]$.}
-    \label{fig:traj_W10_Tg04}
+    \begin{tabular}{|r|r|r|r|r|r|r|r|}
+    \hline
+    \rowcolor{bluePoli!40}
+    $W_0$ [m/s] & $T_g$ [s] & $H$ [ft] & $k$ & CLred [\%] & $R^{\star}$ &
+    $|\delta|_{\max}$ [$^{\circ}$] & pitch ratio \T\B \\
+    \hline\hline
+    10 & 0.30 &  39 & 0.131 & 81.2 & $10^{-3}$          & 4.6  & 1.47 \T\B \\
+    \hline
+    10 & 0.40 &  52 & 0.098 & 89.1 & $3\times 10^{-4}$  & 4.2  & 1.15 \T\B \\
+    \hline
+    10 & 0.50 &  66 & 0.079 & 91.5 & $3\times 10^{-4}$  & 4.6  & 1.11 \T\B \\
+    \hline
+    10 & 0.70 &  92 & 0.056 & 93.5 & $3\times 10^{-4}$  & 3.3  & 0.96 \T\B \\
+    \hline
+    10 & 1.00 & 131 & 0.039 & 95.2 & $3\times 10^{-4}$  & 2.8  & 0.92 \T\B \\
+    \hline
+    10 & 1.20 & 157 & 0.033 & 93.4 & $10^{-3}$          & 2.5  & 0.96 \T\B \\
+    \hline\hline
+    20 & 0.30 &  39 & 0.131 & 86.0 & $3\times 10^{-4}$  & 8.8  & 0.57 \T\B \\
+    \hline
+    20 & 0.40 &  52 & 0.098 & 87.8 & $10^{-4}$          & 8.4  & 1.08 \T\B \\
+    \hline
+    20 & 0.50 &  66 & 0.079 & 88.8 & $3\times 10^{-4}$  & 7.3  & 1.13 \T\B \\
+    \hline
+    20 & 0.70 &  92 & 0.056 & 91.9 & $10^{-4}$          & 8.4  & 0.90 \T\B \\
+    \hline
+    20 & 1.00 & 131 & 0.039 & 81.2 & $3\times 10^{-3}$  & 7.0  & 1.14 \T\B \\
+    \hline
+    20 & 1.20 & 157 & 0.033 & 58.2 & $10^{-2}$          & 5.4  & 1.14 \T\B \\
+    \hline\hline
+    30 & 0.30 &  39 & 0.131 & 39.4 & $10^{-4}$          & 9.1  & 0.87 \T\B \\
+    \hline
+    30 & 0.40 &  52 & 0.098 & 80.5 & $3\times 10^{-4}$  & 7.9  & 1.02 \T\B \\
+    \hline
+    30 & 0.50 &  66 & 0.079 & 81.0 & $3\times 10^{-4}$  & 8.6  & 0.97 \T\B \\
+    \hline
+    30 & 0.70 &  92 & 0.056 & 91.8 & $10^{-4}$          & 10.5 & 0.75 \T\B \\
+    \hline
+    30 & 1.00 & 131 & 0.039 & 57.3 & $3\times 10^{-3}$  & 12.2 & 1.45 \T\B \\
+    \hline
+    30 & 1.20 & 157 & 0.033 & 41.7 & $10^{-2}$          & 7.7  & 1.27 \B \\
+    \hline
+    \end{tabular}
+    \\[6pt]
+    \caption{Noise-free parametric grid for the 18 CS-25.341 gust cases: gust
+    gradient distance $H = U_\infty T_g/2$ and reduced frequency
+    $k = \pi\,c_{\mathrm{ref}}/(U_\infty T_g)$, peak lift-excursion reduction of
+    \cref{eq:clred}, effort weight $R^{\star}$ selected per case, peak flap
+    deflection and pitch ratio. No case violates the stability check.}
+    \label{tab:cs25_grid}
+\end{table}
+
+\subsection{Robustness to lidar measurement noise}
+\label{subsec:noise_results}
+
+The stochastic robustness of the pipeline is assessed with both noise
+models of \cref{subsec:mpc_arch}: the constant-level model drives the
+amplitude sweep of this subsection, at the severe case ($W_0 = 30$~m/s,
+$T_g = 0.4$~s), while the range-proportional lidar model enters the
+multi-case check of \cref{fig:noise_cases} below. The sweep applies
+the measurement model~\eqref{eq:meas_model} with the constant per-sample
+level $\sigma_j = \sigma$: at every control instant $t_n$ each of the
+$J_{\max}$ raw samples is corrupted by its own error draw,
+\begin{equation*}
+y_j(t_n) = W\bigl(t_n + j\,\Delta t\bigr) + \varepsilon_{nj}, \qquad
+\varepsilon_{nj} \sim \mathcal{N}\bigl(0,\,\sigma^2\bigr), \qquad
+\frac{\sigma}{W_0} \in \{0, 1, 2, 5, 10, 20\}\%,
+\end{equation*}
+with the errors drawn independently across nodes and control instants:
+white noise of up to $6$~m/s per shot. The noisy samples enter the
+fusion sums of \cref{eq:invvar} exactly as drawn, and the aeroelastic
+system keeps advancing with the true gust $W(t)$: the noise reaches the
+control loop only through the preview vector $\widehat{W}_k$ in the
+horizon cost of \cref{eq:mpc_cost}. Since the outcome depends on the particular random
+sequence drawn, each level is simulated six times with independent noise
+realisations, and the statistics are taken over the six repetitions.
+
+\Cref{fig:noise_white} reports the resulting reduction together with the
+error actually delivered to the controller after fusion,
+$\sigma_{\mathrm{del}} = \mathrm{std}\bigl(\widehat{W}_1(t) - W(t+\Delta t)\bigr)$,
+the standard deviation of the residual on the first preview node over the
+control steps of the evaluation window, averaged over the realisations.
+Since each gust
+value is measured $J_{\max} = 50$ times with independent errors before
+reaching the wing, the inverse-variance average of \cref{eq:invvar}
+shrinks the per-sample error by roughly $\sqrt{J_{\max}} \approx 7$: at
+$\sigma = 0.6$~m/s the delivered error is $0.07$~m/s, about one order of
+magnitude below the raw level. The noise that actually reaches the horizon
+cost~\eqref{eq:mpc_cost} is therefore far smaller than the nominal
+$\sigma$, and as a result the mean reduction remains within about one
+percentage point of the noise-free value up to $\sigma = 10\%\,W_0 =
+3$~m/s---the upper end of the per-shot error of airborne Doppler hardware
+discussed in \cref{subsec:mpc_arch}. Only at $\sigma = 20\%\,W_0$ does the
+spread across realisations open appreciably (worst realisation $+53.0\%$,
+two flagged out of six).
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.65\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_noise_white.png}
+    \caption{Peak-load reduction under white measurement noise on the raw
+    lidar samples at the severe case ($W_0 = 30$~m/s, $T_g = 0.4$~s): mean
+    and min--max band over 6 noise realisations, with the delivered
+    post-fusion error $\sigma_{\mathrm{del}}$ on the second axis row. Ringed
+    points raise the stability flag in the indicated fraction of
+    realisations.}
+    \label{fig:noise_white}
 \end{figure}
 
+\Cref{fig:noise_cases} verifies that this tolerance is not a property of a
+single operating point: with one fixed, untuned configuration
+($R = 3\times 10^{-4}$), three gust cases spanning the envelope are run
+under flat noise at $\sigma = 2\%\,W_0$ and under the range-proportional
+lidar model of \cref{subsec:mpc_arch}, whose raw line-of-sight error
+(1--3~m/s) reaches $10$--$30\%$ of $W_0$ at the gentlest case. In every
+case the mean reduction stays within $1.5$ percentage points of the
+corresponding noise-free value, with no stability flag in any realisation.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.65\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_cells.png}
+    \caption{Peak-load reduction of the same untuned configuration at three
+    gust cases of the envelope, under flat white noise ($\sigma = 2\%\,W_0$)
+    and under the range-proportional lidar noise model (raw line-of-sight
+    error 1--3~m/s): mean over 6 noise realisations
+    (2 for the white-noise arm of the first case); dashed lines mark the
+    noise-free values.}
+    \label{fig:noise_cases}
+\end{figure}
+
+\subsection{Systematic errors and model mismatch}
+\label{subsec:systematic_results}
+
+Zero-mean noise is, however, the error the fusion layer is built to remove;
+systematic errors pass through it unaffected. On the sensing side they are
+modelled by corrupting the raw samples of \cref{eq:meas_model} as
+\begin{equation*}
+y_j(t_n) = W\bigl(t_n + j\,\Delta t + \tau\bigr) + b + \varepsilon_{nj},
+\end{equation*}
+with one error active at a time: a calibration bias $b = \beta\,W_0$,
+identical for every sample, and a time shift $\tau$ of the measured
+profile, positive when the gust appears in the preview earlier
+than it arrives. Since the fusion
+\eqref{eq:invvar}--\eqref{eq:tikhonov} is linear in the samples, averaging
+leaves both terms untouched: the delivered preview is
+$\widehat{W}_k \approx W(t + k\Delta t + \tau) + b$, an error that
+enters every term of the horizon cost~\eqref{eq:mpc_cost} coherently
+instead of averaging down.
+
+\Cref{fig:noise_bias_timing} sweeps the two errors, again at the severe
+case. In
+both panels the curve is a deterministic sweep with the systematic error
+alone ($\varepsilon_{nj} = 0$); at $b = \pm 5\%\,W_0$ and
+$\tau = \pm 10$~ms the flat noise of the previous subsection
+($\sigma = 2\%\,W_0$, six realisations) is superimposed on the systematic
+error to probe the combination of the two error classes. On the tolerated
+side the noisy means reproduce the deterministic values within a fraction
+of a percentage point with no flag, so the two classes do not interact;
+past the failure threshold every realisation raises the flag. Both axes
+are strongly asymmetric. A calibration bias that
+over-reads the gust collapses the controller already at
+$+2\%\,W_0 = +0.6$~m/s ($+23.5\%$, flagged), while under-reading is nearly
+free down to $-5\%\,W_0$ ($+73.9\%$, no flag): an over-read gust keeps the
+flap deployed against a disturbance that never materialises, and the
+self-induced transient violates the pitch-rate bound. For the systematic
+time shift of the preview, a delayed preview costs
+$2$ percentage points at $-10$~ms ($+78.6\%$, no flag), because the receding
+horizon re-plans from the measured state at every step, whereas an
+anticipated preview is flagged already at $+4$~ms and collapses at $+10$~ms
+($+18.0\%$)---the flap acts against a gust that has not yet arrived.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_bias_timing.png}
+    \caption{Robustness to the two critical systematic errors at the severe
+    case ($W_0 = 30$~m/s, $T_g = 0.4$~s): calibration bias of the wind
+    measurement (left) and systematic preview time shift (right).
+    Deterministic noise-free sweeps with spot checks at $\sigma = 2\%\,W_0$
+    (6 noise realisations, min--max bars); ringed points raise the
+    stability flag.}
+    \label{fig:noise_bias_timing}
+\end{figure}
+
+These asymmetries translate into a practical specification for keeping
+systematic errors harmless. First, the measurement chain should be
+calibrated to under-read: residual calibration uncertainty must sit on
+the side where the gust is underestimated, which the controller absorbs
+down to $-5\%\,W_0$, not on the over-reading side that collapses it at
+$+2\%\,W_0$. Second, residual timing uncertainty must be absorbed on the
+delayed side of the acquisition chain: the receding horizon re-plans
+from the measured state and tolerates a late preview, whereas an
+anticipated one commands the flap against a gust that has not yet
+arrived. 

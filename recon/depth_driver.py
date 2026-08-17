@@ -25,8 +25,10 @@ LADDER = [6, 12, 24, 48, 96, 192, 384, 768, 1536, 3072, 6144, 12288, 24576, 4915
 DS_LIST = [1, 10]
 DYN_WIDTH, REC_WIDTH = 7, 24
 RESTARTS, ADAM, BFGS = 2, 300, 4000
-RUN_WALL_CAP_S = 11 * 3600      # kill a single run beyond this (stop rule c, ~10h + slack)
-RUN_WALL_STOP_S = 10 * 3600     # completed run slower than this still stops escalation
+RUN_WALL_CAP_S = 22 * 3600      # kill a single run beyond this (fits one 24h link; raised
+                                # 2026-07-09 so L24 can finish at full budget)
+RUN_WALL_STOP_S = 12 * 3600     # completed run slower than this still stops escalation
+                                # (L48 at ~2x L24 cannot fit a 24h link: no blind attempts)
 
 BASE = Path(__file__).resolve().parent
 STUDY = BASE / "models" / "depth_study"
@@ -169,12 +171,30 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--budget-s", type=float, default=84000.0,
                     help="wall budget for this driver invocation (leave PBS slack)")
+    ap.add_argument("--only", default=None, metavar="L:DS",
+                    help="run exactly one rung (e.g. 48:10) and exit; ignores the "
+                         "ladder loop, STOP file and escalation rules. For per-run "
+                         "PBS jobs (queue max walltime 48h > the 24h chain links).")
     args = ap.parse_args()
     t_start = time.time()
     STUDY.mkdir(parents=True, exist_ok=True)
 
     def remaining():
         return args.budget_s - (time.time() - t_start)
+
+    if args.only:
+        total, ds = (int(x) for x in args.only.split(":"))
+        state, _info = run_status(total, ds)
+        if state == "done":
+            print(f"[driver] --only L={total} ds={ds}: already done, nothing to do",
+                  flush=True)
+            rebuild_index()
+            return
+        status, wall, attempts = launch(total, ds, remaining() - 300)
+        rebuild_index()
+        print(f"[driver] --only L={total} ds={ds} finished: {status} "
+              f"(wall {wall/3600:.2f} h, attempt {attempts})", flush=True)
+        return
 
     if (STUDY / "STOP").exists():
         print(f"[driver] STOP file present: {(STUDY / 'STOP').read_text()}", flush=True)

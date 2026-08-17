@@ -1,0 +1,32 @@
+#!/bin/bash
+#PBS -N scrinv
+#PBS -q cpu
+#PBS -l walltime=00:02:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/recon_fields/scrinv/pbs.log
+# Lightweight diagnostic (NO CFD): inventory /scratch_local on the node it lands on,
+# to find recoverable moving-mesh OpenFOAM cases (fldrun_* / fldviz_*). Submit once
+# per node with a host selector, e.g.:
+#   for n in cpu01 cpu02 cpu03 cpu04 cpu05; do
+#     qsub -l select=1:ncpus=1:host=$n scratch_inv.pbs; done
+OUT=/work/u10677113/NACA2312/recon_fields/scrinv
+mkdir -p "$OUT"
+H=$(hostname)
+F="$OUT/$H.txt"
+{
+  echo "=== NODE $H  $(date +%F_%T) ==="
+  echo "-- scratch_local dirs --"
+  ls -ld /scratch_local/u10677113/* 2>/dev/null || echo "(empty/absent)"
+  echo "-- OpenFOAM cases status (all sim_*/fld* dirs) --"
+  for c in /scratch_local/u10677113/*; do
+    [ -d "$c/system" ] || [ -d "$c/processor0" ] || continue
+    nt=$(ls -d "$c"/[0-9]* 2>/dev/null | grep -vc '/0$' )
+    lastt=$(ls -d "$c"/[0-9]* 2>/dev/null | grep -v '/0$' | sort -t/ -k5 -g | tail -1 | xargs -r basename)
+    hasproc=$([ -d "$c/processor0" ] && echo yes || echo no)
+    hassys=$([ -f "$c/system/controlDict" ] && echo yes || echo no)
+    echo "$(basename $c)  root_timedirs=$nt  last_t=$lastt  decomposed=$hasproc  system=$hassys"
+  done
+  echo "-- total usage --"
+  du -sh /scratch_local/u10677113 2>/dev/null
+} > "$F" 2>&1
+echo "wrote $F"
