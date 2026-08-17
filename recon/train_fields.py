@@ -389,6 +389,29 @@ def area_weighted_subset(points, k, tri=None, seed=0):
     return np.sort(rng.choice(n, size=k, replace=False, p=w))
 
 
+def nearwall_weighted_subset(points, airfoil_xy, k, tau, boost=4.0, seed=0):
+    """RAD-lite: pick k node indices oversampling the near-wall band, using the SAME
+    static reference-geometry distance as wall_features (near-wall lit review #3).
+    Deliberately time-invariant (no flap-deflection tracking): unlike a hard no-slip
+    OUTPUT mask, a wrong/stale near-wall label here only mis-targets the sampling
+    density -- it can never force a physically wrong value, so it is safe even where
+    the static reference band does not track the moving flap surface exactly.
+
+    weight = 1 + boost * sigma_bl(d), sigma_bl = (max(0, 1-d/tau))^2 in [0,1], so
+    far-field points keep baseline weight 1 and wall-adjacent points get up to
+    (1+boost)x the baseline draw probability. boost=0 reduces to uniform."""
+    from scipy.spatial import cKDTree
+    n = points.shape[0]
+    if k >= n:
+        return np.arange(n)
+    d = cKDTree(airfoil_xy).query(points[:, :2])[0]
+    sigma = np.maximum(0.0, 1.0 - d / tau) ** 2
+    w = 1.0 + boost * sigma
+    w = w / w.sum()
+    rng = np.random.default_rng(seed)
+    return np.sort(rng.choice(n, size=k, replace=False, p=w))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -452,9 +475,14 @@ def main():
     ap.add_argument("--seed-base", type=int, default=0,
                     help="base RNG seed; restart r uses seed-base+r (default 0 = "
                          "historical behavior, bit-identical to all previous runs)")
-    ap.add_argument("--sampling", choices=["uniform", "area"], default="uniform",
-                    help="point subsampling: uniform-over-nodes (baseline) or area-weighted")
+    ap.add_argument("--sampling", choices=["uniform", "area", "near-wall"], default="uniform",
+                    help="point subsampling: uniform-over-nodes (baseline), area-weighted, "
+                         "or near-wall-weighted (RAD-lite, requires --airfoil-nodes)")
     ap.add_argument("--tri", default=None, help="mesh_triangles.npy for exact area weighting")
+    ap.add_argument("--nearwall-boost", type=float, default=4.0,
+                    help="--sampling near-wall: draw-probability multiplier at the wall "
+                         "relative to the far field (uses --wall-tau/--airfoil-nodes; "
+                         "0 = uniform, higher = more concentrated near the surface)")
     ap.add_argument("--dyn-layers", type=int, default=2,
                     help="number of hidden layers in NNdyn (default 2 = original)")
     ap.add_argument("--dyn-width", type=int, default=7,
@@ -504,10 +532,12 @@ def main():
                   f"{raw_train0['output_fields'][..., i].max():.3g}]" for i in range(3)))
 
     airfoil_xy = None
-    if args.wall_feats:
-        assert args.airfoil_nodes, "--wall-feats requires --airfoil-nodes"
+    if args.wall_feats or args.sampling == "near-wall":
+        assert args.airfoil_nodes, \
+            "--wall-feats/--sampling near-wall requires --airfoil-nodes"
         air_idx = np.load(args.airfoil_nodes)
         airfoil_xy = raw_train0["points"][air_idx, :2].copy()
+    if args.wall_feats:
         raw_train0["points"] = np.concatenate(
             [raw_train0["points"], wall_features(raw_train0["points"], airfoil_xy,
                                                  args.wall_tau)], axis=1)
@@ -515,6 +545,9 @@ def main():
         print(f"wall-feats ON: +2 decoder inputs (d, sigma_bl tau={args.wall_tau}), "
               f"{len(air_idx)} surface nodes, space dim -> "
               f"{problem['space']['dimension']}")
+    if args.sampling == "near-wall":
+        print(f"near-wall sampling ON: boost={args.nearwall_boost} tau={args.wall_tau} "
+              f"(RAD-lite, static reference geometry, training-subsample only)")
     # Fourier-feature encoding of the decoder (x,y) inputs (D-RES arm A).
     fourier_B = None
     rec_space_dim = None
@@ -551,7 +584,7 @@ def main():
                     "mean-split requires all datasets on the shared reference grid"
                 d["output_fields"] = d["output_fields"] - mean_fields[None, None]
 
-        if airfoil_xy is not None:
+        if args.wall_feats:
             for d in (d_tr, d_va, d_te):
                 d["points"] = np.concatenate(
                     [d["points"], wall_features(d["points"], airfoil_xy,
@@ -559,6 +592,15 @@ def main():
 
         if args.sampling == "area":
             idx = area_weighted_subset(d_tr["points"], args.subsample, tri=tri_arr)
+            for d in (d_tr, d_va):
+                d["points"] = d["points"][idx]
+                d["output_fields"] = d["output_fields"][:, :, idx, :]
+            utils.process_dataset(d_tr, problem, norm, dt=None)
+            utils.process_dataset(d_va, problem, norm, dt=None)
+        elif args.sampling == "near-wall":
+            idx = nearwall_weighted_subset(d_tr["points"], airfoil_xy, args.subsample,
+                                           args.wall_tau, args.nearwall_boost,
+                                           seed=args.seed_base)
             for d in (d_tr, d_va):
                 d["points"] = d["points"][idx]
                 d["output_fields"] = d["output_fields"][:, :, idx, :]

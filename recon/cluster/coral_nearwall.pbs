@@ -1,0 +1,47 @@
+#!/bin/bash
+#PBS -N coral_nw
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#
+# Self-improving-loop Tier 2: RAD-lite near-wall-weighted training sampling
+# (near-wall lit review #3, never tried -- only #1 Fourier-features [null] and
+# #4 mean-split [winner] were) layered on the established D-RES winner
+# (mean-split + CORAL omega0=10, d_s=1). Targets the one region mean-split+CORAL
+# barely moved: the airfoil SURFACE (only 1.4x improvement vs 5.7-24x near-
+# airfoil, per MEANSPLIT_NOTES.md). Isolated from the Tier-1 depth experiment
+# (coral_depth_L12.pbs) so a win/loss here is unambiguously attributable to
+# sampling, not depth. Uses --sampling near-wall (static reference geometry,
+# training-subsample only -- deliberately NOT a hard no-slip output mask,
+# which would inherit the moving-flap-geometry problem that made the
+# time-dependent-SDF lever [D-RES arm B] too risky to rush).
+# qsub -v SEED=<int> (use 0/100/200 for n=3, matching project convention).
+: "${SEED:?pass -v SEED=<int>}"
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+OUT=models/meansplit_study/coral_o10_nw4_s${SEED}
+
+echo "=== coral_nearwall SEED=$SEED start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p $OUT; \
+      python3 -u train_fields.py --train data/FIELDS_div_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out $OUT --latents 1 \
+        --adam 300 --bfgs 2000 --restarts 2 --output-nl linear --log-every 1 \
+        --seed-base $SEED --mean-split --decoder coral --siren-omega0 10 \
+        --sampling near-wall --airfoil-nodes analysis_hmetric/airfoil_nodes.npy \
+        --nearwall-boost 4.0 \
+        > $OUT/train.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/ms_coral_o10_nw4_s${SEED}_rom_a025 > $OUT/recon.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 \
+        --out results/ms_coral_o10_nw4_s${SEED}_rom_cc060 >> $OUT/recon.log 2>&1; \
+      echo CORAL_NW4_s${SEED}_DONE"
+echo "=== coral_nearwall SEED=$SEED end $(date) exit $? ==="
