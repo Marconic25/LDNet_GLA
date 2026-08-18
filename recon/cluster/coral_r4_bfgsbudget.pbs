@@ -1,0 +1,42 @@
+#!/bin/bash
+#PBS -N coral_r4
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#
+# Self-improving-loop Tier 3 (cheap sanity check, R4 lever): does BFGS actually
+# stop early because 2000 iterations is genuinely enough (grad plateaus), or is
+# it budget-starved? Every arm so far (base, ms, coral, coral_L12, coral_nw) has
+# hit maxiter with an identical grad_inf~1e-4 stall signature -- that symptom
+# was previously downgraded via literature only (Rathore 2402.01868's mechanism
+# is PDE-residual-specific, doesn't transfer to pure data-fit MSE) and never
+# actually tested empirically. This triples the budget (2000 -> 6000) on the
+# established mean-split+CORAL(w0=10) winner, everything else identical to
+# coral_o10_s0, single seed (diagnostic, not a headline result -- replicate
+# with more seeds only if this actually moves the needle).
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+OUT=models/meansplit_study/coral_o10_bfgs6000_s0
+
+echo "=== coral_r4_bfgsbudget start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p $OUT; \
+      python3 -u train_fields.py --train data/FIELDS_div_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out $OUT --latents 1 \
+        --adam 300 --bfgs 6000 --restarts 2 --output-nl linear --log-every 1 \
+        --seed-base 0 --mean-split --decoder coral --siren-omega0 10 \
+        > $OUT/train.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/ms_coral_o10_bfgs6000_s0_rom_a025 > $OUT/recon.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 \
+        --out results/ms_coral_o10_bfgs6000_s0_rom_cc060 >> $OUT/recon.log 2>&1; \
+      echo CORAL_R4_BFGS6000_s0_DONE"
+echo "=== coral_r4_bfgsbudget end $(date) exit $? ==="

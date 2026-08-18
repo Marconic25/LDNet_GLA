@@ -1,0 +1,143 @@
+{
+  "problem": {
+    "space": {
+      "dimension": 2
+    },
+    "input_parameters": [
+      {
+        "name": "U_inf"
+      }
+    ],
+    "input_signals": [
+      {
+        "name": "h"
+      },
+      {
+        "name": "hd"
+      },
+      {
+        "name": "a"
+      },
+      {
+        "name": "ad"
+      },
+      {
+        "name": "delta"
+      },
+      {
+        "name": "W_gust"
+      }
+    ],
+    "output_signals": [
+      {
+        "name": "F_y"
+      },
+      {
+        "name": "M_z"
+      }
+    ],
+    "output_fields": [
+      {
+        "name": "vx"
+      },
+      {
+        "name": "vy"
+      },
+      {
+        "name": "p"
+      }
+    ]
+  },
+  "normalization": {
+    "space": {
+      "min": [
+        -0.9814509749412537,
+        -0.9657961130142212
+      ],
+      "max": [
+        3.980339288711548,
+        0.9975295066833496
+      ]
+    },
+    "time": {
+      "time_constant": 0.020132751272828788
+    },
+    "input_parameters": {
+      "U_inf": {
+        "min": 0.0,
+        "max": 120.0
+      }
+    },
+    "input_signals": {
+      "h": {
+        "min": -0.020176005703529943,
+        "max": 0.0020078110463198707
+      },
+      "hd": {
+        "min": -0.2936334580280894,
+        "max": 0.3960944512062116
+      },
+      "a": {
+        "min": -0.0129884801898188,
+        "max": 0.008796630038482866
+      },
+      "ad": {
+        "min": -0.9214119556070594,
+        "max": 0.9016546660369738
+      },
+      "delta": {
+        "min": -11.922785322055484,
+        "max": 8.025339050295274
+      },
+      "W_gust": {
+        "min": 0.0,
+        "max": 41.50516972124213
+      }
+    },
+    "output_signals": {
+      "F_y": {
+        "min": 14.864069760223744,
+        "max": 377.6878577810625
+      },
+      "M_z": {
+        "min": -41.04177557258508,
+        "max": 37.19729248618877
+      }
+    },
+    "output_fields": {
+      "vx": {
+        "min": -235.95108261894336,
+        "max": 78.15149745785536
+      },
+      "vy": {
+        "min": -101.86153812975729,
+        "max": 138.61462646186507
+      },
+      "p": {
+        "min": -17748.675610956485,
+        "max": 6054.86847207359
+      }
+    }
+  },
+  "num_latent_states": 1,
+  "output_nl": "linear",
+  "mean_split": true,
+  "mean_ref": "ensemble",
+  "alpha_reg": 0.0,
+  "wall_feats": null,
+  "fourier": null,
+  "decoder": "coral",
+  "siren": {
+    "omega0": 10.0,
+    "mod_layers": 2,
+    "mod_width": null
+  },
+  "architecture": {
+    "dyn_layers": 2,
+    "dyn_width": 7,
+    "rec_layers": 4,
+    "rec_width": 24,
+    "n_params_dyn": 127,
+    "n_params_rec": 5139
+  }
+}
