@@ -270,13 +270,79 @@ class RecordingOptimizationProblem(optimization.OptimizationProblem):
         return self.bfgs_result
 
 
+def reconstruct_states(NNrec, dataset, states, num_latent_states, problem,
+                       output_nl="cubic", fourier_B=None):
+    """Decode a (ns, nt, num_latent_states) state trajectory into fields at every
+    query point. Shared by the standard single-shot rollout (make_ldnet) and the
+    multiple-shooting training rollout (evolve_dynamics_shooting) so both paths
+    decode identically -- only how `states` was produced differs."""
+    alpha = 0.05
+    ns, nt, npx = dataset["num_samples"], dataset["num_times"], dataset["num_points"]
+    s = tf.broadcast_to(tf.expand_dims(states, 2), [ns, nt, npx, num_latent_states])
+    u = tf.broadcast_to(tf.expand_dims(dataset["input_signals"], 2),
+                        [ns, nt, npx, len(problem["input_signals"])])
+    coords = dataset["points_full"]
+    if fourier_B is not None:
+        coords = tf.concat([fourier_encode(coords[..., :2], fourier_B),
+                            coords[..., 2:]], axis=-1)
+    out = NNrec(tf.concat([s, u, coords], axis=3))
+    if output_nl == "linear":
+        return out
+    return (out ** 3 + alpha * out) / (1 + alpha)
+
+
+def evolve_dynamics_shooting(NNdyn, dataset, num_latent_states, dt, dt_base,
+                             seg_bounds, seg_init):
+    """Multiple-shooting rollout (training only -- see --shooting-segments).
+
+    Splits [0, nt) into len(seg_bounds)-1 segments at the (Python, static)
+    indices in seg_bounds (seg_bounds[0]=0, seg_bounds[-1]=nt-1). Segment 0
+    starts from the physical z=0 initial condition, exactly like the standard
+    evolve_dynamics(); segments 1..K-1 start from their own FREE trainable
+    state seg_init[:, k-1, :] (shape (ns, K-1, num_latent_states)) instead of
+    inheriting whatever the previous segment's own rollout landed on -- this
+    is what decouples long-horizon error accumulation from local model fit
+    during training (Turan & Jaeschke 2109.06786).
+
+    Returns:
+      states: (ns, nt, num_latent_states), same shape/semantics as
+        evolve_dynamics()'s output, so reconstruct_states() is unchanged. At
+        each internal boundary the FREE variable (not the previous segment's
+        prediction) is what gets decoded/fit against the true field.
+      residuals: list of (ns, num_latent_states) tensors, one per internal
+        boundary: (segment k's own predicted end state) - (segment k+1's
+        free start state). Squared and averaged into the continuity penalty
+        by the caller; NOT part of `states` (this is exactly the quantity
+        multiple shooting drives to zero as training progresses).
+    """
+    ns = dataset["input_signals"].shape[0]
+    K = len(seg_bounds) - 1
+    seg_states, residuals = [], []
+    for k in range(K):
+        t0, t1 = seg_bounds[k], seg_bounds[k + 1]
+        state = tf.zeros((ns, num_latent_states), dtype=tf.float64) if k == 0 \
+            else seg_init[:, k - 1, :]
+        steps = [state]
+        for i in range(t0, t1):
+            inp = tf.concat([state,
+                             tf.expand_dims(dataset["input_parameters"][:, 0], -1),
+                             dataset["input_signals"][:, i, :]], axis=-1)
+            state = state + dt / dt_base * NNdyn(inp)
+            steps.append(state)
+        if k < K - 1:
+            residuals.append(state - seg_init[:, k, :])
+            seg_states.append(tf.stack(steps[:-1], axis=1))   # drop the overlapping endpoint
+        else:
+            seg_states.append(tf.stack(steps, axis=1))        # last segment: keep through nt-1
+    return tf.concat(seg_states, axis=1), residuals
+
+
 def make_ldnet(NNdyn, NNrec, num_latent_states, problem, dt, dt_base, output_nl="cubic",
                fourier_B=None):
     """output_nl: 'cubic' = (out^3 + alpha*out)/(1+alpha) tail-compression (baseline,
     ~21x gradient attenuation near 0); 'linear' = identity (healthy unit gradient).
     fourier_B: if given, the decoder's (x,y) columns are Fourier-feature encoded
     (spectral-bias remedy); any extra spatial columns (wall features) pass through."""
-    alpha = 0.05
 
     def evolve_dynamics(dataset):
         ns = dataset["input_signals"].shape[0]
@@ -292,18 +358,8 @@ def make_ldnet(NNdyn, NNrec, num_latent_states, problem, dt, dt_base, output_nl=
         return tf.transpose(history.stack(), perm=(1, 0, 2))
 
     def reconstruct(dataset, states):
-        ns, nt, npx = dataset["num_samples"], dataset["num_times"], dataset["num_points"]
-        s = tf.broadcast_to(tf.expand_dims(states, 2), [ns, nt, npx, num_latent_states])
-        u = tf.broadcast_to(tf.expand_dims(dataset["input_signals"], 2),
-                            [ns, nt, npx, len(problem["input_signals"])])
-        coords = dataset["points_full"]
-        if fourier_B is not None:
-            coords = tf.concat([fourier_encode(coords[..., :2], fourier_B),
-                                coords[..., 2:]], axis=-1)
-        out = NNrec(tf.concat([s, u, coords], axis=3))
-        if output_nl == "linear":
-            return out
-        return (out ** 3 + alpha * out) / (1 + alpha)
+        return reconstruct_states(NNrec, dataset, states, num_latent_states, problem,
+                                  output_nl=output_nl, fourier_B=fourier_B)
 
     def ldnet(dataset):
         return reconstruct(dataset, evolve_dynamics(dataset))
@@ -470,6 +526,20 @@ def main():
     ap.add_argument("--siren-mod-type", choices=["shift", "film"], default="shift",
                     help="coral modulation: 'shift' (CORAL, additive beta, default) or "
                          "'film' (scale+shift: gamma*(Wh+b)+beta, more decoder capacity)")
+    ap.add_argument("--shooting-segments", type=int, default=1,
+                    help="multiple-shooting training rollout: split each trajectory into "
+                         "this many segments, each with its own free trainable initial "
+                         "latent state (seg 0 still starts from the physical z=0 IC), "
+                         "plus a continuity penalty pulling segments back into one "
+                         "consistent trajectory (Turan & Jaeschke 2109.06786). 1 = "
+                         "disabled, bit-identical to the standard single-shot rollout. "
+                         "Training-only: validation/test/inference always use the "
+                         "standard full free-running rollout (evolve_dynamics), matching "
+                         "actual deployment (no oracle segment states at inference).")
+    ap.add_argument("--shooting-lambda", type=float, default=1.0,
+                    help="--shooting-segments >1: weight of the continuity penalty "
+                         "(mean squared segment-boundary mismatch) added to the data-fit "
+                         "MSE. Fixed (not annealed) for this first pass.")
     ap.add_argument("--restarts", type=int, default=1,
                     help="Adam restarts from different seeds; BFGS runs on best-val winner")
     ap.add_argument("--seed-base", type=int, default=0,
@@ -611,6 +681,14 @@ def main():
             utils.process_dataset(d_va, problem, norm, dt=None, num_points_subsample=args.subsample)
         utils.process_dataset(d_te, problem, norm, dt=None)
 
+        K = args.shooting_segments
+        ns_tr = d_tr["input_signals"].shape[0]
+        nt_tr = d_tr["input_signals"].shape[1]
+        if K > 1:
+            seg_bounds = [round(i * (nt_tr - 1) / K) for i in range(K + 1)]
+            print(f"  multiple-shooting ON: {K} segments (bounds {seg_bounds}), "
+                  f"continuity lambda={args.shooting_lambda:g}")
+
         def fresh():
             NNdyn, NNrec = build_networks(nls, problem, dt, dt_base,
                                           dyn_layers=args.dyn_layers, dyn_width=args.dyn_width,
@@ -622,19 +700,37 @@ def main():
                                           siren_mod_type=args.siren_mod_type)
             ldnet, loss_fn = make_ldnet(NNdyn, NNrec, nls, problem, dt, dt_base,
                                         output_nl=args.output_nl, fourier_B=fourier_B)
-            return NNdyn, NNrec, ldnet, loss_fn
+            seg_init = tf.Variable(tf.zeros((ns_tr, K - 1, nls), dtype=tf.float64),
+                                   trainable=True) if K > 1 else None
+            return NNdyn, NNrec, ldnet, loss_fn, seg_init
 
-        def make_losses(NNdyn, NNrec, loss_fn):
+        def make_losses(NNdyn, NNrec, loss_fn, seg_init):
             """Train loss (+ optional reference-LDNet Tikhonov: per-layer mean of
             squared kernels averaged over layers, biases excluded, NNdyn+NNrec);
-            validation loss monitored WITHOUT the term (as in sensitivity_latent)."""
+            validation loss monitored WITHOUT the term (as in sensitivity_latent).
+            Validation ALWAYS uses the standard single-shot rollout (loss_fn/ldnet),
+            matching real inference -- shooting only ever changes the TRAIN loss."""
             loss_va = lambda: loss_fn(d_va, d_va["output_fields"])
-            if args.alpha_reg > 0:
-                def reg():
-                    def wreg(NN):
-                        ks = [l.kernel for l in NN.layers if hasattr(l, "kernel")]
-                        return tf.add_n([tf.reduce_mean(tf.square(k)) for k in ks]) / len(ks)
-                    return args.alpha_reg * (wreg(NNdyn) + wreg(NNrec))
+
+            def reg():
+                def wreg(NN):
+                    ks = [l.kernel for l in NN.layers if hasattr(l, "kernel")]
+                    return tf.add_n([tf.reduce_mean(tf.square(k)) for k in ks]) / len(ks)
+                return args.alpha_reg * (wreg(NNdyn) + wreg(NNrec))
+
+            if K > 1:
+                def loss_tr():
+                    states, residuals = evolve_dynamics_shooting(
+                        NNdyn, d_tr, nls, dt, dt_base, seg_bounds, seg_init)
+                    pred = reconstruct_states(NNrec, d_tr, states, nls, problem,
+                                              output_nl=args.output_nl, fourier_B=fourier_B)
+                    data_mse = tf.reduce_mean(tf.square(
+                        pred - tf.convert_to_tensor(d_tr["output_fields"], tf.float64)))
+                    continuity = tf.add_n([tf.reduce_mean(tf.square(r)) for r in residuals]) \
+                        / len(residuals)
+                    loss = data_mse + args.shooting_lambda * continuity
+                    return loss + reg() if args.alpha_reg > 0 else loss
+            elif args.alpha_reg > 0:
                 loss_tr = lambda: loss_fn(d_tr, d_tr["output_fields"]) + reg()
             else:
                 loss_tr = lambda: loss_fn(d_tr, d_tr["output_fields"])
@@ -646,10 +742,10 @@ def main():
         n_params = {}
 
         # --- Adam phase with restarts; keep the best init by validation loss ---
-        best = None  # (val_loss, NNdyn_weights, NNrec_weights)
+        best = None  # (val_loss, NNdyn_weights, NNrec_weights, seg_init_value_or_None)
         for r in range(args.restarts):
             np.random.seed(args.seed_base + r); tf.random.set_seed(args.seed_base + r)
-            NNdyn, NNrec, ldnet, loss_fn = fresh()
+            NNdyn, NNrec, ldnet, loss_fn, seg_init = fresh()
             if not n_params:
                 n_params = {"NNdyn": int(NNdyn.count_params()),
                             "NNrec": int(NNrec.count_params())}
@@ -662,9 +758,10 @@ def main():
                 print(f"  arch: NNdyn {args.dyn_layers}x{args.dyn_width} "
                       f"({n_params['NNdyn']} params), {rec_desc} "
                       f"({n_params['NNrec']} params), total {n_params['total']} params")
-            loss_tr, loss_va = make_losses(NNdyn, NNrec, loss_fn)
+            loss_tr, loss_va = make_losses(NNdyn, NNrec, loss_fn, seg_init)
+            train_vars = NNdyn.variables + NNrec.variables + ([seg_init] if K > 1 else [])
             t_ph = time.time()
-            opt = RecordingOptimizationProblem(NNdyn.variables + NNrec.variables, loss_tr, loss_va,
+            opt = RecordingOptimizationProblem(train_vars, loss_tr, loss_va,
                                                record_every=args.log_every, history=history,
                                                phase=f"adam_r{r}", t0=t_run0)
             print(f"  Adam (restart {r+1}/{args.restarts})..." if args.restarts > 1 else "  Adam...")
@@ -674,14 +771,18 @@ def main():
             if args.restarts > 1:
                 print(f"    restart {r}: val loss after Adam = {vl:.3e}")
             if best is None or vl < best[0]:
-                best = (vl, NNdyn.get_weights(), NNrec.get_weights())
+                best = (vl, NNdyn.get_weights(), NNrec.get_weights(),
+                        seg_init.numpy() if K > 1 else None)
 
         # --- BFGS polish on the best Adam init ---
-        NNdyn, NNrec, ldnet, loss_fn = fresh()
+        NNdyn, NNrec, ldnet, loss_fn, seg_init = fresh()
         NNdyn.set_weights(best[1]); NNrec.set_weights(best[2])
-        loss_tr, loss_va = make_losses(NNdyn, NNrec, loss_fn)
+        if K > 1:
+            seg_init.assign(best[3])
+        loss_tr, loss_va = make_losses(NNdyn, NNrec, loss_fn, seg_init)
+        train_vars = NNdyn.variables + NNrec.variables + ([seg_init] if K > 1 else [])
         t_ph = time.time()
-        opt = RecordingOptimizationProblem(NNdyn.variables + NNrec.variables, loss_tr, loss_va,
+        opt = RecordingOptimizationProblem(train_vars, loss_tr, loss_va,
                                            record_every=args.log_every, history=history,
                                            phase="bfgs", t0=t_run0)
         print(f"  BFGS (best Adam val={best[0]:.3e})...")
@@ -719,7 +820,9 @@ def main():
                        "architecture": {"dyn_layers": args.dyn_layers, "dyn_width": args.dyn_width,
                                         "rec_layers": args.rec_layers, "rec_width": args.rec_width,
                                         "n_params_dyn": n_params.get("NNdyn"),
-                                        "n_params_rec": n_params.get("NNrec")}}, f, indent=2)
+                                        "n_params_rec": n_params.get("NNrec")},
+                       "shooting": ({"segments": K, "lambda": args.shooting_lambda,
+                                     "bounds": seg_bounds} if K > 1 else None)}, f, indent=2)
 
         # --- persist loss history + run info (plot-ready, no re-run needed) ---
         with open(md / "loss_history.csv", "w", newline="") as f:
@@ -741,6 +844,7 @@ def main():
                        "mean_ref": args.mean_ref if args.mean_split else None,
                        "alpha_reg": args.alpha_reg,
                        "wall_feats": bool(args.wall_feats),
+                       "shooting_segments": K, "shooting_lambda": args.shooting_lambda if K > 1 else None,
                        "seed_base": args.seed_base,
                        "best_adam_val": best[0],
                        "bfgs_result": bfgs_result,
