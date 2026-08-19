@@ -1,0 +1,46 @@
+#!/bin/bash
+#PBS -N ms_L12mlp
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#
+# Self-improving-loop Tier 1b (disambiguation): coral_depth_L12.pbs showed depth
+# L12 HURTS when combined with mean-split+CORAL (vx +24-25% worse than L6, both
+# seeds), reversing the pre-mean-split H-DATA finding that L12 reliably beats L6
+# on the plain tanh-MLP decoder (N60+L12=0.0127, near campaign-best -- see
+# recon-hdata-ladder-status). Two candidate explanations: (a) the CORAL SIREN
+# decoder specifically doesn't tolerate extra depth (phase/frequency compounding
+# across sine layers), or (b) mean-split itself interacts badly with depth
+# regardless of decoder. This run isolates the variable: L12 + mean-split with
+# the ORIGINAL plain-MLP decoder (no --decoder coral). If this beats the L6
+# mean-split-only baseline (1.888e-2 vx / 7.2e-3 combined on Cc_060), the
+# problem is CORAL-specific and depth is still worth pursuing via the MLP path
+# or gentler SIREN depth handling; if it also loses, mean-split+depth is the
+# real incompatibility regardless of decoder. Single seed (diagnostic).
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+OUT=models/meansplit_study/ms_L12mlp_s0
+
+echo "=== ms_L12mlp start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p $OUT; \
+      python3 -u train_fields.py --train data/FIELDS_div_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out $OUT --latents 1 \
+        --dyn-layers 4 --dyn-width 7 --rec-layers 8 --rec-width 24 \
+        --adam 300 --bfgs 2000 --restarts 2 --output-nl linear --log-every 1 \
+        --seed-base 0 --mean-split \
+        > $OUT/train.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/ms_L12mlp_s0_rom_a025 > $OUT/recon.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 \
+        --out results/ms_L12mlp_s0_rom_cc060 >> $OUT/recon.log 2>&1; \
+      echo MS_L12MLP_s0_DONE"
+echo "=== ms_L12mlp end $(date) exit $? ==="

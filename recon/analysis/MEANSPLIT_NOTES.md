@@ -321,3 +321,59 @@ err_static = time-mean(rom−fom)).
 - delta-normalization guard (_rng) already handles constant channels; fluct fields
   are near-zero-mean by construction so min-max ranges are roughly symmetric.
 - viz_fields.py compare works on the dumps unchanged (they are total-field npy).
+
+## POST-CLOSURE ROUND (2026-08-18/19): depth, RAD-lite sampling, BFGS budget --
+## every consolidated lever tried LOST to the champion. coral_o10 stands.
+
+Champion = coral_o10_s0 (L6, mean-split+CORAL o10, d_s=1, bfgs=2000, uniform
+sampling): vx 1.621e-2, combined NRMSE 6.141e-3 (Cc_060 test, full grid).
+
+| run | vx NRMSE | combined | vs champion |
+|---|---|---|---|
+| coral_o10_L12_s0/s100/s200 (depth L12, dyn=4x7 rec=8x24) | 2.019/2.003/2.257e-2 | 7.058/6.208/6.859e-3 | worse, all 3 seeds |
+| coral_o10_nw4_s0/s100/s200 (--sampling near-wall boost=4) | 2.558/3.670/3.538e-2 | 7.555/14.19/9.511e-3 | much worse, all 3 seeds |
+| coral_o10_bfgs6000_s0 (bfgs 2000->6000) | 2.649e-2 | 7.072e-3 | worse |
+| ms_L12mlp_s0 (L12 + mean-split, plain MLP decoder, NO coral) | 1.993e-2 | 6.232e-3 | worse (barely, on combined) |
+
+Readings:
+1. Depth+CORAL (L12) confirmed negative on all 3 seeds -- consistent, not noise.
+2. Near-wall RAD-lite sampling (boost=4, subsample unchanged at 1024) is a clear
+   loss on all 3 seeds. Diagnosis: a fixed total point budget means boosting
+   near-wall draw probability 5x starves the far field, which carries most of
+   the domain's dynamic range (vx to +-100 m/s far field vs a much smaller
+   near-wall scale) -- global NRMSE degrades even if the near-wall region
+   itself improved locally (not decomposed here). Do not reuse boost=4 with
+   subsample=1024; a future attempt needs either a much gentler boost (~1-1.5)
+   or a larger --subsample so far-field coverage isn't sacrificed.
+3. R4 (more BFGS budget) made things WORSE -- the first empirical answer after
+   the 2026-07-21 literature-only downgrade. BFGS at 2000 was not budget-
+   starved; the extra iterations overfit (matches the val-loss-plateaus-while-
+   train-loss-still-falls pattern already visible in the L12 logs). Do not
+   raise the BFGS cap as a lever; if anything a LOWER cap (early stopping) is
+   the more promising untested direction, cautiously.
+4. Disambiguation isolates Tier 1's cause: it's CORAL-specific, not a general
+   mean-split+depth incompatibility. L12+mean-split+plain-MLP (6.232e-3) beats
+   L6+mean-split+plain-MLP-alone (7.2e-3, round-1 baseline) -- depth still
+   helps the ORIGINAL decoder, consistent with the pre-CORAL H-DATA finding
+   (N60+L12=0.0127, see recon/analysis/learning_curve_summary.csv). But it
+   still doesn't beat L6+CORAL (6.141e-3). Verdict: the CORAL SIREN decoder
+   specifically does not tolerate added depth (plausible cause: phase/
+   frequency effects compounding across sine layers, unlike tanh layers) --
+   depth and CORAL are each independently useful but must not be stacked
+   without first addressing SIREN-specific depth conditioning (e.g. per-layer
+   omega0 scaling) -- that is research territory, not a cheap flag combo.
+
+NET CONCLUSION: coral_o10_s0 remains UNBEATEN after this full round. Every
+cheap, consolidated lever available (depth, sampling reweight, optimizer
+budget) has been tried and lost. Corroborates the original D-RES CLOSED
+verdict from a wider angle. Remaining candidate levers (NNdyn/latent-ODE
+architecture change, a retuned gentler RAD-lite, SIREN-specific depth
+conditioning) are genuinely open research questions, not more flag sweeps --
+scope and cost need to be discussed before spending more compute on them.
+
+Also recovered from the cluster this round, not relaunched: the H-DATA
+learning-curve results (models/learning_curve_summary.csv, written
+2026-07-21, never previously synced) -- see recon/analysis/learning_curve_summary.csv
+and recon-hdata-ladder-status in Claude's session memory for the full reading;
+N100 rows in that file are unreliable (land in the known extraction-corruption
+window) and should not be cited without a clean re-extraction.
