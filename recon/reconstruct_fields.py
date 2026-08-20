@@ -54,6 +54,7 @@ def main():
     # decoder architecture: 'mlp' (tanh, default) or 'coral' (shift-modulated SIREN)
     decoder = cfg.get("decoder", "mlp")
     siren = cfg.get("siren") or {}
+    dyn_cond = cfg.get("dyn_cond", "concat")
 
     NNdyn, NNrec = build_networks(nls, problem, dt, dt_base,
                                   dyn_layers=arch.get("dyn_layers", 2),
@@ -64,15 +65,19 @@ def main():
                                   siren_omega0=siren.get("omega0", 30.0),
                                   siren_mod_layers=siren.get("mod_layers", 2),
                                   siren_mod_width=siren.get("mod_width"),
-                                  siren_mod_type=siren.get("mod_type", "shift"))
+                                  siren_mod_type=siren.get("mod_type", "shift"),
+                                  dyn_cond=dyn_cond)
     # build by calling once, then load weights (space dim may include wall features / FF)
     sdim = rec_space_dim if rec_space_dim is not None else problem["space"]["dimension"]
-    _ = NNdyn(tf.zeros((1, nls + 1 + 6), tf.float64))
+    if dyn_cond == "cde":
+        _ = NNdyn(tf.zeros((1, nls), tf.float64))
+    else:
+        _ = NNdyn(tf.zeros((1, nls + 1 + 6), tf.float64))
     _ = NNrec(tf.zeros((1, 1, 1, nls + 6 + sdim), tf.float64))
     NNdyn.load_weights(str(model / "NNdyn_weights.weights.h5"))
     NNrec.load_weights(str(model / "NNrec_weights.weights.h5"))
     ldnet, _ = make_ldnet(NNdyn, NNrec, nls, problem, dt, dt_base, output_nl=output_nl,
-                          fourier_B=fourier_B)
+                          fourier_B=fourier_B, dyn_cond=dyn_cond)
 
     ds = utils.load_gla_h5(args.data)
     # keep only the requested sim

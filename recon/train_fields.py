@@ -164,19 +164,44 @@ def build_networks(num_latent_states, problem, dt, dt_base,
                    dyn_layers=2, dyn_width=7, rec_layers=4, rec_width=24,
                    rec_space_dim=None, decoder="mlp",
                    siren_omega0=30.0, siren_mod_layers=2, siren_mod_width=None,
-                   siren_mod_type="shift"):
+                   siren_mod_type="shift", dyn_cond="concat"):
     """Defaults (2x7 dyn, 4x24 rec) reproduce the original hardcoded architecture
     exactly (same layer order -> same weight-init RNG draws for a given seed).
     rec_space_dim overrides the decoder's spatial-input width (Fourier-feature
     encoding widens it beyond problem['space']['dimension']).
     decoder='coral' swaps the tanh NNrec for a shift-modulated SIREN (D-RES arm);
-    NNdyn (the latent ODE) is unchanged in every case."""
-    n_inp = num_latent_states + len(problem["input_parameters"]) + len(problem["input_signals"])
-    dyn = [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh, input_shape=(n_inp,))]
-    dyn += [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh)
-            for _ in range(dyn_layers - 1)]
-    dyn += [tf.keras.layers.Dense(num_latent_states)]
-    NNdyn = tf.keras.Sequential(dyn)
+    NNdyn (the latent ODE) uses the plain concatenation update unless dyn_cond
+    is 'cde' (see evolve_dynamics_cde) -- then it outputs a
+    (num_latent_states x n_channels) matrix and takes z ALONE as input."""
+    if dyn_cond == "cde":
+        # NB bias init: f_theta depends on z ALONE and z starts at the physical
+        # zero initial condition. Keras' default zero-bias init makes every
+        # all-tanh layer collapse to an EXACT-zero cascade at input=0
+        # (tanh(kernel^T@0 + 0) = 0, feeding 0 into the next layer, etc.), so
+        # f_theta(0) = 0 identically regardless of the kernels -> dz = f(0)@dX
+        # = 0 forever -> the state can never leave the origin and every kernel
+        # gets an exact-zero gradient (verified: caught via a local smoke test
+        # before this was ever launched on the cluster). A small random bias
+        # breaks the degenerate fixed point so the first step is genuinely
+        # kernel-dependent and the state can move.
+        bias_init = tf.keras.initializers.RandomNormal(stddev=0.05)
+        n_channels = len(problem["input_parameters"]) + len(problem["input_signals"])
+        dyn = [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh,
+                                     bias_initializer=bias_init,
+                                     input_shape=(num_latent_states,))]
+        dyn += [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh,
+                                      bias_initializer=bias_init)
+                for _ in range(dyn_layers - 1)]
+        dyn += [tf.keras.layers.Dense(num_latent_states * n_channels,
+                                      bias_initializer=bias_init)]
+        NNdyn = tf.keras.Sequential(dyn)
+    else:
+        n_inp = num_latent_states + len(problem["input_parameters"]) + len(problem["input_signals"])
+        dyn = [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh, input_shape=(n_inp,))]
+        dyn += [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh)
+                for _ in range(dyn_layers - 1)]
+        dyn += [tf.keras.layers.Dense(num_latent_states)]
+        NNdyn = tf.keras.Sequential(dyn)
     sdim = problem["space"]["dimension"] if rec_space_dim is None else rec_space_dim
     n_rec = num_latent_states + len(problem["input_signals"]) + sdim
     if decoder == "coral":
@@ -337,14 +362,54 @@ def evolve_dynamics_shooting(NNdyn, dataset, num_latent_states, dt, dt_base,
     return tf.concat(seg_states, axis=1), residuals
 
 
+def evolve_dynamics_cde(NNdyn, dataset, num_latent_states, n_channels):
+    """Neural-CDE-style latent update: dz = f_theta(z) @ dX, where X_t is the
+    exogenous path [input_parameter, input_signals] and dX is its per-step
+    increment (finite-difference derivative, X[i+1]-X[i]). f_theta (NNdyn, built
+    with dyn_cond='cde' in build_networks) depends on z ALONE -- no concatenated
+    exogenous input -- and outputs a (num_latent_states x n_channels) matrix per
+    sample; the control signal enters structurally through the matrix-vector
+    contraction with dX, not by nonlinear mixing into the MLP's input like the
+    standard concat NNdyn (Kidger, Morrill, Foster, Lyons, Neural Controlled
+    Differential Equations for Irregular Time Series, NeurIPS 2020,
+    arXiv:2005.08926).
+
+    Deliberately skips the paper's own cubic-spline interpolation of X: its
+    stated purpose there is numerical stability of the ADJOINT backward pass
+    (their Appendix A.2) -- this project differentiates through the unrolled
+    loop directly (no adjoint sensitivity), so that justification does not
+    transfer; a per-step finite difference captures the same structural idea
+    (rate-of-change-driven, multiplicative coupling) at far lower
+    implementation cost/risk. See LATENTODE_LITERATURE_NOTES.md section 6."""
+    ns = dataset["input_signals"].shape[0]
+    nt = dataset["input_signals"].shape[1]
+    param = tf.expand_dims(dataset["input_parameters"][:, 0], -1)   # (ns,1), constant in t
+    state = tf.zeros((ns, num_latent_states), dtype=tf.float64)
+    history = tf.TensorArray(tf.float64, size=nt).write(0, state)
+    for i in tf.range(nt - 1):
+        X_i = tf.concat([param, dataset["input_signals"][:, i, :]], axis=-1)
+        X_ip1 = tf.concat([param, dataset["input_signals"][:, i + 1, :]], axis=-1)
+        dX = X_ip1 - X_i                                            # (ns, n_channels)
+        f_mat = tf.reshape(NNdyn(state), [ns, num_latent_states, n_channels])
+        state = state + tf.einsum("ndc,nc->nd", f_mat, dX)
+        history = history.write(i + 1, state)
+    return tf.transpose(history.stack(), perm=(1, 0, 2))
+
+
 def make_ldnet(NNdyn, NNrec, num_latent_states, problem, dt, dt_base, output_nl="cubic",
-               fourier_B=None):
+               fourier_B=None, dyn_cond="concat"):
     """output_nl: 'cubic' = (out^3 + alpha*out)/(1+alpha) tail-compression (baseline,
     ~21x gradient attenuation near 0); 'linear' = identity (healthy unit gradient).
     fourier_B: if given, the decoder's (x,y) columns are Fourier-feature encoded
-    (spectral-bias remedy); any extra spatial columns (wall features) pass through."""
+    (spectral-bias remedy); any extra spatial columns (wall features) pass through.
+    dyn_cond='cde' switches the latent update to the Neural-CDE-style rollout
+    (evolve_dynamics_cde) -- NNdyn must have been built with build_networks(...,
+    dyn_cond='cde') to match, or shapes will not line up."""
+    n_channels = len(problem["input_parameters"]) + len(problem["input_signals"])
 
     def evolve_dynamics(dataset):
+        if dyn_cond == "cde":
+            return evolve_dynamics_cde(NNdyn, dataset, num_latent_states, n_channels)
         ns = dataset["input_signals"].shape[0]
         nt = dataset["input_signals"].shape[1]
         state = tf.zeros((ns, num_latent_states), dtype=tf.float64)
@@ -526,6 +591,13 @@ def main():
     ap.add_argument("--siren-mod-type", choices=["shift", "film"], default="shift",
                     help="coral modulation: 'shift' (CORAL, additive beta, default) or "
                          "'film' (scale+shift: gamma*(Wh+b)+beta, more decoder capacity)")
+    ap.add_argument("--dyn-cond", choices=["concat", "cde"], default="concat",
+                    help="NNdyn conditioning on exogenous signals: 'concat' (baseline, "
+                         "[z,params,signals] nonlinearly mixed into one MLP) or 'cde' "
+                         "(Neural-CDE style: dz = f_theta(z) @ dX, control enters "
+                         "structurally via the signal path's per-step increment, not "
+                         "raw concatenation; f_theta depends on z alone). Mutually "
+                         "exclusive with --shooting-segments >1 (not implemented together).")
     ap.add_argument("--shooting-segments", type=int, default=1,
                     help="multiple-shooting training rollout: split each trajectory into "
                          "this many segments, each with its own free trainable initial "
@@ -574,6 +646,9 @@ def main():
             print("coral decoder: forcing --output-nl linear (cubic tail-compression is "
                   "meaningless with sine activations)")
             args.output_nl = "linear"
+    assert not (args.dyn_cond == "cde" and args.shooting_segments > 1), \
+        "--dyn-cond cde + --shooting-segments >1 not implemented together " \
+        "(evolve_dynamics_shooting is concat-only); test them in isolation"
 
     latents = [int(x) for x in args.latents.split(",")]
     out_dir = Path(args.out); (out_dir / "summary").mkdir(parents=True, exist_ok=True)
@@ -697,9 +772,11 @@ def main():
                                           siren_omega0=args.siren_omega0,
                                           siren_mod_layers=args.siren_mod_layers,
                                           siren_mod_width=args.siren_mod_width,
-                                          siren_mod_type=args.siren_mod_type)
+                                          siren_mod_type=args.siren_mod_type,
+                                          dyn_cond=args.dyn_cond)
             ldnet, loss_fn = make_ldnet(NNdyn, NNrec, nls, problem, dt, dt_base,
-                                        output_nl=args.output_nl, fourier_B=fourier_B)
+                                        output_nl=args.output_nl, fourier_B=fourier_B,
+                                        dyn_cond=args.dyn_cond)
             seg_init = tf.Variable(tf.zeros((ns_tr, K - 1, nls), dtype=tf.float64),
                                    trainable=True) if K > 1 else None
             return NNdyn, NNrec, ldnet, loss_fn, seg_init
@@ -822,7 +899,8 @@ def main():
                                         "n_params_dyn": n_params.get("NNdyn"),
                                         "n_params_rec": n_params.get("NNrec")},
                        "shooting": ({"segments": K, "lambda": args.shooting_lambda,
-                                     "bounds": seg_bounds} if K > 1 else None)}, f, indent=2)
+                                     "bounds": seg_bounds} if K > 1 else None),
+                       "dyn_cond": args.dyn_cond}, f, indent=2)
 
         # --- persist loss history + run info (plot-ready, no re-run needed) ---
         with open(md / "loss_history.csv", "w", newline="") as f:
