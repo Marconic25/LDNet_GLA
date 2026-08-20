@@ -377,3 +377,44 @@ learning-curve results (models/learning_curve_summary.csv, written
 and recon-hdata-ladder-status in Claude's session memory for the full reading;
 N100 rows in that file are unreliable (land in the known extraction-corruption
 window) and should not be cited without a clean re-extraction.
+
+## MULTIPLE SHOOTING (2026-08-19/20): global NRMSE improves, target metric LOSES
+
+First lever aimed at NNdyn/the training procedure (all prior levers only ever
+touched the decoder). --shooting-segments/--shooting-lambda added to
+train_fields.py: splits each training trajectory into K segments, each with
+its own free trainable initial latent state, plus a continuity penalty
+(Turan & Jaeschke, arXiv:2109.06786). Training-only; validation/test/inference
+unchanged (standard single-shot rollout). K=4 fixed, lambda in {0.1,1.0,10.0},
+single seed, on top of the champion (coral_o10_s0).
+
+GLOBAL numbers look like a clean win: combined NRMSE 5.76-5.85e-3 across all
+3 lambdas vs champion's 6.141e-3. **This is misleading** -- per-region
+static/dynamic decomposition (recon/analysis/decomp_shooting.py, same method
+as fig_meansplit.py) shows the near-wall/surface DYNAMIC vx residual (the
+actual quantity this whole D-RES thread targets, flap-driven) gets ~10-11%
+WORSE at every lambda (near: 2.054e-2 champion -> 2.27-2.28e-2 shooting;
+surface: 2.266e-2 -> 2.20-2.40e-2, mixed but not a real win at any lambda).
+Only the far-field dynamic component improves (~10% at best). The combined-
+NRMSE "win" is a H-METRIC-style illusion: far field dominates the global
+number by point-count/mass, masking a real regression exactly where it
+matters. Higher lambda (pulling harder toward single-shot consistency) does
+NOT reverse the near-region trend -- looks structural (free boundary
+variables let the optimizer "reset" locally instead of being forced to track
+the fast near-wall dynamics continuously across the whole horizon), not a
+lambda-tuning artifact.
+
+VERDICT: multiple shooting (K=4, this form) LOSES on the metric that matters.
+coral_o10_s0 (no shooting) still stands as champion. Open, untested
+questions if revisited: much larger K with a weak/annealed penalty
+(near-continuous shooting, softly enforcing full consistency only late in
+training) vs this coarse fixed-K/fixed-lambda version -- not a cheap next
+step, needs a real annealing schedule (checkpoint_callback hook already
+exists in RecordingOptimizationProblem for this), discuss before spending
+more compute.
+
+LESSON reinforced (again): never trust combined/global NRMSE alone on this
+project -- always pull the per-region static/dynamic decomposition before
+declaring a result. This is the second time in the project's history (after
+the original H-METRIC finding) that global NRMSE and the real per-region
+picture disagreed in opposite directions.
