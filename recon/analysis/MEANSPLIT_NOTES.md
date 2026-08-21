@@ -418,3 +418,62 @@ project -- always pull the per-region static/dynamic decomposition before
 declaring a result. This is the second time in the project's history (after
 the original H-METRIC finding) that global NRMSE and the real per-region
 picture disagreed in opposite directions.
+
+## NEURAL-CDE (2026-08-20/21): loses cleanly, no metric-illusion this time
+
+User explicitly asked for the most-promising lever regardless of implementation
+cost after shooting lost. Chosen: --dyn-cond cde in train_fields.py -- NNdyn
+depends on the latent state z ALONE (no concatenated exogenous input) and
+outputs a (d_s x n_channels) matrix, contracted with the exogenous signal
+path's per-step finite-difference derivative (dz = f_theta(z) @ dX), instead
+of the standard concat-everything-into-one-MLP update (Kidger et al., Neural
+CDEs, arXiv:2005.08926; skips their cubic-spline interpolation of X since its
+stated purpose -- adjoint-backprop stability -- doesn't apply, this project
+backprops through the unrolled loop directly). Concrete motivation: the flap
+deflection rate and gust rate have NO path into NNdyn at all under the
+standard concat scheme (only h-dot, alpha-dot are given), yet the flap drives
+the worst residual; under CDE every channel's rate becomes structurally
+load-bearing by construction.
+
+Caught and fixed a real bug before spending cluster compute: f_theta(z)
+evaluated at the physical z=0 initial condition, with Keras' default zero
+bias, makes an all-tanh MLP output EXACTLY zero regardless of the kernels
+(tanh cascades through zero at every layer) -- the state could never leave
+the origin and every kernel got a bit-exact-zero gradient. Fixed with a small
+random bias initializer specific to this path; verified locally (nonzero
+kernel gradients, genuine state movement) before launching anything.
+
+RESULT (n=3 seeds, coral_o10_cde_s{0,100,200}): loses CLEANLY this time, no
+combined-NRMSE illusion to untangle -- every region, static AND dynamic, on
+every seed, is worse than the champion:
+
+| region/component | champion | cde s0 | cde s100 | cde s200 |
+|---|---|---|---|---|
+| near dynamic vx | 2.054e-2 | 2.415e-2 (+18%) | 2.283e-2 (+11%) | 2.411e-2 (+17%) |
+| surface dynamic vx | 2.266e-2 | 2.960e-2 (+31%) | 2.433e-2 (+7%) | 3.119e-2 (+38%) |
+| near static vx | 3.80e-3 | 4.12e-3 | 3.46e-3 | 5.01e-3 |
+| combined NRMSE | 6.141e-3 | 6.222e-3 | 6.598e-3 | 6.847e-3 |
+
+Reading: by removing the raw concatenated signal values in favor of
+rate-only, matrix-contracted conditioning, the CDE formulation likely lost
+access to information the standard concat approach had "for free" -- the
+ABSOLUTE value of the exogenous signals (e.g. the actual flap angle, not just
+how fast it's currently moving). For a nonlinear aerodynamic response, the
+absolute forcing state plausibly matters as much as its rate; this
+formulation subtracted information instead of adding it. A more conservative
+middle ground (never tried): keep the standard concatenation AND add the
+missing rate channels (W-dot, delta-dot) as EXTRA inputs, rather than
+replacing value-conditioning with rate-only structural conditioning -- this
+was flagged as the cheap precursor probe in LATENTODE_LITERATURE_NOTES.md
+item 4 and was skipped in favor of the full restructure; it remains the one
+NNdyn-conditioning idea from that document not yet empirically tested.
+
+CUMULATIVE STATUS: five substantial, independently-motivated levers now
+tried and lost against coral_o10_s0 (depth+CORAL, near-wall RAD-lite
+sampling, tripled BFGS budget, multiple shooting, Neural-CDE). The champion
+(mean-split + CORAL omega0=10, d_s=1, L6, uniform sampling, bfgs=2000) has
+been attacked from the decoder side, the sampling side, the optimizer side,
+the training-procedure side, and now the dynamics-conditioning side, and has
+not been beaten once. This substantially strengthens the original "D-RES
+CLOSED, genuine limit of this LDNet class" verdict -- it now holds up from
+five independent angles, not just the original decoder-only sweep.
