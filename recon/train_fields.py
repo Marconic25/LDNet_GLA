@@ -57,11 +57,14 @@ def _rng(lo, hi):
     return {"min": lo, "max": hi}
 
 
-def compute_normalization(train, dt_base):
+def compute_normalization(train, dt_base, signal_names=None):
     """Min/max normalization ranges from the training arrays. Space bounds are
     per-column, so extra point-feature columns (wall distance, BL mask) are
-    normalized alongside x,y with zero changes in src/."""
-    inp = train["input_signals"]      # (N,T,6)
+    normalized alongside x,y with zero changes in src/. signal_names overrides
+    the default 6-channel SIGNAL_NAMES list (e.g. +2 for --add-signal-rates);
+    length must match train['input_signals'].shape[-1]."""
+    names = signal_names if signal_names is not None else SIGNAL_NAMES
+    inp = train["input_signals"]      # (N,T,len(names))
     of  = train["output_fields"]      # (N,T,P,3)
     os_ = train["output_signals"]     # (N,T,1,2)
     pts = train["points"]             # (P, 2+F)
@@ -70,14 +73,30 @@ def compute_normalization(train, dt_base):
                   "max": [float(pts[:, j].max()) for j in range(pts.shape[1])]},
         "time": {"time_constant": dt_base},
         "input_parameters": {"U_inf": {"min": 0.0, "max": 120.0}},
-        "input_signals": {SIGNAL_NAMES[i]: _rng(inp[:, :, i].min(), inp[:, :, i].max())
-                          for i in range(6)},
+        "input_signals": {names[i]: _rng(inp[:, :, i].min(), inp[:, :, i].max())
+                          for i in range(len(names))},
         "output_signals": {"F_y": _rng(os_[..., 0].min(), os_[..., 0].max()),
                            "M_z": _rng(os_[..., 1].min(), os_[..., 1].max())},
         "output_fields": {FIELD_NAMES[i]: _rng(of[..., i].min(), of[..., i].max())
                           for i in range(3)},
     }
     return norm
+
+
+def signal_rate_channels(input_signals, dt_base, w_idx, delta_idx):
+    """Finite-difference rate channels for W_gust and delta (--add-signal-rates lever,
+    stall investigation): h,alpha already have hd,ad provided as inputs, but W_gust
+    and delta have NO rate channel anywhere in the baseline -- exactly the gap the
+    Neural-CDE experiment's post-mortem identified (it REPLACED value-conditioning
+    with rate-only conditioning and lost; this ADDS the missing rates on top of the
+    standard concatenation instead, the untested middle ground flagged there).
+    np.gradient uses one-sided differences at the edges -- same length as input,
+    no shape change. Returns (N,T,2) [Wdot, deltadot] to concatenate onto
+    input_signals; dt_base is the shared uniform time spacing (as used elsewhere
+    for the dt/dt_base rollout ratio)."""
+    Wd = np.gradient(input_signals[:, :, w_idx], axis=1) / dt_base
+    dd = np.gradient(input_signals[:, :, delta_idx], axis=1) / dt_base
+    return np.stack([Wd, dd], axis=2)
 
 
 def build_fourier_B(scales, m, seed=12345):
@@ -160,11 +179,75 @@ class ModulatedSiren(tf.keras.Model):
         return self.head(h)
 
 
+class SepStateDynamics(tf.keras.Model):
+    """Dedicated PARALLEL scalar lag-ODE update for a flow-attachment indicator
+    X(t) in (0,1) (1=fully attached, 0=fully separated), Goman-Khrabrov form
+    (`--dyn-sep-state` lever, stall/separation investigation,
+    STALL_LITERATURE_NOTES.md section 2 item 4/9):
+        tau1 * dX/dt + X = X0(gust_rate, flap_rate)
+    discretized exactly like NNdyn's own forward-Euler rollout:
+        X_next = X + dt/dt_base * (X0(rates) - X) / tau1
+
+    Deliberately a SEPARATE small update, not folded into NNdyn's generic
+    concat-MLP output (i.e. NOT part of num_latent_states): the lag-ODE is a
+    SPECIFIC, constrained recurrence (bounded exponential relaxation toward a
+    target), structurally different from NNdyn's free vector field
+    `state = state + dt/dt_base * NNdyn(...)`. Folding X into NNdyn's own
+    output vector would let the optimizer learn ANY dynamics for that
+    channel, discarding exactly the structural prior -- shared by every
+    semi-empirical dynamic-stall model reviewed (Goman-Khrabrov,
+    Leishman-Beddoes, ONERA) -- that motivates this lever. X is still made
+    VISIBLE to both NNdyn's regular update and NNrec's decoder input (via
+    `extra_cond` in reconstruct_states / the dyn_sep_state branch in
+    make_ldnet's evolve_dynamics), matching the literature recommendation's
+    "concatenated as an extra input alongside z" -- only X's OWN evolution
+    uses this dedicated recurrence, not NNdyn's generic one.
+
+    X0(.) MLP: 2 inputs (normalized Wdot, deltadot -- see signal_rate_channels;
+    computed independently of --add-signal-rates, which this lever does not
+    require -- see main()'s sep_state_norm block), one small tanh hidden layer
+    (width=4, fixed -- not a CLI knob, keeps this a CHEAP-MODERATE lever), then
+    a sigmoid output. Output-layer bias is initialized to +2.0 (sigmoid(2)
+    ~=0.88) so X0(0,0) starts near "mostly attached at rest" -- a
+    physically-motivated prior matching this project's quiescent-start
+    initial conditions (every sim starts attached), not a free 0.5 coin flip.
+
+    tau1: single trainable scalar (softplus-parameterized, always >0 by
+    construction) shared across all samples/times -- the literature calls
+    this "a relaxation time constant", not a per-condition quantity. Units:
+    number of dt_base steps (dt/dt_base is always 1 in every run in this
+    project, but kept general to match NNdyn's own dt/dt_base convention).
+    Default init 5 steps -- same order as the confirmed ~0.3s / ~15-dt_base-
+    step separation burst width at the real cluster dt_base~=0.02s
+    (STALL_LITERATURE_NOTES.md section 2, MEANSPLIT_NOTES.md's STALL/
+    SEPARATION HYPOTHESIS section): fast enough to plausibly track the
+    event, slow enough to be a genuine LAG (tau1->0 would degenerate to
+    X=X0 exactly, discarding the whole point of a lag state)."""
+
+    def __init__(self, hidden=4, tau1_init=5.0, **kw):
+        super().__init__(**kw)
+        self.x0_hidden = tf.keras.layers.Dense(int(hidden), activation=tf.nn.tanh)
+        self.x0_out = tf.keras.layers.Dense(
+            1, activation=None,
+            bias_initializer=tf.keras.initializers.Constant(2.0))
+        raw0 = float(np.log(np.expm1(float(tau1_init))))   # softplus^-1(tau1_init)
+        self.tau1_raw = tf.Variable(raw0, trainable=True, dtype=tf.float64,
+                                    name="sepstate_tau1_raw")
+
+    def x0(self, rates_n):
+        """rates_n: (..., 2) normalized [Wdot, deltadot] -> (..., 1) in (0,1)."""
+        return tf.sigmoid(self.x0_out(self.x0_hidden(rates_n)))
+
+    @property
+    def tau1(self):
+        return tf.nn.softplus(self.tau1_raw) + 1e-3
+
+
 def build_networks(num_latent_states, problem, dt, dt_base,
                    dyn_layers=2, dyn_width=7, rec_layers=4, rec_width=24,
                    rec_space_dim=None, decoder="mlp",
                    siren_omega0=30.0, siren_mod_layers=2, siren_mod_width=None,
-                   siren_mod_type="shift", dyn_cond="concat"):
+                   siren_mod_type="shift", dyn_cond="concat", dyn_sep_state=False):
     """Defaults (2x7 dyn, 4x24 rec) reproduce the original hardcoded architecture
     exactly (same layer order -> same weight-init RNG draws for a given seed).
     rec_space_dim overrides the decoder's spatial-input width (Fourier-feature
@@ -172,7 +255,13 @@ def build_networks(num_latent_states, problem, dt, dt_base,
     decoder='coral' swaps the tanh NNrec for a shift-modulated SIREN (D-RES arm);
     NNdyn (the latent ODE) uses the plain concatenation update unless dyn_cond
     is 'cde' (see evolve_dynamics_cde) -- then it outputs a
-    (num_latent_states x n_channels) matrix and takes z ALONE as input."""
+    (num_latent_states x n_channels) matrix and takes z ALONE as input.
+    dyn_sep_state=True (--dyn-sep-state lever) widens BOTH NNdyn's input and
+    NNrec's input by one extra scalar conditioning channel (the sep-state X,
+    see SepStateDynamics) -- NOT added to num_latent_states itself. Only
+    implemented for the standard 'concat' dyn_cond path (asserted mutually
+    exclusive with dyn_cond='cde' by the caller, main())."""
+    n_sep = 1 if dyn_sep_state else 0
     if dyn_cond == "cde":
         # NB bias init: f_theta depends on z ALONE and z starts at the physical
         # zero initial condition. Keras' default zero-bias init makes every
@@ -196,17 +285,17 @@ def build_networks(num_latent_states, problem, dt, dt_base,
                                       bias_initializer=bias_init)]
         NNdyn = tf.keras.Sequential(dyn)
     else:
-        n_inp = num_latent_states + len(problem["input_parameters"]) + len(problem["input_signals"])
+        n_inp = num_latent_states + n_sep + len(problem["input_parameters"]) + len(problem["input_signals"])
         dyn = [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh, input_shape=(n_inp,))]
         dyn += [tf.keras.layers.Dense(dyn_width, activation=tf.nn.tanh)
                 for _ in range(dyn_layers - 1)]
         dyn += [tf.keras.layers.Dense(num_latent_states)]
         NNdyn = tf.keras.Sequential(dyn)
     sdim = problem["space"]["dimension"] if rec_space_dim is None else rec_space_dim
-    n_rec = num_latent_states + len(problem["input_signals"]) + sdim
+    n_rec = num_latent_states + n_sep + len(problem["input_signals"]) + sdim
     if decoder == "coral":
         NNrec = ModulatedSiren(
-            din_mod=num_latent_states + len(problem["input_signals"]),
+            din_mod=num_latent_states + n_sep + len(problem["input_signals"]),
             din_coord=sdim, width=rec_width, depth=rec_layers,
             out_dim=len(problem["output_fields"]), omega0=siren_omega0,
             mod_layers=siren_mod_layers, mod_width=siren_mod_width,
@@ -296,17 +385,34 @@ class RecordingOptimizationProblem(optimization.OptimizationProblem):
 
 
 def reconstruct_states(NNrec, dataset, states, num_latent_states, problem,
-                       output_nl="cubic", fourier_B=None):
+                       output_nl="cubic", fourier_B=None, n_weight_cols=0,
+                       extra_cond=None):
     """Decode a (ns, nt, num_latent_states) state trajectory into fields at every
     query point. Shared by the standard single-shot rollout (make_ldnet) and the
     multiple-shooting training rollout (evolve_dynamics_shooting) so both paths
-    decode identically -- only how `states` was produced differs."""
+    decode identically -- only how `states` was produced differs.
+
+    n_weight_cols: trailing columns of dataset['points_full'] that are loss-weight
+    signals (--loss-weight-mode), NOT real coordinates -- stripped before NNrec sees
+    them (NNrec's input width, from problem['space']['dimension'], never counts
+    them). 0 (default) = no such columns, byte-identical to pre-lever behavior.
+
+    extra_cond: optional (ns, nt, k) extra per-sample-per-time conditioning
+    tensor, concatenated onto the broadcast latent-state code BEFORE u/coords
+    (--dyn-sep-state's X trajectory, k=1 -- see make_ldnet). None (default) is
+    a pure no-op, byte-identical to the pre-lever behavior."""
     alpha = 0.05
     ns, nt, npx = dataset["num_samples"], dataset["num_times"], dataset["num_points"]
     s = tf.broadcast_to(tf.expand_dims(states, 2), [ns, nt, npx, num_latent_states])
+    if extra_cond is not None:
+        k = extra_cond.shape[-1]
+        ec = tf.broadcast_to(tf.expand_dims(extra_cond, 2), [ns, nt, npx, k])
+        s = tf.concat([s, ec], axis=3)
     u = tf.broadcast_to(tf.expand_dims(dataset["input_signals"], 2),
                         [ns, nt, npx, len(problem["input_signals"])])
     coords = dataset["points_full"]
+    if n_weight_cols:
+        coords = coords[..., :-n_weight_cols]
     if fourier_B is not None:
         coords = tf.concat([fourier_encode(coords[..., :2], fourier_B),
                             coords[..., 2:]], axis=-1)
@@ -397,40 +503,148 @@ def evolve_dynamics_cde(NNdyn, dataset, num_latent_states, n_channels):
 
 
 def make_ldnet(NNdyn, NNrec, num_latent_states, problem, dt, dt_base, output_nl="cubic",
-               fourier_B=None, dyn_cond="concat"):
+               fourier_B=None, dyn_cond="concat", n_weight_cols=0, loss_weight_boost=0.0,
+               loss_weight_mode="none", loss_weight_residual_power=1.0,
+               dyn_sep_state=False, sepnet=None):
     """output_nl: 'cubic' = (out^3 + alpha*out)/(1+alpha) tail-compression (baseline,
     ~21x gradient attenuation near 0); 'linear' = identity (healthy unit gradient).
     fourier_B: if given, the decoder's (x,y) columns are Fourier-feature encoded
     (spectral-bias remedy); any extra spatial columns (wall features) pass through.
     dyn_cond='cde' switches the latent update to the Neural-CDE-style rollout
     (evolve_dynamics_cde) -- NNdyn must have been built with build_networks(...,
-    dyn_cond='cde') to match, or shapes will not line up."""
+    dyn_cond='cde') to match, or shapes will not line up.
+
+    loss_weight_mode: --loss-weight-mode lever (stall investigation), three-way:
+      'none'     -- exact original unweighted MSE (byte-identical, default).
+      'flap'     -- STATIC, precomputed geometric weight: the trailing
+                    n_weight_cols columns of points_full are a [0,1] flap-proximity
+                    signal (flap_loss_weights), NOT coordinates -- stripped before
+                    NNrec (reconstruct_states) and used ONLY here to upweight the
+                    squared error as (1 + loss_weight_boost*sigma).
+      'residual' -- DYNAMIC, curriculum weight built from the model's OWN current
+                    prediction: w = stop_gradient(|pred-target|_2 across output
+                    fields)^loss_weight_residual_power, mean-normalized. No extra
+                    points columns (n_weight_cols stays 0) since nothing is
+                    precomputed -- the weight is a pure function of this step's
+                    forward pass. Recomputed fresh every loss_fn call (Adam epoch
+                    AND every BFGS function evaluation, including rejected
+                    line-search trials) rather than an EMA across steps: an EMA
+                    would need persistent state that a rejected BFGS trial
+                    evaluation would corrupt (scipy's line search calls the loss
+                    multiple times per outer iteration, not all of which are
+                    accepted), whereas a pure function of the current step's
+                    detached residual has no such hazard and needs no extra
+                    trainable/state variables. power=0 -> weight==1 everywhere,
+                    identical to 'none' up to floating-point (see main()'s
+                    byte-identical-when-off check, which tests mode='none' itself,
+                    not power=0, as the off-switch). See MEANSPLIT_NOTES.md's
+                    dated RESIDUAL-CURRICULUM section for the full design writeup.
+    n_weight_cols: trailing weight-signal columns of points_full to strip before
+    NNrec sees them (flap mode only; 0 for 'none'/'residual').
+
+    dyn_sep_state/sepnet: --dyn-sep-state lever (stall/separation
+    investigation). When True, sepnet (a SepStateDynamics instance) must be
+    given; its own dedicated lag-ODE update produces a scalar attachment-
+    state trajectory X(t), initialized X(0)=1 (fully attached, matching every
+    sim's quiescent start), integrated from dataset['sep_rates'] (normalized
+    [Wdot, deltadot], precomputed by the caller via signal_rate_channels --
+    independent of --add-signal-rates). X is concatenated as an extra scalar
+    channel into BOTH NNdyn's regular update input and NNrec's decoder input
+    (via reconstruct_states' extra_cond) -- NOT into num_latent_states
+    itself. Mutually exclusive with dyn_cond='cde' and shooting (asserted by
+    the caller, main()). False/None (default) is a pure no-op, byte-identical
+    to the pre-lever behavior."""
     n_channels = len(problem["input_parameters"]) + len(problem["input_signals"])
 
     def evolve_dynamics(dataset):
         if dyn_cond == "cde":
-            return evolve_dynamics_cde(NNdyn, dataset, num_latent_states, n_channels)
+            return evolve_dynamics_cde(NNdyn, dataset, num_latent_states, n_channels), None
         ns = dataset["input_signals"].shape[0]
         nt = dataset["input_signals"].shape[1]
         state = tf.zeros((ns, num_latent_states), dtype=tf.float64)
         history = tf.TensorArray(tf.float64, size=nt).write(0, state)
-        for i in tf.range(nt - 1):
-            inp = tf.concat([state,
-                             tf.expand_dims(dataset["input_parameters"][:, 0], -1),
-                             dataset["input_signals"][:, i, :]], axis=-1)
-            state = state + dt / dt_base * NNdyn(inp)
-            history = history.write(i + 1, state)
-        return tf.transpose(history.stack(), perm=(1, 0, 2))
+        # NB: dyn_sep_state branches the WHOLE loop, not individual statements
+        # inside one shared tf.range loop -- autograph's for_stmt conversion
+        # does its own static pass over a loop body's assigned names to set up
+        # tf.while_loop's loop-carried variables; a variable (x_history) that's
+        # only conditionally assigned INSIDE the loop body (even under a
+        # Python-constant `if dyn_sep_state:`) trips "must be defined before
+        # the loop" the moment dyn_sep_state=False, since that trace path never
+        # executes the branch that would have defined it. Two fully separate
+        # loops (one per branch) sidesteps this entirely -- verified against
+        # the ValueError this exact pattern threw in the real (autograph-
+        # traced, cluster) training path; a local eager forward-pass call does
+        # NOT catch this class of bug (no tracing happens), only real training.
+        if dyn_sep_state:
+            xsep = tf.ones((ns, 1), dtype=tf.float64)   # X(0)=1: fully attached IC
+            x_history = tf.TensorArray(tf.float64, size=nt).write(0, xsep)
+            rates = dataset["sep_rates"]                # (ns, nt, 2), normalized
+            for i in tf.range(nt - 1):
+                inp = tf.concat([state, xsep,
+                                 tf.expand_dims(dataset["input_parameters"][:, 0], -1),
+                                 dataset["input_signals"][:, i, :]], axis=-1)
+                state = state + dt / dt_base * NNdyn(inp)
+                history = history.write(i + 1, state)
+                x0v = sepnet.x0(rates[:, i, :])                      # (ns,1)
+                xsep = xsep + dt / dt_base * (x0v - xsep) / sepnet.tau1
+                x_history = x_history.write(i + 1, xsep)
+            xtraj = tf.transpose(x_history.stack(), perm=(1, 0, 2))
+        else:
+            for i in tf.range(nt - 1):
+                inp = tf.concat([state,
+                                 tf.expand_dims(dataset["input_parameters"][:, 0], -1),
+                                 dataset["input_signals"][:, i, :]], axis=-1)
+                state = state + dt / dt_base * NNdyn(inp)
+                history = history.write(i + 1, state)
+            xtraj = None
+        states = tf.transpose(history.stack(), perm=(1, 0, 2))
+        return states, xtraj
 
-    def reconstruct(dataset, states):
+    def reconstruct(dataset, states_and_x):
+        states, xtraj = states_and_x
         return reconstruct_states(NNrec, dataset, states, num_latent_states, problem,
-                                  output_nl=output_nl, fourier_B=fourier_B)
+                                  output_nl=output_nl, fourier_B=fourier_B,
+                                  n_weight_cols=n_weight_cols, extra_cond=xtraj)
 
-    def ldnet(dataset):
-        return reconstruct(dataset, evolve_dynamics(dataset))
+    def ldnet(dataset, return_aux=False):
+        states_and_x = evolve_dynamics(dataset)
+        fields = reconstruct(dataset, states_and_x)
+        if return_aux:
+            return fields, states_and_x[1]
+        return fields
 
     def loss_fn(dataset, target):
-        return tf.reduce_mean(tf.square(ldnet(dataset) - tf.convert_to_tensor(target, tf.float64)))
+        err2 = tf.square(ldnet(dataset) - tf.convert_to_tensor(target, tf.float64))
+        if loss_weight_mode == "none":
+            return tf.reduce_mean(err2)
+        if loss_weight_mode == "flap":
+            # undo the [0,1]->[-1,1] min-max normalization applied to the trailing
+            # weight column (exact: constructed to touch both 0 and 1, see
+            # flap_loss_weights/main()'s assert), then form a properly normalized
+            # weighted mean (w=1 everywhere reduces exactly to the plain MSE above).
+            sigma = 0.5 * (dataset["points_full"][..., -1] + 1.0)
+            w = tf.expand_dims(1.0 + loss_weight_boost * sigma, -1)
+        elif loss_weight_mode == "residual":
+            # CURRICULUM weight: stop-gradient'd per-point residual magnitude (L2
+            # across the 3 output fields, matching how the project's combined-NRMSE
+            # already treats fields together), raised to a power and mean-
+            # normalized. tf.stop_gradient means this branch contributes NO
+            # gradient of its own -- only the `err2` factor below (computed from
+            # `ldnet(dataset)` with a live gradient) does, so the network cannot
+            # cheat by shrinking the weight instead of the error. The final
+            # reduce_sum(w*err2)/reduce_sum(w) ratio is already invariant to any
+            # overall constant scale of w (it cancels top and bottom, value AND
+            # gradient), so the explicit /mean(w_raw) below is not load-bearing
+            # for that invariance -- it is kept so the logged/inspectable weight
+            # values are centered at 1 (consistent with 'flap's convention and
+            # the task's "mean weight ~=1" framing), and so power=0 (w_raw==1
+            # everywhere) is visibly a true no-op.
+            resid = tf.sqrt(tf.reduce_sum(tf.stop_gradient(err2), axis=-1)) + 1e-12
+            w_raw = tf.pow(resid, loss_weight_residual_power)
+            w = tf.expand_dims(w_raw / (tf.reduce_mean(w_raw) + 1e-30), -1)
+        else:
+            raise ValueError(f"unknown loss_weight_mode {loss_weight_mode!r}")
+        return tf.reduce_sum(w * err2) / (tf.reduce_sum(w) * tf.cast(tf.shape(err2)[-1], tf.float64))
 
     return ldnet, loss_fn
 
@@ -478,6 +692,23 @@ def wall_features(points, airfoil_xy, tau):
     d = cKDTree(airfoil_xy).query(points[:, :2])[0]
     sig = np.maximum(0.0, 1.0 - d / tau) ** 2
     return np.stack([d, sig], axis=1)
+
+
+def flap_loss_weights(points, flap_xy, tau):
+    """Per-node flap-proximity weight signal for the loss-REweighting lever (stall
+    investigation, [[dynamic-residual-levers]]): sigma = (max(0,1-d/tau))^2 in [0,1],
+    d = distance to the nearest FLAP-surface node only (not the whole airfoil like
+    wall_features) -- tau is sized to cover the localized transient flow-reversal band
+    identified in decomp_stall.py (~0.25c behind the flap TE), not just the boundary
+    layer (wall_tau=0.02c). Rides through dataset_normalize exactly like
+    wall_features' sigma column and is recovered at loss time via the closed-form
+    inverse of the [0,1]->[-1,1] min-max map -- exact, since sigma is constructed to
+    touch both 0 (far field) and 1 (points AT a flap surface node), so the empirical
+    column min/max are exactly 0/1 (asserted at call time in main())."""
+    from scipy.spatial import cKDTree
+    d = cKDTree(flap_xy).query(points[:, :2])[0]
+    sigma = np.maximum(0.0, 1.0 - d / tau) ** 2
+    return sigma[:, None]
 
 
 def area_weighted_subset(points, k, tri=None, seed=0):
@@ -625,6 +856,79 @@ def main():
                     help="--sampling near-wall: draw-probability multiplier at the wall "
                          "relative to the far field (uses --wall-tau/--airfoil-nodes; "
                          "0 = uniform, higher = more concentrated near the surface)")
+    ap.add_argument("--add-signal-rates", action="store_true",
+                    help="append finite-difference rate channels for W_gust and "
+                         "delta (Wdot, deltadot) to input_signals, fed to BOTH "
+                         "NNdyn and NNrec via the standard concatenation -- h,alpha "
+                         "already have hd,ad given, W_gust/delta do not. Additive: "
+                         "keeps the standard value-conditioning, unlike --dyn-cond "
+                         "cde (which REPLACED it with rate-only conditioning and "
+                         "lost cleanly, see MEANSPLIT_NOTES.md); this is the "
+                         "explicitly-flagged untested middle ground from that "
+                         "post-mortem (stall/separation investigation).")
+    ap.add_argument("--loss-weight-mode", choices=["none", "flap", "residual"], default="none",
+                    help="per-point LOSS reweighting (not sampling): 'flap' upweights "
+                         "squared error near the flap surface/wake by "
+                         "(1 + loss-weight-boost*sigma), sigma a smooth distance-based "
+                         "decay (chord units, --loss-weight-tau) from --flap-nodes -- "
+                         "a STATIC, precomputed-before-training geometric weight. "
+                         "'residual' instead upweights by the model's OWN current "
+                         "detached prediction residual magnitude (curriculum "
+                         "weighting; see --loss-weight-residual-power) -- a DYNAMIC "
+                         "weight recomputed every training step from that step's "
+                         "forward pass, no --flap-nodes required. Distinct from "
+                         "--sampling near-wall: does not change WHICH points are "
+                         "seen (safe under a fixed subsample budget -- near-wall "
+                         "sampling lost by starving far-field coverage), only how "
+                         "much each residual counts once selected. Both submodes "
+                         "target the transient flap-region flow-reversal event "
+                         "found in decomp_stall.py (stall/separation investigation).")
+    ap.add_argument("--flap-nodes", default=None,
+                    help="npy of FLAP-surface (not whole-airfoil) node INDICES into "
+                         "the reference grid, e.g. recon/analysis/flap_nodes.npy. "
+                         "Required if --loss-weight-mode flap.")
+    ap.add_argument("--loss-weight-tau", type=float, default=0.3,
+                    help="--loss-weight-mode flap: distance decay length in chord "
+                         "units (default 0.3, sized to cover the ~0.25c-behind-"
+                         "flap-TE reversal band found in decomp_stall.py -- much "
+                         "larger than --wall-tau's boundary-layer scale)")
+    ap.add_argument("--loss-weight-boost", type=float, default=5.0,
+                    help="--loss-weight-mode flap: extra weight multiplier at the "
+                         "flap surface itself (weight = 1 + boost*sigma, sigma in "
+                         "[0,1], matches --nearwall-boost's default for comparability)")
+    ap.add_argument("--loss-weight-residual-power", type=float, default=1.0,
+                    help="--loss-weight-mode residual: per-point/time weight = "
+                         "(stop_gradient(|pred-target|) L2-across-fields)^power, "
+                         "mean-normalized (~=1). power=0 -> uniform weight, a true "
+                         "no-op (same value as --loss-weight-mode none up to fp). "
+                         "Since err2 in the loss is already squared, the effective "
+                         "per-point loss contribution scales as resid^(power+2): "
+                         "power=1.0 (default, 'moderate') -> resid^3; power=2.0 "
+                         "('strong') -> resid^4, concentrating much more sharply "
+                         "on the worst-fit points/times (curriculum-PINN framing, "
+                         "STALL_LITERATURE_NOTES.md section 5).")
+    ap.add_argument("--dyn-sep-state", action="store_true",
+                    help="add one extra scalar 'attachment state' X in (0,1) to "
+                         "NNdyn's rollout, governed by its OWN dedicated "
+                         "Goman-Khrabrov-form lag-ODE (tau1*Xdot + X = "
+                         "X0(gust_rate, flap_rate), forward-Euler discretized "
+                         "like NNdyn's own update) rather than folded into "
+                         "NNdyn's generic MLP output -- see SepStateDynamics. "
+                         "X(0)=1 (fully attached IC); X is concatenated as an "
+                         "extra conditioning channel into BOTH NNdyn's regular "
+                         "update and NNrec's decoder input (NOT into "
+                         "num_latent_states). Computes its own Wdot/deltadot "
+                         "rate inputs via signal_rate_channels independent of "
+                         "--add-signal-rates. Mutually exclusive with "
+                         "--dyn-cond cde and --shooting-segments >1. "
+                         "STALL_LITERATURE_NOTES.md section 2 item 4/9 "
+                         "(#2-ranked recommendation, section 9).")
+    ap.add_argument("--sep-state-tau1-init", type=float, default=5.0,
+                    help="--dyn-sep-state: initial tau1 guess, in units of "
+                         "dt_base steps (softplus-parameterized during "
+                         "training, always >0). Default 5 steps -- same "
+                         "order as the confirmed ~15-dt_base-step separation "
+                         "burst width at the real cluster dt_base~=0.02s.")
     ap.add_argument("--dyn-layers", type=int, default=2,
                     help="number of hidden layers in NNdyn (default 2 = original)")
     ap.add_argument("--dyn-width", type=int, default=7,
@@ -649,14 +953,58 @@ def main():
     assert not (args.dyn_cond == "cde" and args.shooting_segments > 1), \
         "--dyn-cond cde + --shooting-segments >1 not implemented together " \
         "(evolve_dynamics_shooting is concat-only); test them in isolation"
+    assert not (args.loss_weight_mode != "none" and args.shooting_segments > 1), \
+        "--loss-weight-mode + --shooting-segments >1 not implemented together " \
+        "(the shooting training-loss path builds its own MSE, not loss_fn); " \
+        "test them in isolation"
+    assert not (args.dyn_sep_state and args.dyn_cond == "cde"), \
+        "--dyn-sep-state + --dyn-cond cde not implemented together " \
+        "(evolve_dynamics_cde has a structurally different update, no " \
+        "z-concat loop to attach X to); test them in isolation"
+    assert not (args.dyn_sep_state and args.shooting_segments > 1), \
+        "--dyn-sep-state + --shooting-segments >1 not implemented together " \
+        "(evolve_dynamics_shooting doesn't build/thread a sep-state " \
+        "trajectory); test them in isolation"
 
     latents = [int(x) for x in args.latents.split(",")]
     out_dir = Path(args.out); (out_dir / "summary").mkdir(parents=True, exist_ok=True)
     problem = problem_def()
+    signal_names = list(SIGNAL_NAMES)
+    w_idx = d_idx = None
+    if args.add_signal_rates:
+        signal_names += ["Wd_gust", "deltad"]
+        problem["input_signals"] = [{"name": n} for n in signal_names]
+        w_idx, d_idx = SIGNAL_NAMES.index("W_gust"), SIGNAL_NAMES.index("delta")
+    # --dyn-sep-state's own rate indices into the base 6-channel SIGNAL_NAMES layout
+    # -- fixed/valid regardless of --add-signal-rates (which only ever APPENDS
+    # columns after index 5, never reorders), so this lever's X0(.) always has its
+    # rate inputs independent of that unrelated flag.
+    sep_w_idx, sep_d_idx = SIGNAL_NAMES.index("W_gust"), SIGNAL_NAMES.index("delta")
 
     raw_train0 = utils.load_gla_h5(args.train)
     times = raw_train0["times"]
     dt_base = float(times[1] - times[0]); dt = dt_base
+    if args.add_signal_rates:
+        rates0 = signal_rate_channels(raw_train0["input_signals"], dt_base, w_idx, d_idx)
+        raw_train0["input_signals"] = np.concatenate([raw_train0["input_signals"], rates0], axis=2)
+        print(f"signal-rates ON: +2 input channels (Wd_gust, deltad), "
+              f"range Wd=[{rates0[...,0].min():.3g},{rates0[...,0].max():.3g}] "
+              f"deltad=[{rates0[...,1].min():.3g},{rates0[...,1].max():.3g}]")
+    sep_state_norm = None
+    if args.dyn_sep_state:
+        # Rate-input normalization range for the X0(.) MLP, computed from the raw
+        # (pre-normalization) train signals, same _rng-guarded min/max convention as
+        # compute_normalization(). Independent of --add-signal-rates: reads straight
+        # off raw_train0["input_signals"][..., sep_w_idx/sep_d_idx] which is always
+        # valid regardless of whether that flag has already appended extra columns.
+        sep_rates0 = signal_rate_channels(raw_train0["input_signals"], dt_base,
+                                          sep_w_idx, sep_d_idx)
+        sep_state_norm = {"Wd": _rng(sep_rates0[..., 0].min(), sep_rates0[..., 0].max()),
+                          "deltad": _rng(sep_rates0[..., 1].min(), sep_rates0[..., 1].max())}
+        print(f"sep-state ON (--dyn-sep-state): X0 rate-input norm ranges "
+              f"Wd=[{sep_state_norm['Wd']['min']:.3g},{sep_state_norm['Wd']['max']:.3g}] "
+              f"deltad=[{sep_state_norm['deltad']['min']:.3g},{sep_state_norm['deltad']['max']:.3g}], "
+              f"tau1_init={args.sep_state_tau1_init:g} steps, X(0)=1 (fully attached)")
     mean_fields = None
     if args.mean_split:
         # mean over the TRAIN set only, per node, per field -> (P,3). 'ensemble' =
@@ -693,6 +1041,29 @@ def main():
     if args.sampling == "near-wall":
         print(f"near-wall sampling ON: boost={args.nearwall_boost} tau={args.wall_tau} "
               f"(RAD-lite, static reference geometry, training-subsample only)")
+
+    flap_xy_w = None
+    n_weight_cols = 0
+    if args.loss_weight_mode == "flap":
+        assert args.flap_nodes, "--loss-weight-mode flap requires --flap-nodes"
+        flap_idx_w = np.load(args.flap_nodes)
+        flap_xy_w = raw_train0["points"][flap_idx_w, :2].copy()
+        sigma0 = flap_loss_weights(raw_train0["points"], flap_xy_w, args.loss_weight_tau)
+        assert abs(float(sigma0.min())) < 1e-9 and abs(float(sigma0.max()) - 1.0) < 1e-9, \
+            f"flap loss-weight sigma expected exact range [0,1], got " \
+            f"[{sigma0.min()},{sigma0.max()}] -- check --flap-nodes/--loss-weight-tau"
+        raw_train0["points"] = np.concatenate([raw_train0["points"], sigma0], axis=1)
+        n_weight_cols = 1
+        print(f"loss-weight ON (flap): boost={args.loss_weight_boost} "
+              f"tau={args.loss_weight_tau}c, {len(flap_idx_w)} flap surface nodes, "
+              f"{int((sigma0[:, 0] > 0).sum())}/{len(sigma0)} points touched (sigma>0)")
+    elif args.loss_weight_mode == "residual":
+        # no precomputed points column -- the weight is a pure function of each
+        # training step's own forward-pass residual (see make_ldnet's loss_fn).
+        print(f"loss-weight ON (residual curriculum): power="
+              f"{args.loss_weight_residual_power} (per-point/time detached "
+              f"|pred-target| L2-across-fields, mean-normalized, recomputed every "
+              f"Adam epoch / BFGS function evaluation -- no persistent state)")
     # Fourier-feature encoding of the decoder (x,y) inputs (D-RES arm A).
     fourier_B = None
     rec_space_dim = None
@@ -706,7 +1077,8 @@ def main():
               f"decoder spatial dim {rec_space_dim} (2*{args.fourier_m}*{len(scales)}"
               f"{f' + {n_extra} wall' if n_extra else ''})")
 
-    norm = compute_normalization(raw_train0, dt_base)
+    norm = compute_normalization(raw_train0, dt_base, signal_names=signal_names)
+    norm["sep_state_rates"] = sep_state_norm   # None unless --dyn-sep-state (traceability only)
     with open(out_dir / "normalization.json", "w") as f:
         json.dump(norm, f, indent=2)
 
@@ -723,6 +1095,24 @@ def main():
         d_va = utils.load_gla_h5(args.valid)
         d_te = utils.load_gla_h5(args.test)
 
+        if args.add_signal_rates:
+            for d in (d_tr, d_va, d_te):
+                r = signal_rate_channels(d["input_signals"], dt_base, w_idx, d_idx)
+                d["input_signals"] = np.concatenate([d["input_signals"], r], axis=2)
+
+        if args.dyn_sep_state:
+            # Raw (pre-normalization) rates for the X0(.) MLP, normalized via the
+            # fixed range computed once from raw_train0 above (sep_state_norm) --
+            # same convention as the standard input_signals normalization, but kept
+            # as a SEPARATE dataset key ('sep_rates', not folded into
+            # input_signals) since this lever must not require --add-signal-rates.
+            sep_lo = np.array([sep_state_norm["Wd"]["min"], sep_state_norm["deltad"]["min"]])
+            sep_hi = np.array([sep_state_norm["Wd"]["max"], sep_state_norm["deltad"]["max"]])
+            for d in (d_tr, d_va, d_te):
+                raw_r = signal_rate_channels(d["input_signals"], dt_base, sep_w_idx, sep_d_idx)
+                d["sep_rates"] = tf.convert_to_tensor(
+                    utils.normalize_forw(raw_r, sep_lo, sep_hi, axis=2), tf.float64)
+
         if mean_fields is not None:
             for d in (d_tr, d_va, d_te):
                 assert d["output_fields"].shape[2] == mean_fields.shape[0], \
@@ -734,6 +1124,12 @@ def main():
                 d["points"] = np.concatenate(
                     [d["points"], wall_features(d["points"], airfoil_xy,
                                                 args.wall_tau)], axis=1)
+
+        if args.loss_weight_mode == "flap":
+            for d in (d_tr, d_va, d_te):
+                d["points"] = np.concatenate(
+                    [d["points"], flap_loss_weights(d["points"], flap_xy_w,
+                                                    args.loss_weight_tau)], axis=1)
 
         if args.sampling == "area":
             idx = area_weighted_subset(d_tr["points"], args.subsample, tri=tri_arr)
@@ -773,13 +1169,22 @@ def main():
                                           siren_mod_layers=args.siren_mod_layers,
                                           siren_mod_width=args.siren_mod_width,
                                           siren_mod_type=args.siren_mod_type,
-                                          dyn_cond=args.dyn_cond)
+                                          dyn_cond=args.dyn_cond,
+                                          dyn_sep_state=args.dyn_sep_state)
+            sepnet = None
+            if args.dyn_sep_state:
+                sepnet = SepStateDynamics(tau1_init=args.sep_state_tau1_init)
+                sepnet.x0(tf.zeros((1, 2), dtype=tf.float64))   # force-build sublayers
             ldnet, loss_fn = make_ldnet(NNdyn, NNrec, nls, problem, dt, dt_base,
                                         output_nl=args.output_nl, fourier_B=fourier_B,
-                                        dyn_cond=args.dyn_cond)
+                                        dyn_cond=args.dyn_cond, n_weight_cols=n_weight_cols,
+                                        loss_weight_boost=args.loss_weight_boost,
+                                        loss_weight_mode=args.loss_weight_mode,
+                                        loss_weight_residual_power=args.loss_weight_residual_power,
+                                        dyn_sep_state=args.dyn_sep_state, sepnet=sepnet)
             seg_init = tf.Variable(tf.zeros((ns_tr, K - 1, nls), dtype=tf.float64),
                                    trainable=True) if K > 1 else None
-            return NNdyn, NNrec, ldnet, loss_fn, seg_init
+            return NNdyn, NNrec, sepnet, ldnet, loss_fn, seg_init
 
         def make_losses(NNdyn, NNrec, loss_fn, seg_init):
             """Train loss (+ optional reference-LDNet Tikhonov: per-layer mean of
@@ -819,24 +1224,36 @@ def main():
         n_params = {}
 
         # --- Adam phase with restarts; keep the best init by validation loss ---
-        best = None  # (val_loss, NNdyn_weights, NNrec_weights, seg_init_value_or_None)
+        best = None  # (val_loss, NNdyn_weights, NNrec_weights, sepnet_weights_or_None, seg_init_value_or_None)
         for r in range(args.restarts):
             np.random.seed(args.seed_base + r); tf.random.set_seed(args.seed_base + r)
-            NNdyn, NNrec, ldnet, loss_fn, seg_init = fresh()
+            NNdyn, NNrec, sepnet, ldnet, loss_fn, seg_init = fresh()
             if not n_params:
                 n_params = {"NNdyn": int(NNdyn.count_params()),
                             "NNrec": int(NNrec.count_params())}
-                n_params["total"] = n_params["NNdyn"] + n_params["NNrec"]
+                if sepnet is not None:
+                    # sepnet.count_params() would raise: SepStateDynamics has no
+                    # call(), only .x0()/.tau1, so Keras never flips its own
+                    # `built` flag even though its sublayers built individually
+                    # on first use -- sum trainable variables directly instead.
+                    n_params["sepnet"] = int(sum(int(np.prod(v.shape))
+                                                 for v in sepnet.trainable_variables))
+                n_params["total"] = n_params["NNdyn"] + n_params["NNrec"] + n_params.get("sepnet", 0)
                 rec_desc = (f"coral-SIREN {args.rec_layers}x{args.rec_width} "
                             f"(omega0={args.siren_omega0:g}, {args.siren_mod_type} mod "
                             f"{args.siren_mod_layers}L)"
                             if args.decoder == "coral"
                             else f"NNrec {args.rec_layers}x{args.rec_width}")
+                sep_desc = (f", sepnet ({n_params['sepnet']} params, "
+                           f"tau1_init={args.sep_state_tau1_init:g})"
+                           if sepnet is not None else "")
                 print(f"  arch: NNdyn {args.dyn_layers}x{args.dyn_width} "
                       f"({n_params['NNdyn']} params), {rec_desc} "
-                      f"({n_params['NNrec']} params), total {n_params['total']} params")
+                      f"({n_params['NNrec']} params){sep_desc}, total {n_params['total']} params")
             loss_tr, loss_va = make_losses(NNdyn, NNrec, loss_fn, seg_init)
-            train_vars = NNdyn.variables + NNrec.variables + ([seg_init] if K > 1 else [])
+            train_vars = NNdyn.variables + NNrec.variables + \
+                        (list(sepnet.variables) if sepnet is not None else []) + \
+                        ([seg_init] if K > 1 else [])
             t_ph = time.time()
             opt = RecordingOptimizationProblem(train_vars, loss_tr, loss_va,
                                                record_every=args.log_every, history=history,
@@ -849,15 +1266,20 @@ def main():
                 print(f"    restart {r}: val loss after Adam = {vl:.3e}")
             if best is None or vl < best[0]:
                 best = (vl, NNdyn.get_weights(), NNrec.get_weights(),
+                        sepnet.get_weights() if sepnet is not None else None,
                         seg_init.numpy() if K > 1 else None)
 
         # --- BFGS polish on the best Adam init ---
-        NNdyn, NNrec, ldnet, loss_fn, seg_init = fresh()
+        NNdyn, NNrec, sepnet, ldnet, loss_fn, seg_init = fresh()
         NNdyn.set_weights(best[1]); NNrec.set_weights(best[2])
+        if sepnet is not None:
+            sepnet.set_weights(best[3])
         if K > 1:
-            seg_init.assign(best[3])
+            seg_init.assign(best[4])
         loss_tr, loss_va = make_losses(NNdyn, NNrec, loss_fn, seg_init)
-        train_vars = NNdyn.variables + NNrec.variables + ([seg_init] if K > 1 else [])
+        train_vars = NNdyn.variables + NNrec.variables + \
+                    (list(sepnet.variables) if sepnet is not None else []) + \
+                    ([seg_init] if K > 1 else [])
         t_ph = time.time()
         opt = RecordingOptimizationProblem(train_vars, loss_tr, loss_va,
                                            record_every=args.log_every, history=history,
@@ -871,12 +1293,19 @@ def main():
         md = out_dir / f"latent_{nls}"; md.mkdir(exist_ok=True)
         NNdyn.save_weights(str(md / "NNdyn_weights.weights.h5"))
         NNrec.save_weights(str(md / "NNrec_weights.weights.h5"))
+        if sepnet is not None:
+            sepnet.save_weights(str(md / "sepstate_weights.weights.h5"))
         if mean_fields is not None:
             np.save(md / "mean_fields.npy", mean_fields)   # self-contained model dir
         if airfoil_xy is not None:
             np.save(md / "airfoil_xy.npy", airfoil_xy)     # for recon-time features
         if fourier_B is not None:
             np.save(md / "fourier_B.npy", fourier_B)       # for recon-time FF encoding
+        if flap_xy_w is not None:
+            np.save(md / "flap_xy.npy", flap_xy_w)         # for recon-time loss-weight column
+                                                             # (shape parity through normalize_forw
+                                                             # only -- the value is discarded before
+                                                             # NNrec at inference, see n_weight_cols)
         with open(md / "config.json", "w") as f:
             json.dump({"problem": problem, "normalization": norm,
                        "num_latent_states": nls, "output_nl": args.output_nl,
@@ -900,7 +1329,22 @@ def main():
                                         "n_params_rec": n_params.get("NNrec")},
                        "shooting": ({"segments": K, "lambda": args.shooting_lambda,
                                      "bounds": seg_bounds} if K > 1 else None),
-                       "dyn_cond": args.dyn_cond}, f, indent=2)
+                       "dyn_cond": args.dyn_cond,
+                       "add_signal_rates": bool(args.add_signal_rates),
+                       "loss_weight": ({"mode": args.loss_weight_mode,
+                                        "tau": args.loss_weight_tau,
+                                        "boost": args.loss_weight_boost,
+                                        "residual_power": (args.loss_weight_residual_power
+                                                            if args.loss_weight_mode == "residual"
+                                                            else None),
+                                        "n_weight_cols": n_weight_cols}
+                                       if args.loss_weight_mode != "none" else None),
+                       "dyn_sep_state": bool(args.dyn_sep_state),
+                       "sep_state": ({"tau1_init": args.sep_state_tau1_init, "hidden": 4,
+                                      "rate_norm": sep_state_norm,
+                                      "n_params": n_params.get("sepnet"),
+                                      "tau1_learned": float(sepnet.tau1.numpy())}
+                                     if args.dyn_sep_state else None)}, f, indent=2)
 
         # --- persist loss history + run info (plot-ready, no re-run needed) ---
         with open(md / "loss_history.csv", "w", newline="") as f:
@@ -923,6 +1367,17 @@ def main():
                        "alpha_reg": args.alpha_reg,
                        "wall_feats": bool(args.wall_feats),
                        "shooting_segments": K, "shooting_lambda": args.shooting_lambda if K > 1 else None,
+                       "add_signal_rates": bool(args.add_signal_rates),
+                       "loss_weight_mode": args.loss_weight_mode,
+                       "loss_weight_boost": args.loss_weight_boost if n_weight_cols else None,
+                       "loss_weight_residual_power": (args.loss_weight_residual_power
+                                                       if args.loss_weight_mode == "residual"
+                                                       else None),
+                       "dyn_sep_state": bool(args.dyn_sep_state),
+                       "sep_state_tau1_init": (args.sep_state_tau1_init
+                                               if args.dyn_sep_state else None),
+                       "sep_state_tau1_learned": (float(sepnet.tau1.numpy())
+                                                  if sepnet is not None else None),
                        "seed_base": args.seed_base,
                        "best_adam_val": best[0],
                        "bfgs_result": bfgs_result,

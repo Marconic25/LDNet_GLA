@@ -1,0 +1,48 @@
+#!/bin/bash
+#PBS -N cor_res
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=48:00:00
+#PBS -j oe
+#
+# Residual-curriculum lever (STALL_LITERATURE_NOTES.md section 5, #1-ranked
+# candidate: region-adaptive reweighting by local residual magnitude, "reduces
+# local residuals and improves recovery of high-frequency details"), on top of
+# the established champion (mean-split + CORAL o10, d_s=1, L6). Weight =
+# stop_gradient(|pred-target| L2-across-output-fields)^POWER, mean-normalized,
+# recomputed every training step (Adam epoch AND every BFGS function
+# evaluation) -- no persistent EMA state, see train_fields.py's make_ldnet
+# docstring / MEANSPLIT_NOTES.md RESIDUAL-CURRICULUM section for why (a
+# rejected BFGS line-search trial would corrupt any cross-step EMA state).
+# 48h walltime matching coral_cde.pbs (extra headroom vs the usual 24h).
+# qsub -v SEED=<int>,POWER=<float> (seeds 0/100/200 for n=3; POWER 1.0
+# 'moderate' or 2.0 'strong' for the pre-registered two-strength sweep).
+: "${SEED:?pass -v SEED=<int>}"
+: "${POWER:?pass -v POWER=<float>}"
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+PTAG=${POWER%.*}
+OUT=models/meansplit_study/coral_o10_res_p${PTAG}_s${SEED}
+
+echo "=== coral_residual SEED=$SEED POWER=$POWER start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p $OUT; \
+      python3 -u train_fields.py --train data/FIELDS_div_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out $OUT --latents 1 \
+        --adam 300 --bfgs 2000 --restarts 2 --output-nl linear --log-every 1 \
+        --seed-base $SEED --mean-split --decoder coral --siren-omega0 10 \
+        --loss-weight-mode residual --loss-weight-residual-power $POWER \
+        > $OUT/train.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/ms_coral_o10_res_p${PTAG}_s${SEED}_rom_a025 > $OUT/recon.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 \
+        --out results/ms_coral_o10_res_p${PTAG}_s${SEED}_rom_cc060 >> $OUT/recon.log 2>&1; \
+      echo CORAL_RES_p${PTAG}_s${SEED}_DONE"
+echo "=== coral_residual SEED=$SEED POWER=$POWER end $(date) exit $? ==="

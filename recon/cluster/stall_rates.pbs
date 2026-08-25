@@ -1,0 +1,40 @@
+#!/bin/bash
+#PBS -N stall_rate
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=48:00:00
+#PBS -j oe
+#
+# Stall investigation, cheap lever 1/2: --add-signal-rates (Wdot, deltad extra
+# input channels to NNdyn/NNrec, additive on top of the standard concat) on top
+# of the champion (mean-split + CORAL o10, d_s=1, L6). Untested middle ground
+# flagged in the Neural-CDE post-mortem (MEANSPLIT_NOTES.md) -- keeps value-
+# conditioning, adds the missing rate channels rather than replacing it.
+# qsub -v SEED=<int> (use 0/100/200 for n=3, matching project convention).
+: "${SEED:?pass -v SEED=<int>}"
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+OUT=models/meansplit_study/coral_o10_rates_s${SEED}
+
+echo "=== stall_rates SEED=$SEED start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p $OUT; \
+      python3 -u train_fields.py --train data/FIELDS_div_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out $OUT --latents 1 \
+        --adam 300 --bfgs 2000 --restarts 2 --output-nl linear --log-every 1 \
+        --seed-base $SEED --mean-split --decoder coral --siren-omega0 10 \
+        --add-signal-rates \
+        > $OUT/train.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/ms_coral_o10_rates_s${SEED}_rom_a025 > $OUT/recon.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 \
+        --out results/ms_coral_o10_rates_s${SEED}_rom_cc060 >> $OUT/recon.log 2>&1; \
+      echo STALL_RATES_s${SEED}_DONE"
+echo "=== stall_rates SEED=$SEED end $(date) exit $? ==="

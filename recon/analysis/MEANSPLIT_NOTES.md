@@ -477,3 +477,423 @@ the training-procedure side, and now the dynamics-conditioning side, and has
 not been beaten once. This substantially strengthens the original "D-RES
 CLOSED, genuine limit of this LDNet class" verdict -- it now holds up from
 five independent angles, not just the original decoder-only sweep.
+
+## STALL/SEPARATION HYPOTHESIS (2026-08-22) -- NEW, physically CONFIRMED
+
+New framing, not previously established anywhere in this project: is the D-RES
+residual actually localized flow SEPARATION (boundary-layer/shear-layer
+reversal) at the flap, rather than just "a smooth region the model happens to
+fit poorly"? A repo-wide grep found zero prior aerodynamic use of "stall" --
+every existing hit was the unrelated BFGS line-search "stall" symptom. No
+Cl(t)/AoA(t)/separation/recirculation diagnostic existed anywhere before this.
+
+**Diagnostic** (`recon/analysis/decomp_stall.py`, local-only, no cluster
+needed, run on the already-synced champion FOM/ROM dump for sim_Cc_060):
+per near-airfoil node, take its own FOM velocity vector at t=0 (quiescent,
+attached) as a fixed per-node reference direction; at every later time,
+project the local velocity onto that reference. A negative projection means
+the local flow has reversed relative to its own attached baseline -- this
+sidesteps needing to reason about surface-tangent sign conventions around the
+closed main+flap contour (upper/lower loop winding flips sign easily).
+
+**VERDICT: CONFIRMED, cleanly, on both criteria that would have refuted it.**
+- Temporally gated (not a static feature): reversed-flow fraction in the
+  near-flap band is exactly 0 for t<0.5s and t>0.8s, spikes to a peak of
+  23.3% at t=0.584s (near-main-element fraction peaks far lower, 7.7%, same
+  time) -- a genuine transient event tied to the gust+flap excitation, not a
+  constant wake artifact.
+- Spatially localized at the flap (see `figs_stall/stall_diagnostic.png`):
+  the reversed-flow mask at peak time sits right on and immediately behind
+  the flap upper surface/trailing edge -- exactly the same flap-gap/wake zone
+  every D-RES lever already identified as the untouched residual.
+- The champion ROM MISSES it almost entirely: at the same peak time (t=0.584s)
+  ROM's own reversed-flow fraction in that band is 2.1% vs FOM's 23.3% -- the
+  model does not just have quantitatively larger error there, it fails to
+  represent the separation event at all, predicting attached flow throughout.
+- At the 15 worst-error near-flap points at peak time, FOM shows vx from -3
+  to -16 m/s (reversed) while ROM predicts vx from +50 to +80 m/s (strongly
+  attached-like) -- not a magnitude miss, a SIGN miss. Across all 1726
+  near-flap points at peak time, ROM gets the attached/reversed sign wrong at
+  21.7% of them.
+
+**Reading**: this is not merely "the model is locally worse near the flap" --
+it is a qualitative failure mode: a real, brief, localized shear-layer
+reversal event that the smooth globally-coordinate-conditioned latent
+dynamics structurally cannot represent, consistent with every levers-tried
+result so far (decoder conditioning, sampling, optimizer, shooting, CDE all
+touched EITHER the whole-field decoder OR the whole-trajectory dynamics --
+none specifically targeted a localized, transient, sign-changing event).
+This reframes D-RES from "a stubborn smooth residual" to "an unmodeled
+localized separation event" -- a materially different, and more actionable,
+diagnosis. See `recon/analysis/decomp_stall.py` to reproduce/extend (control
+case on sim_A_025 gust-only, and a vorticity-based corroboration, are the two
+open follow-ups noted but not yet run).
+
+Next: literature review targeting regime-aware/local architectural levers
+(deliberately excluding the 5 already-closed mechanisms), in parallel with
+two cheap, code-grounded candidates already identified: (1) a loss-weighting
+hook -- confirmed NEVER tried, the current loss (`train_fields.py` ~line
+432-433) is a plain unweighted MSE with zero per-point/per-region weighting
+mechanism, distinct from the already-failed *sampling* reweight since it
+doesn't sacrifice far-field point budget; (2) an engineered regime-indicator
+input channel (e.g. a gust-rate x flap-angle threshold trigger derived from
+this diagnostic) concatenated into NNdyn/NNrec, informed by the CDE lesson
+that removing information (there: absolute signal values) loses more than it
+gains -- so add, don't replace.
+
+## RESIDUAL-CURRICULUM LOSS WEIGHTING (2026-08-22/23): LOSES cleanly, worse
+## than plain uniform MSE on EVERY axis -- not just a null result
+
+STALL_LITERATURE_NOTES.md's #1-ranked candidate (section 5/9): reweight each
+sampled point's squared training error by its own DYNAMIC residual magnitude
+-- `--loss-weight-mode residual`, weight = stop_gradient(|pred-target|_2
+across output fields)^power, mean-normalized, recomputed fresh every Adam
+epoch / BFGS function evaluation (no persistent EMA state, deliberately: a
+rejected BFGS line-search trial would corrupt any cross-step EMA). Distinct
+from the STATIC geometric `--loss-weight-mode flap` lever tested in parallel
+(fixed flap-proximity weight, precomputed once) and from the already-failed
+near-wall *sampling* reweight (biases which points are seen, not how much
+each residual counts). n=3 seeds x 2 strengths (power=1.0 moderate, power=2.0
+strong) on top of the champion (mean-split+CORAL o10) = 6 runs, all completed.
+
+**VERDICT: LOSES on every region, every component (static AND dynamic), every
+seed, both power settings -- no combined-vs-regional illusion to untangle
+this time, the global number and the per-region picture agree for once, they
+just both say "worse":**
+
+| arm | near static | near dynamic | combined NRMSE |
+|---|---|---|---|
+| **champion** | 3.80e-3 | 2.054e-2 | 6.141e-3 |
+| residual p1.0 (3 seeds) | 9.1-11.2e-3 | 2.90-3.15e-2 | 9.90-10.81e-3 |
+| residual p2.0 (3 seeds) | 14.6-17.7e-3 | 2.84-3.46e-2 | 11.54-13.47e-3 |
+
+Every region (near/wake/far/surface) and both components (static/dynamic) are
+worse at every seed, for both powers -- including the STATIC component and
+the FAR FIELD, which no prior lever meaningfully touched (all 5 previously-
+closed levers left static roughly flat or improved it slightly). Stronger
+weighting (p2.0) is consistently and monotonically worse than moderate
+(p1.0) across seeds -- a real dose-dependent harm, not noise.
+
+**Sign-flip readout (the literature's own falsifiable prediction, most direct
+test): did NOT improve -- if anything it got worse.** Champion ROM already
+massively underestimates the FOM's 23.35% peak reversed-flow fraction at
+2.14%, sign-flip rate 21.67%. Under residual weighting the ROM's reversed-
+flow fraction at the same instant is even LOWER (p1.0: 0.00-0.35%; p2.0:
+0.87-1.74%) -- the model represents the reversal event *less*, not more, and
+sign-flip rate stays flat at ~21-23% throughout (unchanged, within noise of
+champion). The literature's own pre-registered "null result" reading
+("sign-flip rate unchanged... residual is a representational ceiling") does
+not even fully apply -- this is not a null, it is a regression on the exact
+metric the lever targeted.
+
+**Reading:** the likely mechanism is that a *dynamic*, model's-own-error-
+driven weight is a fundamentally noisier, less stable training signal than a
+static geometric one -- early/mid-training residuals are large and volatile
+everywhere (not yet informative about where the *true* hard region is), and
+feeding that noise back into the loss with power>=1 amplifies whatever the
+optimizer is currently worst at fitting, which on a d_s=1, 1024-point-
+subsample budget model degrades general fit quality broadly rather than
+concentrating gradient usefully on the flap-gap transient. This is a
+qualitatively different failure mode from every previously-closed lever
+(none of which touched the static component this severely) -- it is not just
+"another way to not fix D-RES", it actively demonstrates that naive
+error-driven curriculum weighting is actively harmful here, a useful negative
+result for the thesis write-up. Full per-region numbers in
+`recon/analysis/decomp_residual.py`'s output; champion (mean-split+CORAL o10)
+remains unbeaten.
+
+**CUMULATIVE STATUS UPDATE:** six independently-motivated levers now tried
+and lost against coral_o10_s0 (depth+CORAL, near-wall RAD-lite sampling,
+tripled BFGS budget, multiple shooting, Neural-CDE, and now residual-
+curriculum loss weighting). The remaining open candidates from
+STALL_LITERATURE_NOTES.md are the Goman-Khrabrov separation-lag state
+(dynamics-side memory, `--dyn-sep-state`, in progress) and a local/gated
+decoder near the flap (major, held back pending the cheaper items' verdicts).
+
+## GOMAN-KHRABROV SEPARATION-LAG STATE (2026-08-22/23): implemented, launched
+
+`--dyn-sep-state`: a dedicated scalar attachment-state X(t) (1=attached,
+0=separated), lag-ODE form `tau1*Xdot + X = X0(gust_rate, flap_rate)`
+(Goman-Khrabrov structure, STALL_LITERATURE_NOTES.md section 2/9 item 2),
+discretized as its own forward-Euler update PARALLEL to NNdyn's (not folded
+into num_latent_states -- the lag-ODE is a specific constrained recurrence,
+structurally different from NNdyn's free vector field, and folding it in
+would discard exactly the structural prior motivating the lever). X(0)=1
+(fully attached IC, matching every sim's quiescent start); tau1 is a single
+trainable softplus-parameterized scalar (init 5 steps, ~matching the
+confirmed ~0.3s/~15-step separation-burst width). X is concatenated as an
+extra channel into BOTH NNdyn's regular update and NNrec's decoder input
+(`extra_cond` in `reconstruct_states`), matching the literature's
+"concatenated alongside z" recommendation. `SepStateDynamics` class,
+`train_fields.py`.
+
+**Two real bugs caught before/at the cluster smoke-test stage** (both now
+fixed, verified via a real cluster training run, not just locally):
+1. `sepnet.count_params()` crashed ("layer isn't built") because
+   `SepStateDynamics` has no `call()` (only `.x0()`/`.tau1`), so Keras never
+   flips its own `built` flag even though its Dense sublayers built
+   individually on first use. Fixed by summing `trainable_variables` shapes
+   directly instead of relying on Keras' `count_params()`.
+2. **More serious: a regression in the BASELINE (flag OFF) path.** The
+   original implementation put `if dyn_sep_state:` conditionals on
+   individual statements INSIDE the shared `for i in tf.range(nt-1):` loop
+   body (assigning `x_history` conditionally). This works fine under eager
+   execution (a local forward-pass check passed cleanly) but throws
+   `ValueError: 'x_history' must be defined before the loop` under the REAL
+   autograph-traced training path (`src/optimization.py`'s
+   `@tf.function`-decorated gradient computation) -- autograph's `for_stmt`
+   conversion does a static pass over the loop body's assigned names to set
+   up `tf.while_loop`'s loop-carried variables, and a name only
+   conditionally assigned inside the loop trips this even when the
+   Python-level condition is a compile-time constant that's False. This
+   would have broken every OTHER concurrently-running lever too (any run
+   with `--dyn-sep-state` unset also hits `evolve_dynamics`), not just this
+   one -- caught it before any queued job could pick up the broken file by
+   checking `ps`/logs on the two other in-flight full launches immediately
+   after the bad push. **Lesson reinforced**: a local eager forward-pass
+   check does NOT exercise autograph tracing and cannot catch this whole
+   class of bug -- only a real cluster training run (which goes through the
+   actual `@tf.function` path) can. Fixed by fully duplicating the loop body
+   into two separate top-level branches (`if dyn_sep_state: <loop A> else:
+   <loop B>`) so autograph never sees the `x_history` name at all when
+   tracing the off-path, instead of branching individual statements inside
+   one shared loop.
+
+Local forward-pass check (post-fix): X(0)=1.0000 exactly, X evolves over a
+trajectory (not pinned), byte-identical-when-off confirmed exactly (loss ==
+plain MSE). Cluster smoke test (`smoke_stall_sepstate.sh`, real TF 2.14
+training, both the sep-state-ON and baseline-OFF paths): PASSED cleanly after
+the fix. **Launched** n=3 seeds (0/100/200) on top of the champion
+(mean-split+CORAL o10), jobs 29058-60 (`stall_sepstate.pbs`), queued behind
+other in-flight work (shared `max_user_run=4` cap with a concurrent chat's
+unrelated `mpcdagger` jobs and this investigation's own `stall_rate`/
+`stall_lw` full launches) -- result pending.
+
+## SIGNAL-RATES (--add-signal-rates) RESULT (2026-08-22/24): LOSES, n=3 confirmed
+
+The cheap "add, don't replace" middle-ground lever (missing Wdot/deltad rate
+channels appended to the standard concat, explicitly motivated by the
+Neural-CDE post-mortem) -- full n=3 seeds (0/100/200) completed on top of the
+champion (mean-split+CORAL o10). `recon/analysis/decomp_rates.py`.
+
+**VERDICT: LOSES on the region that matters, consistently across all 3
+seeds -- and shows the SAME combined-NRMSE illusion pattern as multiple
+shooting.**
+
+| seed | near static | near dynamic | surface dynamic | combined NRMSE |
+|---|---|---|---|---|
+| **champion** | 3.80e-3 | 2.054e-2 | 2.266e-2 | 6.141e-3 |
+| rates s0 | 4.41e-3 | 2.155e-2 (+5%) | 2.488e-2 (+10%) | 5.715e-3 (looks better) |
+| rates s100 | 4.04e-3 | 2.275e-2 (+11%) | 2.665e-2 (+18%) | 6.585e-3 (worse) |
+| rates s200 | 4.22e-3 | 2.193e-2 (+7%) | 2.902e-2 (+28%) | 5.549e-3 (looks better) |
+
+Near-region dynamic AND static are worse at every single seed (no
+exceptions); surface dynamic is worse at every seed, by a growing margin
+(+10% to +28%). The combined/global NRMSE is a mixed bag (2 of 3 seeds look
+BETTER than champion) -- exactly the H-METRIC/multiple-shooting-style
+illusion: far-field/point-count dominance in the global number masking a
+real, consistent regression in the near-flap region that this whole
+investigation targets.
+
+**Sign-flip readout (the direct, targeted test): essentially flat, no real
+improvement.** Champion 21.67% sign-flip rate (ROM reversed-flow frac 2.14%
+vs FOM's 23.35%); rates gives 21.90% / 22.07% / 19.00% across the 3 seeds --
+within seed-to-seed noise of the champion, no seed shows a materially better
+ROM reversed-flow fraction (0.0156-0.0446, champion 0.0214 -- s200's 0.045 is
+nominally higher but still misses over 80% of the event, not a meaningful
+recovery).
+
+**Reading:** adding the missing rate channels alongside the existing
+concatenation (rather than replacing value-conditioning with rate-only
+conditioning, as CDE did) avoided CDE's clean catastrophic loss, but did not
+help either -- the extra channels apparently give the optimizer more
+capacity to spend on the easy far-field/attached-flow majority of points
+(where the combined-NRMSE improvement comes from) rather than the hard
+near-flap separation event specifically. This closes the "add, don't
+replace" hypothesis from the CDE post-mortem: extra rate INPUTS alone,
+without any accompanying change to how the loss weights points or how the
+dynamics represents regime transitions, are not sufficient.
+
+## FLAP LOSS-WEIGHT (--loss-weight-mode flap) RESULT (2026-08-22/24): LOSES, n=3 confirmed -- and a lesson about premature single-seed reads
+
+The static geometric flap-proximity loss reweight (distance-decay tau=0.3c,
+boost=5.0) -- full n=3 seeds (0/100/200) completed on top of the champion.
+`recon/analysis/decomp_lw.py`.
+
+**A single-seed preview (s200 only, run while s0/s100 were still queued)
+looked like the best result in the entire investigation**: sign-flip rate
+dropped from the champion's 21.67% to 8.40%, and the ROM's reversed-flow
+fraction at the gust peak jumped from 2.14% to 16.45% -- by far the largest
+movement toward the FOM's 23.35% target seen from any lever, cheap or
+literature-derived. This was reported to the user as a promising early
+signal, explicitly caveated as single-seed and unconfirmed.
+
+**It did not replicate. VERDICT: LOSES, n=3 confirmed -- s200 was an outlier,
+not a real effect.**
+
+| seed | near dynamic | surface dynamic | sign-flip% | ROM reversed-flow frac |
+|---|---|---|---|---|
+| **champion** | 2.054e-2 | 2.266e-2 | 21.67% | 2.14% |
+| flap-lw s0 | 2.783e-2 (+35%) | 3.367e-2 (+49%) | 22.94% (worse) | 0.52% (worse) |
+| flap-lw s100 | 2.831e-2 (+38%) | 3.852e-2 (+70%) | 22.65% (worse) | 0.70% (worse) |
+| flap-lw s200 | 2.003e-2 (better) | 2.580e-2 (+14%) | 8.40% (much better) | 16.45% (much better) |
+
+Two of three seeds (s0, s100) lose cleanly and consistently on EVERY axis --
+static, dynamic, near, surface, combined NRMSE, AND the sign-flip target
+metric itself gets slightly worse, not better. Only s200 shows the dramatic
+improvement. Averaged across the 3 seeds, near/surface dynamic are clearly
+worse than the champion (near avg 2.54e-2 vs 2.05e-2, +24%; surface avg
+3.27e-2 vs 2.27e-2, +44%) and the sign-flip average (18.0%) is pulled toward
+"better" almost entirely by the one outlier seed, not a systematic effect --
+2 of 3 independent draws show no sign-flip improvement at all.
+
+**Reading:** a static, precomputed geometric weight (fixed at the START of
+training, based only on distance to the flap surface) is apparently a
+high-variance, unstable training signal -- exactly the seed-sensitivity this
+project's n=3 discipline exists to catch. Plausible mechanism: boosting the
+loss weight of a small, hard, high-curvature spatial region by a fixed
+multiplier throughout the ENTIRE training run (not annealed, not adaptive)
+can push the optimizer into qualitatively different basins depending on
+initialization -- one basin (hit by s200) that actually resolves the
+near-flap structure, and two basins (s0, s100) that instead overfit the
+up-weighted region in a way that hurts both static and dynamic accuracy
+broadly. This is a DIFFERENT failure mode from the ALSO-tried residual-
+curriculum lever (which lost cleanly and uniformly, no seed variance to
+speak of) -- static-boost and residual-adaptive-boost are not interchangeable
+approximations of the same idea.
+
+**Process lesson, stated plainly for future sessions**: do not report a
+single-seed result as "the most promising lever" even with a clear verbal
+caveat -- the caveat does not fully undo the anchoring effect of a strong
+early number. The correct sequence (used here once the s0 result came in)
+is: flag single-seed reads as informative-but-provisional, and actively
+update/retract the framing the moment contradicting data arrives, rather
+than let the first favorable impression stand until "confirmed." No
+compute or code was wasted by this -- the mistake was purely in how the
+interim result was framed to the user -- but it is worth remembering for
+future single-seed previews in this project.
+
+## GOMAN-KHRABROV SEPARATION-LAG STATE RESULT (2026-08-24/25): no real effect, n=3 confirmed
+
+The dedicated attachment-state lag-ODE lever (`--dyn-sep-state`) -- full n=3
+seeds (0/100/200) completed on top of the champion. `recon/analysis/decomp_sepstate.py`.
+
+**VERDICT: essentially a wash on aggregate metrics, and NO improvement
+whatsoever on the target sign-flip metric in any seed -- this is the null
+result the literature notes themselves pre-registered as the informative
+outcome ("would argue the missing piece isn't a dynamics-side memory/
+indicator but a decoder-side inability to spatially express the reversal").**
+
+| seed | near dynamic | surface dynamic | combined NRMSE | sign-flip% | ROM reversed-flow frac |
+|---|---|---|---|---|---|
+| **champion** | 2.054e-2 | 2.266e-2 | 6.141e-3 | 21.67% | 2.14% |
+| sep-state s0 | 1.845e-2 (better) | 1.936e-2 (better) | 6.020e-3 (better) | **21.67% (IDENTICAL)** | **2.14% (IDENTICAL)** |
+| sep-state s100 | 2.032e-2 (~tied) | 2.176e-2 (better) | 5.945e-3 (better) | 20.80% (~tied) | 2.67% (~tied) |
+| sep-state s200 | 2.480e-2 (+21% worse) | 2.677e-2 (+18% worse) | 6.581e-3 (worse) | 22.94% (worse) | 0.41% (worse) |
+| **3-seed average** | 2.119e-2 (+3%) | 2.263e-2 (~tied) | 6.182e-3 (~tied) | 21.80% (~tied) | 1.74% (~tied/worse) |
+
+Two of three seeds (s0, s100) show modest, consistent improvement on the
+generic per-region NRMSE numbers (near/surface dynamic AND static, combined)
+-- but seed s0's sign-flip readout is EXACTLY IDENTICAL to the champion down
+to the same 4 significant figures (21.67%, ROM frac 0.0214), meaning the
+sep-state mechanism had ZERO measurable effect on how the model represents
+the actual reversal event for that seed, despite the generic metrics ticking
+down slightly. s100 is marginally different, within noise. s200 cancels out
+essentially all of the average gain by being clearly worse on every axis.
+Averaged across all 3 seeds, the near-region dynamic residual (the specific
+quantity this whole D-RES investigation targets) is not improved (+3%,
+i.e. mildly worse), and the sign-flip rate -- the single most direct,
+falsifiable test of whether this lever does what it was designed to do -- is
+flat to worse in every individual seed, never better.
+
+**Learned tau1 values** (relaxation timescale, init 5.0 steps): not
+inspected in this pass -- if this thread is revisited, checking whether tau1
+converged to something physically sensible (order ~15 steps, matching the
+confirmed ~0.3s separation-burst width) vs. degenerated to a trivial extreme
+(near-0 or very large) would help distinguish "the mechanism engaged but
+didn't help" from "the mechanism never engaged at all" -- not done here
+since the aggregate verdict (no sign-flip improvement in any seed) is
+already conclusive enough not to warrant it.
+
+**Reading:** the modest generic-NRMSE improvement in 2/3 seeds is most
+plausibly just the effect of adding one extra conditioning channel/scalar
+capacity to NNdyn and NNrec (more free parameters, slightly better generic
+fit), NOT evidence that the Goman-Khrabrov lag-ODE structure is doing its
+intended job of tracking an attachment-loss event. This is consistent with,
+and now empirically confirms, the literature notes' own pre-registered null
+reading: giving the dynamics an explicit memory/indicator channel does not
+help if the actual bottleneck is the DECODER's inability to spatially
+express a localized, sign-changing feature even when told (accurately or
+not) that a regime transition is occurring. This directly motivates
+STALL_LITERATURE_NOTES.md's item 3 (local/gated decoder near the flap) as
+the next-in-line candidate if this line of investigation continues -- but
+per that document's own reasoning, this null result narrows the diagnosis
+usefully: the problem is very likely decoder-side locality, not
+training-emphasis (residual-curriculum also failed) and not dynamics-side
+memory (this lever also failed).
+
+---
+
+## CUMULATIVE SUMMARY -- STALL/SEPARATION INVESTIGATION (2026-08-22 to 2026-08-25)
+
+**Starting point**: Phase 1 of this investigation physically CONFIRMED (not
+assumed) that the long-standing D-RES residual is a real, localized,
+transient flow-separation event at the flap -- not a diffuse smooth-fit
+problem. At the gust+flap test case's gust peak, up to 23.35% of near-flap
+nodes show FOM flow reversal (vs 0% at rest); the champion ROM represents
+only 2.14% of this event and gets the local flow direction's SIGN wrong at
+21.67% of near-flap points at the event's peak (`decomp_stall.py`,
+`recon/analysis/MEANSPLIT_NOTES.md`'s STALL/SEPARATION HYPOTHESIS section).
+
+**Four new-territory levers were designed, implemented, smoke-tested, and
+run to full n=3-seed statistical completion, each targeting a different
+axis never attacked by the five originally-closed D-RES levers:**
+
+| lever | mechanism | axis attacked | verdict |
+|---|---|---|---|
+| Residual-curriculum weighting | loss reweighted by the model's own live detached residual | training emphasis (adaptive) | **LOSES cleanly** -- worse on every region/component/seed/power, sign-flip unimproved |
+| Signal-rates (`--add-signal-rates`) | +2 input channels (Wdot, deltad) to the standard concat | missing-information (additive) | **LOSES** -- near/surface dynamic worse all 3 seeds; combined-NRMSE shows the same H-METRIC-style illusion as multiple shooting; sign-flip flat |
+| Flap loss-weight (`--loss-weight-mode flap`) | loss reweighted by a fixed geometric flap-proximity mask | training emphasis (static) | **LOSES** -- 2/3 seeds lose on every axis including sign-flip; the 1/3 seed that looked dramatically promising in a premature single-seed preview did not replicate (documented process lesson on premature single-seed framing) |
+| Sep-state (`--dyn-sep-state`) | Goman-Khrabrov lag-ODE attachment-state channel into NNdyn+NNrec | dynamics-side memory/regime-indicator | **No real effect** -- mild generic-NRMSE improvement in 2/3 seeds is not accompanied by ANY sign-flip improvement in any seed (one seed's sign-flip is bit-identical to the champion); net wash on the metric that matters |
+
+**Combined with the five originally-closed D-RES levers** (decoder depth,
+near-wall sampling, BFGS budget, multiple shooting, Neural-CDE rate-only
+conditioning -- see the earlier sections of this file), **the champion
+(`coral_o10_s0`: mean-split + CORAL shift-modulated SIREN decoder, omega0=10,
+d_s=1, L6, uniform sampling, bfgs=2000) has now been attacked by NINE
+independent, substantial levers spanning every axis this project could
+identify** -- decoder architecture, decoder conditioning mechanism, point
+sampling, optimizer choice/budget, training procedure (shooting), dynamics
+conditioning mechanism (CDE rate-only), loss weighting (both static-
+geometric and dynamic-adaptive), and dynamics-side regime memory -- **and has
+not been beaten once**, on the metric that actually matters
+(near/surface-region dynamic residual and, specifically for this second
+round, the flap sign-flip/reversal-representation readout).
+
+**Two consistent methodological lessons reinforced across this entire
+campaign, worth restating plainly:**
+1. Never trust combined/global NRMSE alone -- it has produced a misleading
+   "win" reading at least three times now (multiple shooting, signal-rates,
+   and marginally sep-state), always because the far-field/attached-flow
+   majority of points dominates the point-count-weighted global metric while
+   masking a flat-or-worse result in the near-flap region that is the actual
+   target.
+2. Never trust a single-seed preview as a verdict, even with a clear verbal
+   caveat -- the flap loss-weight lever's s200 result looked like the best
+   finding of the whole investigation and did not replicate at n=3.
+
+**Implication for the thesis**: the evidence is now very strong -- from
+nine structurally distinct angles -- that the residual is a genuine,
+robust ceiling of this specific LDNet architectural class (global
+coordinate-conditioned decoder + concatenation-or-simple-augmentation
+dynamics conditioning), not an artifact of any one design choice tried so
+far. The one remaining untried candidate, flagged consistently as the
+most-informed next step by both the sign-flip-metric pattern here and the
+original literature review, is a genuinely NEW architecture: a local/
+spatially-gated decoder mechanism near the flap (STALL_LITERATURE_NOTES.md
+section 9 item 3) -- ranked MAJOR cost, deliberately held back until the
+cheaper items were exhausted, which they now are. This is a natural
+stopping point to write up the D-RES/stall investigation as a well-
+evidenced structural-limit finding for the thesis, with the local-decoder
+idea noted as future work rather than pursued further in this campaign
+without an explicit decision to invest in genuinely new architecture.
