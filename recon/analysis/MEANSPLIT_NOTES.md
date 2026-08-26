@@ -989,3 +989,72 @@ conditioning mechanism, loss weighting static and adaptive, and dynamics-
 side regime memory) has been tried and lost. The D-RES/stall investigation
 is CLOSED; write up as a well-evidenced structural-limit finding for the
 thesis.
+
+## FRESH LITERATURE PASS (2026-08-26): reframing beyond flap-specific stall literature
+
+At the user's explicit request to keep going rather than stop at the 10-lever
+verdict, a second literature review searched more broadly for how neural
+networks reconstruct a DYNAMIC/unsteady field CONTRIBUTION as a problem
+class (not flap/stall-specific), covering DMD/Koopman operator networks,
+multi-scale temporal architectures, GNN/message-passing decoders (flagged
+in the first review as never actually tried, only costed), and other
+dynamic-residual paradigms (generative/diffusion, operator learning).
+Full findings: `recon/analysis/DYNAMIC_CONTRIBUTION_LITERATURE_NOTES.md`.
+
+Ranked recommendations from that review: **(A)** a CHEAP, zero-training
+offline DMD/mrDMD modal diagnostic on the existing FOM dumps -- does the
+separation event correspond to a distinct, low-rank dynamical mode
+separable from background dynamics? **(B)** a RWR-style ("Read, Write,
+Relax," arXiv:2608.21677) local-global hybrid decoder -- genuine mesh-graph
+message-passing interleaved with the existing global CORAL step,
+multigrid-cycle style; independently motivated by this project's OWN CORAL
+omega0=30/60 overshoot finding (RWR's paper gives a structural reason —
+global decoders are provably a spatial low-pass filter — for exactly that
+symptom). **(C)** a Courant-style ("A State-Adaptive Perceiver-Based Neural
+Surrogate," arXiv:2605.25115) learned-attention local-support decoder --
+weaker/mixed evidence, ranked below B. **(D)** a two-timescale/dual-Koopman-
+operator NNdyn -- explicitly not cheaper or more novel than the sep-state
+escalation already flagged and not pursued.
+
+### DMD diagnostic (recommendation A) run: NEGATIVE result
+
+`recon/analysis/dmd_stall_diagnostic.py`: exact DMD on the near-airfoil
+region's vx fluctuation (time-mean subtracted) for sim_Cc_060, both over the
+full 3s trajectory and, mrDMD-style, over a tighter window bracketing the
+confirmed event (t=0.20-1.19s). For each DMD mode, computed a
+flap-concentration score (fraction of the mode's spatial L2 energy inside
+the near-flap band vs the whole near region) and an event-concentration
+score (fraction of the mode's reconstructed temporal-envelope energy inside
+the t=0.45-0.85s event window vs the full window).
+
+**Full-trajectory result:** one mode (freq=0, pure decay) dominates with
+91.7% of variance but is neither flap-concentrated (0.375) nor
+event-concentrated (0.137) -- it looks like a generic whole-trajectory
+relaxation/settling mode, not the separation event specifically. No mode
+crosses both concentration thresholds (>0.5) with meaningful (>2%) variance
+share.
+
+**Windowed (mrDMD-style, tighter t=0.20-1.19s) result:** more informative
+but the same qualitative conclusion. The two largest modes (a complex
+conjugate pair, ~0.94 Hz, 68.4% combined variance) reach flap-concentration
+0.364 and event-concentration 0.221 -- both still well under the 0.5
+threshold. The only mode crossing the flap-concentration threshold (0.542)
+carries negligible variance (0.11%) and zero event-concentration -- a
+persistent small spatial structure near the flap, unrelated to the
+transient event. **No mode is simultaneously flap-localized, event-
+localized, AND variance-significant, at either time scale tested.**
+
+**Reading:** this is the literature review's own pre-registered null
+result, and it is informative, not just another closed door. Per
+`DYNAMIC_CONTRIBUTION_LITERATURE_NOTES.md`'s recommendation A: "if the
+event's variance is spread across many modes with no clean scale
+separation... this argues against ANY two-timescale architectural split."
+This cheaply rules out recommendation D (two-timescale/dual-Koopman NNdyn)
+without spending any training compute, and tempers expectations for
+decoder-locality mechanisms (B, C) insofar as their appeal partly rested on
+"there IS a cleanly separable local structure to capture, just not via
+lever 10's specific mechanism" -- the DMD result says the separability, at
+least in a LINEAR modal sense, is weaker than that framing assumed. Caveat,
+stated plainly: DMD is a **linear** method: a genuinely nonlinear
+localized/transient structure could still exist that this diagnostic
+cannot see. This is evidence, not proof, against clean separability.
