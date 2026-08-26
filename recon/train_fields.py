@@ -243,11 +243,100 @@ class SepStateDynamics(tf.keras.Model):
         return tf.nn.softplus(self.tau1_raw) + 1e-3
 
 
+class GatedLocalDecoder(tf.keras.Model):
+    """Additive local-correction decoder, gated by spatial proximity to a
+    reference point set (the flap surface) AND a learned function of the
+    conditioning code (z,u) -- `--local-decoder` lever, stall/separation
+    investigation, STALL_LITERATURE_NOTES.md section 9 item 3 (the one
+    remaining, genuinely-new-architecture candidate after the 4 cheaper
+    stall levers -- residual-curriculum weighting, signal-rates, flap
+    loss-weight, Goman-Khrabrov sep-state -- all lost, see
+    MEANSPLIT_NOTES.md's CUMULATIVE SUMMARY).
+
+        output = global_net(x) + spatial_gate(coords) * dynamic_gate(code) * local_net(x)
+
+    Drop-in NNrec replacement (same call signature as ModulatedSiren: takes
+    the [code|coords] concatenated tensor, returns (...,3) fields) -- zero
+    changes needed to reconstruct_states/make_ldnet, exactly like CORAL
+    itself was a drop-in replacement for the plain tanh MLP NNrec.
+
+    global_net / local_net: two INDEPENDENT ModulatedSiren instances with
+    their own weights (not a shared/modified single network) -- the "small
+    MoE-style... 2-3 decoder heads" recommendation. local_net is typically
+    smaller (--local-width/--local-depth) but higher-frequency
+    (--local-omega0, default 30 vs the champion's 10): the D-RES investigation
+    established the OVERALL smooth residual wants LOW omega0 (high-omega hurt,
+    STALL_LITERATURE_NOTES.md/MEANSPLIT_NOTES.md), but this local head's
+    target -- a genuinely sharp, sign-changing reversal event -- is a
+    structurally different, plausibly higher-frequency signal; kept
+    independently configurable rather than assumed.
+
+    spatial_gate: computed fresh each call from the REAL (denormalized,
+    physical chord-unit) x,y coordinates against `ref_xy` (the flap surface
+    points, also physical units) -- reuses the exact tau=0.3c distance-decay
+    convention already validated by the flap loss-weight lever
+    (flap_loss_weights), just evaluated inside the model instead of riding
+    through the data pipeline as an extra points column (simpler: no
+    n_weight_cols-style column bookkeeping, no risk of the child nets
+    accidentally seeing an extra input column). xy_min/xy_max invert the
+    project's standard normalize_forw ([min,max]->[-1,1]) affine map -- same
+    formula as utils.normalize_back, just inlined as a tf op so it can run
+    inside the decoder's forward pass. Denormalizing INSIDE the model (not
+    once at data-prep time) means the gate stays correct even under multiple
+    restarts/fresh() rebuilds with no re-plumbing.
+
+    dynamic_gate: small MLP mapping the conditioning code -> scalar in [0,1]
+    via sigmoid, bias-initialized so the gate starts near 0 (sigmoid(-4)~0.018)
+    -- ADDITIVE correction, so gate~0 at init means the composite reproduces
+    the plain global_net (i.e. the champion) almost exactly at the start of
+    training, a conservative, safe initialization (unlike a blend/mixture,
+    which would need careful mixing-fraction init to avoid instability)."""
+
+    def __init__(self, global_net, local_net, din_mod, ref_xy, tau,
+                 xy_min, xy_max, gate_hidden=8, **kw):
+        super().__init__(**kw)
+        self.global_net = global_net
+        self.local_net = local_net
+        self.din_mod = int(din_mod)
+        self.ref_xy = tf.constant(np.asarray(ref_xy, dtype=np.float64))   # (R,2) physical
+        self.tau = float(tau)
+        self.xy_min = tf.constant(np.asarray(xy_min, dtype=np.float64))   # (2,)
+        self.xy_max = tf.constant(np.asarray(xy_max, dtype=np.float64))   # (2,)
+        self.gate_hidden = tf.keras.layers.Dense(int(gate_hidden), activation=tf.nn.tanh)
+        self.gate_out = tf.keras.layers.Dense(
+            1, activation=None,
+            bias_initializer=tf.keras.initializers.Constant(-4.0))
+
+    def call(self, x):
+        code = x[..., :self.din_mod]
+        coords_xy_n = x[..., self.din_mod:self.din_mod + 2]     # normalized x,y (first 2 cols)
+        coords_xy = 0.5 * (self.xy_min + self.xy_max) + \
+            0.5 * (self.xy_max - self.xy_min) * coords_xy_n     # -> physical chord units
+        d = tf.reduce_min(
+            tf.norm(coords_xy[..., None, :] - self.ref_xy[None, None, None, :, :], axis=-1),
+            axis=-1)                                             # (...,) min dist to flap
+        # tf.maximum converts its args independently via tf.convert_to_tensor
+        # BEFORE comparing dtypes (unlike tensor operators +,-,*, which infer
+        # from the tensor side) -- a bare Python 0.0 there resolves to TF's
+        # GLOBAL default float32, clashing with d's float64 (this project runs
+        # entirely in float64 via tf.keras.backend.set_floatx). Caught by the
+        # real cluster training run (TF 2.14), NOT by a local eager check
+        # (TF 2.21) -- same class of environment-dependent gap as the
+        # sep-state autograph bug; explicit zeros_like sidesteps it.
+        spatial = tf.square(tf.maximum(tf.zeros_like(d), 1.0 - d / self.tau))   # (...,) in [0,1]
+        dyn = tf.sigmoid(self.gate_out(self.gate_hidden(code)))    # (...,1)
+        gate = spatial[..., None] * dyn                             # (...,1)
+        return self.global_net(x) + gate * self.local_net(x)
+
+
 def build_networks(num_latent_states, problem, dt, dt_base,
                    dyn_layers=2, dyn_width=7, rec_layers=4, rec_width=24,
                    rec_space_dim=None, decoder="mlp",
                    siren_omega0=30.0, siren_mod_layers=2, siren_mod_width=None,
-                   siren_mod_type="shift", dyn_cond="concat", dyn_sep_state=False):
+                   siren_mod_type="shift", dyn_cond="concat", dyn_sep_state=False,
+                   local_decoder=False, local_ref_xy=None, local_tau=0.3,
+                   local_width=16, local_depth=3, local_omega0=30.0,
+                   local_gate_hidden=8, local_xy_min=None, local_xy_max=None):
     """Defaults (2x7 dyn, 4x24 rec) reproduce the original hardcoded architecture
     exactly (same layer order -> same weight-init RNG draws for a given seed).
     rec_space_dim overrides the decoder's spatial-input width (Fourier-feature
@@ -260,7 +349,15 @@ def build_networks(num_latent_states, problem, dt, dt_base,
     NNrec's input by one extra scalar conditioning channel (the sep-state X,
     see SepStateDynamics) -- NOT added to num_latent_states itself. Only
     implemented for the standard 'concat' dyn_cond path (asserted mutually
-    exclusive with dyn_cond='cde' by the caller, main())."""
+    exclusive with dyn_cond='cde' by the caller, main()).
+    local_decoder=True (--local-decoder lever, only valid with decoder='coral')
+    wraps the plain CORAL NNrec into a GatedLocalDecoder: the CORAL net becomes
+    `global_net`, a second smaller/higher-omega0 ModulatedSiren `local_net` is
+    built alongside it, gated by local_ref_xy/local_tau (flap proximity,
+    physical chord units) and a learned function of (z,u). local_xy_min/
+    local_xy_max are the space normalization range's x,y columns (from `norm`,
+    already computed by the caller) needed to denormalize coords inside the
+    gate -- see GatedLocalDecoder."""
     n_sep = 1 if dyn_sep_state else 0
     if dyn_cond == "cde":
         # NB bias init: f_theta depends on z ALONE and z starts at the physical
@@ -293,13 +390,24 @@ def build_networks(num_latent_states, problem, dt, dt_base,
         NNdyn = tf.keras.Sequential(dyn)
     sdim = problem["space"]["dimension"] if rec_space_dim is None else rec_space_dim
     n_rec = num_latent_states + n_sep + len(problem["input_signals"]) + sdim
+    din_mod = num_latent_states + n_sep + len(problem["input_signals"])
     if decoder == "coral":
-        NNrec = ModulatedSiren(
-            din_mod=num_latent_states + n_sep + len(problem["input_signals"]),
-            din_coord=sdim, width=rec_width, depth=rec_layers,
+        global_net = ModulatedSiren(
+            din_mod=din_mod, din_coord=sdim, width=rec_width, depth=rec_layers,
             out_dim=len(problem["output_fields"]), omega0=siren_omega0,
             mod_layers=siren_mod_layers, mod_width=siren_mod_width,
             mod_type=siren_mod_type)
+        if local_decoder:
+            local_net = ModulatedSiren(
+                din_mod=din_mod, din_coord=sdim, width=local_width, depth=local_depth,
+                out_dim=len(problem["output_fields"]), omega0=local_omega0,
+                mod_layers=siren_mod_layers, mod_width=None, mod_type=siren_mod_type)
+            NNrec = GatedLocalDecoder(
+                global_net, local_net, din_mod=din_mod, ref_xy=local_ref_xy,
+                tau=local_tau, xy_min=local_xy_min, xy_max=local_xy_max,
+                gate_hidden=local_gate_hidden)
+        else:
+            NNrec = global_net
         NNrec(tf.zeros((1, 1, 1, n_rec), dtype=tf.float64))   # force-build variables
     else:
         rec = [tf.keras.layers.Dense(rec_width, activation=tf.nn.tanh,
@@ -929,6 +1037,40 @@ def main():
                          "training, always >0). Default 5 steps -- same "
                          "order as the confirmed ~15-dt_base-step separation "
                          "burst width at the real cluster dt_base~=0.02s.")
+    ap.add_argument("--local-decoder", action="store_true",
+                    help="wrap NNrec (--decoder coral only) into a GatedLocalDecoder: "
+                         "output = global_net(x) + gate(coords,z,u)*local_net(x), an "
+                         "ADDITIVE correction from a second, independent (smaller, "
+                         "higher-omega0) ModulatedSiren head, gated by flap-proximity "
+                         "(--local-tau, physical chord units, --flap-nodes required) "
+                         "times a learned function of (z,u) -- gate starts near 0 "
+                         "(safe init: composite ~= plain global_net at start of "
+                         "training). Genuinely new architecture (STALL_LITERATURE_"
+                         "NOTES.md section 9 item 3), the one remaining candidate "
+                         "after 4 cheaper stall levers (residual-curriculum weight, "
+                         "signal-rates, flap loss-weight, Goman-Khrabrov sep-state) "
+                         "all lost -- see GatedLocalDecoder.")
+    ap.add_argument("--local-width", type=int, default=16,
+                    help="--local-decoder: local_net SIREN width (default 16, "
+                         "smaller than the champion global_net's 24)")
+    ap.add_argument("--local-depth", type=int, default=3,
+                    help="--local-decoder: local_net SIREN depth (default 3, "
+                         "smaller than the champion global_net's 4)")
+    ap.add_argument("--local-omega0", type=float, default=30.0,
+                    help="--local-decoder: local_net SIREN omega0 (default 30, "
+                         "the original Sitzmann default -- HIGHER than the "
+                         "champion global_net's 10, deliberately: the OVERALL "
+                         "smooth residual wanted low omega0, but this head's "
+                         "target -- a sharp, sign-changing reversal event -- is "
+                         "a structurally different, plausibly higher-frequency "
+                         "signal; independently configurable, not assumed)")
+    ap.add_argument("--local-tau", type=float, default=0.3,
+                    help="--local-decoder: flap-proximity spatial gate decay "
+                         "length in physical chord units (default 0.3, same "
+                         "convention as --loss-weight-tau)")
+    ap.add_argument("--local-gate-hidden", type=int, default=8,
+                    help="--local-decoder: hidden width of the (z,u)->dynamic-gate "
+                         "MLP (default 8)")
     ap.add_argument("--dyn-layers", type=int, default=2,
                     help="number of hidden layers in NNdyn (default 2 = original)")
     ap.add_argument("--dyn-width", type=int, default=7,
@@ -965,6 +1107,9 @@ def main():
         "--dyn-sep-state + --shooting-segments >1 not implemented together " \
         "(evolve_dynamics_shooting doesn't build/thread a sep-state " \
         "trajectory); test them in isolation"
+    if args.local_decoder:
+        assert args.decoder == "coral", "--local-decoder requires --decoder coral"
+        assert args.flap_nodes, "--local-decoder requires --flap-nodes"
 
     latents = [int(x) for x in args.latents.split(",")]
     out_dir = Path(args.out); (out_dir / "summary").mkdir(parents=True, exist_ok=True)
@@ -1064,6 +1209,20 @@ def main():
               f"{args.loss_weight_residual_power} (per-point/time detached "
               f"|pred-target| L2-across-fields, mean-normalized, recomputed every "
               f"Adam epoch / BFGS function evaluation -- no persistent state)")
+
+    local_ref_xy = None
+    if args.local_decoder:
+        # reuse flap_xy_w if --loss-weight-mode flap already loaded the SAME
+        # --flap-nodes reference (avoids loading/asserting twice); otherwise
+        # load fresh. Physical (x,y), NOT normalized -- GatedLocalDecoder
+        # denormalizes its own coords internally to match.
+        if flap_xy_w is not None:
+            local_ref_xy = flap_xy_w
+        else:
+            local_ref_xy = raw_train0["points"][np.load(args.flap_nodes), :2].copy()
+        print(f"local-decoder ON: local_net {args.local_depth}x{args.local_width} "
+              f"omega0={args.local_omega0:g}, gate tau={args.local_tau}c, "
+              f"{len(local_ref_xy)} flap reference nodes")
     # Fourier-feature encoding of the decoder (x,y) inputs (D-RES arm A).
     fourier_B = None
     rec_space_dim = None
@@ -1081,6 +1240,8 @@ def main():
     norm["sep_state_rates"] = sep_state_norm   # None unless --dyn-sep-state (traceability only)
     with open(out_dir / "normalization.json", "w") as f:
         json.dump(norm, f, indent=2)
+    local_xy_min = np.array(norm["space"]["min"][:2]) if args.local_decoder else None
+    local_xy_max = np.array(norm["space"]["max"][:2]) if args.local_decoder else None
 
     tri_arr = np.load(args.tri) if args.tri else None
 
@@ -1170,7 +1331,13 @@ def main():
                                           siren_mod_width=args.siren_mod_width,
                                           siren_mod_type=args.siren_mod_type,
                                           dyn_cond=args.dyn_cond,
-                                          dyn_sep_state=args.dyn_sep_state)
+                                          dyn_sep_state=args.dyn_sep_state,
+                                          local_decoder=args.local_decoder,
+                                          local_ref_xy=local_ref_xy, local_tau=args.local_tau,
+                                          local_width=args.local_width, local_depth=args.local_depth,
+                                          local_omega0=args.local_omega0,
+                                          local_gate_hidden=args.local_gate_hidden,
+                                          local_xy_min=local_xy_min, local_xy_max=local_xy_max)
             sepnet = None
             if args.dyn_sep_state:
                 sepnet = SepStateDynamics(tau1_init=args.sep_state_tau1_init)
@@ -1301,11 +1468,11 @@ def main():
             np.save(md / "airfoil_xy.npy", airfoil_xy)     # for recon-time features
         if fourier_B is not None:
             np.save(md / "fourier_B.npy", fourier_B)       # for recon-time FF encoding
-        if flap_xy_w is not None:
-            np.save(md / "flap_xy.npy", flap_xy_w)         # for recon-time loss-weight column
-                                                             # (shape parity through normalize_forw
-                                                             # only -- the value is discarded before
-                                                             # NNrec at inference, see n_weight_cols)
+        if flap_xy_w is not None or local_ref_xy is not None:
+            # saved once, reused by whichever of the two levers is active (flap
+            # loss-weight and local-decoder use the identical raw flap points)
+            np.save(md / "flap_xy.npy",
+                   flap_xy_w if flap_xy_w is not None else local_ref_xy)
         with open(md / "config.json", "w") as f:
             json.dump({"problem": problem, "normalization": norm,
                        "num_latent_states": nls, "output_nl": args.output_nl,
@@ -1344,7 +1511,12 @@ def main():
                                       "rate_norm": sep_state_norm,
                                       "n_params": n_params.get("sepnet"),
                                       "tau1_learned": float(sepnet.tau1.numpy())}
-                                     if args.dyn_sep_state else None)}, f, indent=2)
+                                     if args.dyn_sep_state else None),
+                       "local_decoder": bool(args.local_decoder),
+                       "local": ({"width": args.local_width, "depth": args.local_depth,
+                                  "omega0": args.local_omega0, "tau": args.local_tau,
+                                  "gate_hidden": args.local_gate_hidden}
+                                if args.local_decoder else None)}, f, indent=2)
 
         # --- persist loss history + run info (plot-ready, no re-run needed) ---
         with open(md / "loss_history.csv", "w", newline="") as f:
@@ -1378,6 +1550,7 @@ def main():
                                                if args.dyn_sep_state else None),
                        "sep_state_tau1_learned": (float(sepnet.tau1.numpy())
                                                   if sepnet is not None else None),
+                       "local_decoder": bool(args.local_decoder),
                        "seed_base": args.seed_base,
                        "best_adam_val": best[0],
                        "bfgs_result": bfgs_result,

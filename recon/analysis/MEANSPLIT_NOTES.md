@@ -882,18 +882,110 @@ campaign, worth restating plainly:**
    caveat -- the flap loss-weight lever's s200 result looked like the best
    finding of the whole investigation and did not replicate at n=3.
 
-**Implication for the thesis**: the evidence is now very strong -- from
-nine structurally distinct angles -- that the residual is a genuine,
-robust ceiling of this specific LDNet architectural class (global
-coordinate-conditioned decoder + concatenation-or-simple-augmentation
-dynamics conditioning), not an artifact of any one design choice tried so
-far. The one remaining untried candidate, flagged consistently as the
-most-informed next step by both the sign-flip-metric pattern here and the
-original literature review, is a genuinely NEW architecture: a local/
-spatially-gated decoder mechanism near the flap (STALL_LITERATURE_NOTES.md
-section 9 item 3) -- ranked MAJOR cost, deliberately held back until the
-cheaper items were exhausted, which they now are. This is a natural
-stopping point to write up the D-RES/stall investigation as a well-
-evidenced structural-limit finding for the thesis, with the local-decoder
-idea noted as future work rather than pursued further in this campaign
-without an explicit decision to invest in genuinely new architecture.
+**Implication for the thesis (superseded by the local-decoder result below,
+kept for the historical record of the decision point):** at this point the
+evidence was already strong -- from nine structurally distinct angles --
+that the residual is a genuine, robust ceiling of this specific LDNet
+architectural class. The one remaining untried candidate, a genuinely NEW
+architecture (local/spatially-gated decoder near the flap,
+STALL_LITERATURE_NOTES.md section 9 item 3, MAJOR cost), was deliberately
+held back until the cheaper items were exhausted. The user explicitly chose
+to pursue it anyway ("l'alternativa ambiziosa") rather than stop here --
+see the result immediately below.
+
+## LOCAL/GATED DECODER RESULT (2026-08-25/26): LOSES, n=3 confirmed -- 10th lever, still unbeaten
+
+`--local-decoder`: `GatedLocalDecoder` wraps the champion CORAL SIREN as
+`global_net` and adds a second, independent, smaller/higher-frequency
+ModulatedSiren `local_net` (8x2, omega0=30 vs the champion's 24x4, omega0=10)
+as an ADDITIVE correction: `output = global_net(x) + gate(coords,z,u) *
+local_net(x)`. The gate is a product of (a) a FIXED spatial-proximity factor
+computed fresh each call by denormalizing coords back to physical chord
+units and measuring distance to the flap reference points (tau=0.3c, same
+convention as the flap loss-weight lever) and (b) a learned MLP mapping the
+conditioning code (z,u) to a dynamic scalar in [0,1], bias-initialized near
+0 so the composite reproduces the champion almost exactly at the start of
+training. Implemented per STALL_LITERATURE_NOTES.md section 9 item 3(a) (a
+small MoE-style 2-head decoder gated by a learned, regime-dependent factor).
+
+**Two real bugs caught before/at the cluster smoke-test stage** (both fixed,
+matching this investigation's established pattern of local checks missing
+environment-specific issues):
+1. A dtype mismatch: `tf.maximum(0.0, ...)` resolves the bare Python literal
+   via TF's GLOBAL default dtype (float32) independently of the other
+   argument, clashing with this project's float64-everywhere policy
+   (`tf.keras.backend.set_floatx("float64")`) -- unlike tensor operators
+   (`+`,`-`,`*`), which infer the scalar's dtype from the tensor side,
+   `tf.maximum` as a plain function call does not. Fixed with
+   `tf.zeros_like(d)` instead of a bare `0.0`. Caught by the real cluster
+   TF 2.14 training run; the local tfvenv TF 2.21 eager check did NOT catch
+   it (same class of environment-dependent gap as the sep-state autograph
+   bug -- local checks remain necessary-but-not-sufficient, real cluster
+   smoke tests remain mandatory).
+2. (See implementation notes in `train_fields.py`'s `GatedLocalDecoder`
+   docstring for the design reasoning that avoided a second class of risk
+   entirely: computing the spatial gate fresh from denormalized coords
+   inside the model, rather than routing a precomputed column through the
+   data pipeline, sidestepped the `n_weight_cols`-style column-bookkeeping
+   complexity that has been a recurring bug source in this investigation.)
+
+**VERDICT: LOSES, n=3 -- worse on both dynamic AND static components in
+every region on average, and the SAME combined-NRMSE illusion pattern seen
+with multiple shooting and signal-rates (global number looks better while
+the target region is worse), with NO real improvement on the sign-flip
+target metric.**
+
+| seed | near dynamic | surface dynamic | combined NRMSE | sign-flip% | ROM reversed-flow frac |
+|---|---|---|---|---|---|
+| **champion** | 2.054e-2 | 2.266e-2 | 6.141e-3 | 21.67% | 2.14% |
+| local-decoder s0 | 2.349e-2 (+14%) | 2.688e-2 (+19%) | 6.052e-3 (looks better) | 22.94% (worse) | 0.52% (worse) |
+| local-decoder s100 | 1.952e-2 (better) | 2.458e-2 (+8%) | 5.448e-3 (looks better) | 19.58% (better) | 4.23% (better, but far from target) |
+| local-decoder s200 | 2.308e-2 (+12%) | 2.994e-2 (+32%) | 5.862e-3 (looks better) | 22.94% (worse) | 0.52% (worse) |
+| **3-seed average** | 2.203e-2 (+7%) | 2.713e-2 (+20%) | 5.787e-3 (looks better, -6%) | 21.82% (~tied) | 1.76% (~tied/worse) |
+
+All 3 seeds show the combined NRMSE improving (looking like a clean win)
+while near/surface dynamic are worse in 2 of 3 seeds and only marginally
+better in the third -- averaged, both target regions are clearly worse
+(+7%/+20%). The sign-flip readout is the most telling: 2 of 3 seeds (s0,
+s200, identically 22.94%/0.52% -- suspiciously exact duplicates, plausibly
+the optimizer landing in the same basin from different seeds, or the local
+head's gate collapsing to near-zero activation in both) show the ROM
+recognizing the reversal event LESS than the champion baseline, and only
+one seed (s100) shows a real but modest improvement (ROM frac 4.23% vs
+champion's 2.14%, still nowhere near the FOM's 23.35%). Averaged, there is
+no real gain on the metric this entire investigation targets.
+
+**Reading:** the additive local-correction structure did not deliver the
+hoped-for localized, regime-gated fix. Plausible reasons, none chased down
+further in this campaign: (a) the dynamic gate (a function of z,u only, no
+direct access to WHERE the point is beyond the fixed spatial prior) may not
+have enough signal to reliably detect "this is a separation moment" from
+(z,u) alone -- d_s=1 latent, at this point already well established as
+carrying very little spare capacity (recon-intrinsic-latent-dim-1); (b) the
+local_net's higher omega0=30 may have re-introduced the same
+high-frequency-hurts-the-smooth-residual problem the original CORAL
+omega0 sweep already ruled out for the GLOBAL decoder -- untested whether a
+lower local omega0 would behave differently; (c) an additive correction
+initialized near-zero may simply be hard to escape via gradient descent if
+the gate's own gradient signal is weak/vanishing when dyn≈0 (a generic
+gating-network optimization difficulty, not specific to this problem). None
+of these were investigated further -- this MAJOR-cost item was explicitly
+positioned as a single, well-motivated shot at the most-literature-informed
+remaining idea, not the start of its own sub-campaign.
+
+## CUMULATIVE SUMMARY UPDATE: 10 independent levers tried, champion still unbeaten
+
+Combined with the 9 previously-closed levers (5 original D-RES + residual-
+curriculum + signal-rates + flap loss-weight + Goman-Khrabrov sep-state),
+the champion (`coral_o10_s0`) has now been attacked by **TEN** independent,
+substantial levers -- including the one genuinely-new-architecture
+candidate identified by the literature review -- and has not been beaten
+once on the metric that matters. This is now about as thorough a negative
+result as this investigation can practically produce: every axis the
+literature review and the project's own reasoning could identify (decoder
+architecture, decoder conditioning mechanism, local/gated decoder
+architecture, point sampling, optimizer, training procedure, dynamics
+conditioning mechanism, loss weighting static and adaptive, and dynamics-
+side regime memory) has been tried and lost. The D-RES/stall investigation
+is CLOSED; write up as a well-evidenced structural-limit finding for the
+thesis.

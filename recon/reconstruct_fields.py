@@ -59,6 +59,13 @@ def main():
     dyn_cond = cfg.get("dyn_cond", "concat")
     dyn_sep_state = bool(cfg.get("dyn_sep_state", False))
     sep_cfg = cfg.get("sep_state") or {}
+    local_decoder = bool(cfg.get("local_decoder", False))
+    local_cfg = cfg.get("local") or {}
+    local_ref_xy = local_xy_min = local_xy_max = None
+    if local_decoder:
+        local_ref_xy = np.load(model / "flap_xy.npy")   # same file as flap loss-weight
+        local_xy_min = np.array(norm["space"]["min"][:2])
+        local_xy_max = np.array(norm["space"]["max"][:2])
 
     NNdyn, NNrec = build_networks(nls, problem, dt, dt_base,
                                   dyn_layers=arch.get("dyn_layers", 2),
@@ -70,7 +77,14 @@ def main():
                                   siren_mod_layers=siren.get("mod_layers", 2),
                                   siren_mod_width=siren.get("mod_width"),
                                   siren_mod_type=siren.get("mod_type", "shift"),
-                                  dyn_cond=dyn_cond, dyn_sep_state=dyn_sep_state)
+                                  dyn_cond=dyn_cond, dyn_sep_state=dyn_sep_state,
+                                  local_decoder=local_decoder, local_ref_xy=local_ref_xy,
+                                  local_tau=local_cfg.get("tau", 0.3),
+                                  local_width=local_cfg.get("width", 16),
+                                  local_depth=local_cfg.get("depth", 3),
+                                  local_omega0=local_cfg.get("omega0", 30.0),
+                                  local_gate_hidden=local_cfg.get("gate_hidden", 8),
+                                  local_xy_min=local_xy_min, local_xy_max=local_xy_max)
     # build by calling once, then load weights (space dim may include wall features / FF;
     # signal count may include --add-signal-rates' +2 channels -- read from problem
     # (saved in config.json), never hardcoded, to avoid a silent shape mismatch)
