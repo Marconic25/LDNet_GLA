@@ -67,6 +67,21 @@ def main():
         local_xy_min = np.array(norm["space"]["min"][:2])
         local_xy_max = np.array(norm["space"]["max"][:2])
 
+    graph_decoder = bool(cfg.get("graph_decoder", False))
+    graph_cfg = cfg.get("graph") or {}
+    graph_positions_arr = graph_adj_norm_arr = None
+    if graph_decoder:
+        # NATURAL (full-grid) indices -- reconstruct_fields.py always queries
+        # NNrec over the full mesh, never a training subsample, so this
+        # differs from train_fields.py's train-time graph_positions=arange(Ng)
+        # (see train_fields.py's eval-mode NNrec_eval rebind for the same
+        # distinction). Both arrays persisted at train time so --tri is never
+        # needed again here.
+        graph_positions_arr = np.load(model / "graph_nodes.npy")
+        graph_adj_norm_arr = np.load(model / "graph_adj_norm.npy")
+        print(f"graph-decoder ON: {len(graph_positions_arr)} fixed near-flap nodes "
+              f"(natural full-grid indices), {graph_cfg.get('relax_steps', 2)} relax steps")
+
     NNdyn, NNrec = build_networks(nls, problem, dt, dt_base,
                                   dyn_layers=arch.get("dyn_layers", 2),
                                   dyn_width=arch.get("dyn_width", 7),
@@ -84,7 +99,12 @@ def main():
                                   local_depth=local_cfg.get("depth", 3),
                                   local_omega0=local_cfg.get("omega0", 30.0),
                                   local_gate_hidden=local_cfg.get("gate_hidden", 8),
-                                  local_xy_min=local_xy_min, local_xy_max=local_xy_max)
+                                  local_xy_min=local_xy_min, local_xy_max=local_xy_max,
+                                  graph_decoder=graph_decoder,
+                                  graph_positions=graph_positions_arr,
+                                  graph_adj_norm=graph_adj_norm_arr,
+                                  graph_hidden=graph_cfg.get("hidden", 16),
+                                  graph_relax_steps=graph_cfg.get("relax_steps", 2))
     # build by calling once, then load weights (space dim may include wall features / FF;
     # signal count may include --add-signal-rates' +2 channels -- read from problem
     # (saved in config.json), never hardcoded, to avoid a silent shape mismatch)
@@ -95,7 +115,12 @@ def main():
         _ = NNdyn(tf.zeros((1, nls), tf.float64))
     else:
         _ = NNdyn(tf.zeros((1, nls + n_sep + 1 + n_sig), tf.float64))
-    _ = NNrec(tf.zeros((1, 1, 1, nls + n_sep + n_sig + sdim), tf.float64))
+    if not graph_decoder:
+        # graph_decoder's NNrec is already built (build_networks did its own
+        # correctly-sized force-build call internally, needed because
+        # GraphRelaxDecoder.call() gathers fixed node indices from the points
+        # axis -- a generic npx=1 dummy here would be out of range).
+        _ = NNrec(tf.zeros((1, 1, 1, nls + n_sep + n_sig + sdim), tf.float64))
     NNdyn.load_weights(str(model / "NNdyn_weights.weights.h5"))
     NNrec.load_weights(str(model / "NNrec_weights.weights.h5"))
 

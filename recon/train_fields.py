@@ -329,6 +329,83 @@ class GatedLocalDecoder(tf.keras.Model):
         return self.global_net(x) + gate * self.local_net(x)
 
 
+class GraphRelaxDecoder(tf.keras.Model):
+    """Additive correction via GENUINE local mesh-graph message-passing on a
+    small, fixed near-flap subgraph -- `--graph-decoder` lever, stall/
+    separation investigation, DYNAMIC_CONTRIBUTION_LITERATURE_NOTES.md
+    recommendation B ("Read, Write, Relax," arXiv:2608.21677): interleave the
+    existing GLOBAL CORAL decoder (the "read/write" step) with a small number
+    of LOCAL relaxation sweeps restricted to real mesh neighbors (the
+    "relax" step), multigrid-cycle style.
+
+    Unlike lever 10 (GatedLocalDecoder): that was a second, INDEPENDENT,
+    per-point SIREN head -- every point decoded from (z,u,x,y) alone, no
+    information ever crossed between neighboring points. This class performs
+    REAL local mixing: each graph node's feature is updated from its actual
+    mesh neighbors' features via `adj_norm` (built from mesh_triangles.npy,
+    graph_adjacency_norm), K rounds, before producing a correction. This is
+    the "genuine message-passing, not a fixed gate" distinction the
+    literature review flagged as the reason lever 10's null result does not
+    close off decoder-locality as a family.
+
+    Structural constraint this project's fully-batched (all samples x all
+    times x all points as ONE dense tensor) training loop imposes: a full
+    all-pairs local-mixing operation over every point is computationally
+    infeasible (O(n_points^2) per (sample,time), and this project processes
+    every (sample,time) simultaneously in one call -- an 11075-point full
+    grid would need ~10^11-entry attention/adjacency tensors). The graph is
+    therefore a SMALL, FIXED subset of ~200 near-flap nodes (`graph_nodes`,
+    `--sampling graph` guarantees their presence at known positions in every
+    training batch), not the whole domain.
+
+    graph_positions: integer array of positions WITHIN THE CURRENT points
+    tensor's point axis where the graph nodes live -- `tf.range(len(graph_
+    nodes))` for training (graph_sampling_idx always places them first) or
+    the graph nodes' actual (scattered) indices into the full reference grid
+    for inference (reconstruct_fields.py, no subsampling, natural order).
+    Different arrays, same class -- the scatter-back step (a one-hot matmul,
+    robust to either contiguous-prefix or scattered positions, avoiding
+    tf.scatter_nd's batched-index edge cases) does not care which case it is.
+
+    adj_norm: constant (Ng,Ng) row-normalized adjacency + self-loops
+    (graph_adjacency_norm)."""
+
+    def __init__(self, global_net, din_mod, graph_positions, adj_norm,
+                 hidden=16, n_relax=2, **kw):
+        super().__init__(**kw)
+        self.global_net = global_net
+        self.din_mod = int(din_mod)
+        self.graph_positions = tf.constant(np.asarray(graph_positions), dtype=tf.int32)
+        self.adj_norm = tf.constant(np.asarray(adj_norm, dtype=np.float64))
+        self.n_relax = int(n_relax)
+        self.in_proj = tf.keras.layers.Dense(int(hidden), activation=tf.nn.tanh)
+        self.self_layers = [tf.keras.layers.Dense(int(hidden), activation=None)
+                            for _ in range(self.n_relax)]
+        self.neigh_layers = [tf.keras.layers.Dense(int(hidden), activation=None)
+                             for _ in range(self.n_relax)]
+        # zero-initialized final layer -> composite ~= global_net alone at
+        # init (same conservative-init rationale as GatedLocalDecoder's gate)
+        self.out_proj = tf.keras.layers.Dense(
+            3, activation=None,
+            kernel_initializer=tf.keras.initializers.Zeros(),
+            bias_initializer=tf.keras.initializers.Zeros())
+
+    def call(self, x):
+        npx = tf.shape(x)[2]
+        x_graph = tf.gather(x, self.graph_positions, axis=2)   # (ns,nt,Ng,feat)
+        h = self.in_proj(x_graph)                              # (ns,nt,Ng,hidden)
+        for k in range(self.n_relax):
+            agg = tf.einsum("ij,...jf->...if", self.adj_norm, h)   # local mean-aggregation
+            h = tf.nn.tanh(self.self_layers[k](h) + self.neigh_layers[k](agg))
+        corr_graph = self.out_proj(h)                          # (ns,nt,Ng,3)
+        # scatter correction back to full point-axis width via a one-hot
+        # matmul (robust for both contiguous-prefix and scattered positions,
+        # avoids tf.scatter_nd's batched multi-dim index bookkeeping)
+        onehot = tf.one_hot(self.graph_positions, depth=npx, dtype=tf.float64)   # (Ng,npx)
+        corr_full = tf.einsum("...gd,gp->...pd", corr_graph, onehot)   # (ns,nt,npx,3)
+        return self.global_net(x) + corr_full
+
+
 def build_networks(num_latent_states, problem, dt, dt_base,
                    dyn_layers=2, dyn_width=7, rec_layers=4, rec_width=24,
                    rec_space_dim=None, decoder="mlp",
@@ -336,7 +413,9 @@ def build_networks(num_latent_states, problem, dt, dt_base,
                    siren_mod_type="shift", dyn_cond="concat", dyn_sep_state=False,
                    local_decoder=False, local_ref_xy=None, local_tau=0.3,
                    local_width=16, local_depth=3, local_omega0=30.0,
-                   local_gate_hidden=8, local_xy_min=None, local_xy_max=None):
+                   local_gate_hidden=8, local_xy_min=None, local_xy_max=None,
+                   graph_decoder=False, graph_positions=None, graph_adj_norm=None,
+                   graph_hidden=16, graph_relax_steps=2):
     """Defaults (2x7 dyn, 4x24 rec) reproduce the original hardcoded architecture
     exactly (same layer order -> same weight-init RNG draws for a given seed).
     rec_space_dim overrides the decoder's spatial-input width (Fourier-feature
@@ -357,7 +436,14 @@ def build_networks(num_latent_states, problem, dt, dt_base,
     physical chord units) and a learned function of (z,u). local_xy_min/
     local_xy_max are the space normalization range's x,y columns (from `norm`,
     already computed by the caller) needed to denormalize coords inside the
-    gate -- see GatedLocalDecoder."""
+    gate -- see GatedLocalDecoder.
+    graph_decoder=True (--graph-decoder lever, only valid with decoder='coral',
+    mutually exclusive with local_decoder -- asserted by the caller, main())
+    wraps the plain CORAL NNrec into a GraphRelaxDecoder: genuine local
+    mesh-graph message-passing on a small fixed near-flap node subset
+    (graph_positions: where those nodes live in the CURRENT points tensor;
+    graph_adj_norm: their precomputed row-normalized adjacency) -- see
+    GraphRelaxDecoder."""
     n_sep = 1 if dyn_sep_state else 0
     if dyn_cond == "cde":
         # NB bias init: f_theta depends on z ALONE and z starts at the physical
@@ -406,9 +492,18 @@ def build_networks(num_latent_states, problem, dt, dt_base,
                 global_net, local_net, din_mod=din_mod, ref_xy=local_ref_xy,
                 tau=local_tau, xy_min=local_xy_min, xy_max=local_xy_max,
                 gate_hidden=local_gate_hidden)
+        elif graph_decoder:
+            NNrec = GraphRelaxDecoder(
+                global_net, din_mod=din_mod, graph_positions=graph_positions,
+                adj_norm=graph_adj_norm, hidden=graph_hidden, n_relax=graph_relax_steps)
         else:
             NNrec = global_net
-        NNrec(tf.zeros((1, 1, 1, n_rec), dtype=tf.float64))   # force-build variables
+        # force-build variables; graph_decoder's tf.gather(x, graph_positions,
+        # axis=2) needs a points axis at least as large as the largest fixed
+        # graph-node index, unlike every other decoder which is pointwise and
+        # tolerates the generic npx=1 dummy.
+        dummy_npx = int(tf.reduce_max(graph_positions).numpy()) + 1 if graph_decoder else 1
+        NNrec(tf.zeros((1, 1, dummy_npx, n_rec), dtype=tf.float64))
     else:
         rec = [tf.keras.layers.Dense(rec_width, activation=tf.nn.tanh,
                                      input_shape=(None, None, n_rec))]
@@ -849,6 +944,53 @@ def area_weighted_subset(points, k, tri=None, seed=0):
     return np.sort(rng.choice(n, size=k, replace=False, p=w))
 
 
+def graph_sampling_idx(points, graph_nodes, k, seed=0):
+    """--sampling graph: FIXED idx = graph_nodes (always present, always at the
+    FRONT, same order every call) + uniform-random fill for the remaining
+    budget. Same fixed-idx-then-process_dataset-without-subsample pattern as
+    area_weighted_subset/nearwall_weighted_subset -- this is what guarantees
+    the local graph's nodes are present at KNOWN positions (indices
+    0..len(graph_nodes)-1) in every training batch, which GraphRelaxDecoder's
+    message-passing step depends on (--graph-decoder lever, stall/separation
+    investigation, DYNAMIC_CONTRIBUTION_LITERATURE_NOTES.md recommendation B:
+    genuine local message-passing, unlike lever 10's fixed-gated additive
+    head)."""
+    n = points.shape[0]
+    graph_nodes = np.asarray(graph_nodes)
+    if k >= n:
+        return np.arange(n)
+    assert k > len(graph_nodes), \
+        f"--subsample ({k}) must exceed len(graph_nodes) ({len(graph_nodes)}) " \
+        "to leave room for far-field fill points"
+    rng = np.random.default_rng(seed)
+    pool = np.setdiff1d(np.arange(n), graph_nodes, assume_unique=False)
+    fill = rng.choice(pool, size=k - len(graph_nodes), replace=False)
+    return np.concatenate([graph_nodes, fill])   # graph nodes FIRST, fixed order
+
+
+def graph_adjacency_norm(graph_nodes, tri):
+    """Row-normalized (mean-aggregation) adjacency + self-loops for the FIXED
+    local graph (--graph-decoder), built from real mesh connectivity
+    (mesh_triangles.npy) restricted to edges where BOTH endpoints are in
+    graph_nodes. Returns a dense (len(graph_nodes), len(graph_nodes)) float64
+    matrix -- dense, not sparse, because the graph is small by construction
+    (a few hundred nodes) and every use site (GraphRelaxDecoder.call) needs a
+    matmul that broadcasts over the (sample,time) batch dims, which a dense
+    small matrix does trivially via tf.einsum."""
+    graph_nodes = np.asarray(graph_nodes)
+    Ng = len(graph_nodes)
+    pos = {int(n): i for i, n in enumerate(graph_nodes)}
+    A = np.eye(Ng, dtype=np.float64)   # self-loops
+    edges = np.concatenate([tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]], axis=0)
+    for a, b in edges:
+        ia, ib = pos.get(int(a)), pos.get(int(b))
+        if ia is not None and ib is not None and ia != ib:
+            A[ia, ib] = 1.0
+            A[ib, ia] = 1.0
+    A = A / A.sum(axis=1, keepdims=True)   # row-normalize (mean aggregation)
+    return A
+
+
 def nearwall_weighted_subset(points, airfoil_xy, k, tau, boost=4.0, seed=0):
     """RAD-lite: pick k node indices oversampling the near-wall band, using the SAME
     static reference-geometry distance as wall_features (near-wall lit review #3).
@@ -956,10 +1098,15 @@ def main():
     ap.add_argument("--seed-base", type=int, default=0,
                     help="base RNG seed; restart r uses seed-base+r (default 0 = "
                          "historical behavior, bit-identical to all previous runs)")
-    ap.add_argument("--sampling", choices=["uniform", "area", "near-wall"], default="uniform",
+    ap.add_argument("--sampling", choices=["uniform", "area", "near-wall", "graph"],
+                    default="uniform",
                     help="point subsampling: uniform-over-nodes (baseline), area-weighted, "
-                         "or near-wall-weighted (RAD-lite, requires --airfoil-nodes)")
-    ap.add_argument("--tri", default=None, help="mesh_triangles.npy for exact area weighting")
+                         "near-wall-weighted (RAD-lite, requires --airfoil-nodes), or "
+                         "'graph' (--graph-decoder: FIXED idx = --graph-nodes first, "
+                         "uniform-random fill for the rest -- guarantees the local graph's "
+                         "nodes are present at known positions in every training batch)")
+    ap.add_argument("--tri", default=None, help="mesh_triangles.npy for exact area weighting "
+                    "(also required by --graph-decoder for its adjacency)")
     ap.add_argument("--nearwall-boost", type=float, default=4.0,
                     help="--sampling near-wall: draw-probability multiplier at the wall "
                          "relative to the far field (uses --wall-tau/--airfoil-nodes; "
@@ -1071,6 +1218,33 @@ def main():
     ap.add_argument("--local-gate-hidden", type=int, default=8,
                     help="--local-decoder: hidden width of the (z,u)->dynamic-gate "
                          "MLP (default 8)")
+    ap.add_argument("--graph-decoder", action="store_true",
+                    help="wrap NNrec (--decoder coral only, mutually exclusive with "
+                         "--local-decoder) into a GraphRelaxDecoder: output = "
+                         "global_net(x) + scatter(relax(gather(x))), genuine local "
+                         "mesh-graph message-passing (real neighbor mixing via real "
+                         "mesh connectivity, K rounds) on a small FIXED near-flap "
+                         "node subset (--graph-nodes), scattered back as an additive "
+                         "correction. Requires --sampling graph and --tri (mesh "
+                         "triangulation, for the adjacency). Distinct from "
+                         "--local-decoder (lever 10, which never mixed information "
+                         "between points -- every point decoded independently from "
+                         "(z,u,x,y) alone): this is REAL local coupling, the "
+                         "'Read, Write, Relax' mechanism (arXiv:2608.21677), "
+                         "DYNAMIC_CONTRIBUTION_LITERATURE_NOTES.md recommendation B, "
+                         "the ranked-highest candidate after the DMD diagnostic "
+                         "(recommendation A) cheaply ruled out a two-timescale split.")
+    ap.add_argument("--graph-nodes", default=None,
+                    help="npy of FIXED near-flap node indices for --graph-decoder / "
+                         "--sampling graph, e.g. recon/analysis/graph_nodes.npy "
+                         "(~200 nodes, a subset of the near-flap band)")
+    ap.add_argument("--graph-hidden", type=int, default=16,
+                    help="--graph-decoder: hidden width of the message-passing MLPs "
+                         "(default 16)")
+    ap.add_argument("--graph-relax-steps", type=int, default=2,
+                    help="--graph-decoder: number of local relaxation (message-"
+                         "passing) rounds (default 2, matching a small multigrid "
+                         "V-cycle's relax count, not a deep GNN stack)")
     ap.add_argument("--dyn-layers", type=int, default=2,
                     help="number of hidden layers in NNdyn (default 2 = original)")
     ap.add_argument("--dyn-width", type=int, default=7,
@@ -1110,6 +1284,18 @@ def main():
     if args.local_decoder:
         assert args.decoder == "coral", "--local-decoder requires --decoder coral"
         assert args.flap_nodes, "--local-decoder requires --flap-nodes"
+    if args.graph_decoder:
+        assert args.decoder == "coral", "--graph-decoder requires --decoder coral"
+        assert not args.local_decoder, \
+            "--graph-decoder + --local-decoder not implemented together " \
+            "(both wrap the same global_net); test in isolation"
+        assert args.graph_nodes, "--graph-decoder requires --graph-nodes"
+        assert args.tri, "--graph-decoder requires --tri (mesh_triangles.npy, for the adjacency)"
+        assert args.sampling == "graph", \
+            "--graph-decoder requires --sampling graph (otherwise the graph nodes " \
+            "are not guaranteed present at known positions in the training batch)"
+    if args.sampling == "graph":
+        assert args.graph_nodes, "--sampling graph requires --graph-nodes"
 
     latents = [int(x) for x in args.latents.split(",")]
     out_dir = Path(args.out); (out_dir / "summary").mkdir(parents=True, exist_ok=True)
@@ -1223,6 +1409,18 @@ def main():
         print(f"local-decoder ON: local_net {args.local_depth}x{args.local_width} "
               f"omega0={args.local_omega0:g}, gate tau={args.local_tau}c, "
               f"{len(local_ref_xy)} flap reference nodes")
+
+    graph_nodes_arr = None
+    graph_adj_norm_arr = None
+    if args.graph_decoder or args.sampling == "graph":
+        graph_nodes_arr = np.load(args.graph_nodes)
+    if args.graph_decoder:
+        tri_for_graph = np.load(args.tri)
+        graph_adj_norm_arr = graph_adjacency_norm(graph_nodes_arr, tri_for_graph)
+        avg_degree = float((graph_adj_norm_arr > 0).sum(axis=1).mean() - 1)   # -1: exclude self-loop
+        print(f"graph-decoder ON: {len(graph_nodes_arr)} fixed near-flap nodes, "
+              f"{args.graph_relax_steps} relax steps, hidden={args.graph_hidden}, "
+              f"avg mesh-neighbor degree={avg_degree:.1f}")
     # Fourier-feature encoding of the decoder (x,y) inputs (D-RES arm A).
     fourier_B = None
     rec_space_dim = None
@@ -1308,6 +1506,17 @@ def main():
                 d["output_fields"] = d["output_fields"][:, :, idx, :]
             utils.process_dataset(d_tr, problem, norm, dt=None)
             utils.process_dataset(d_va, problem, norm, dt=None)
+        elif args.sampling == "graph":
+            # graph nodes FIRST (positions 0..Ng-1, fixed every call) + random
+            # fill -- GraphRelaxDecoder's graph_positions=arange(Ng) at train
+            # time relies on this exact ordering (see fresh() below).
+            idx = graph_sampling_idx(d_tr["points"], graph_nodes_arr, args.subsample,
+                                     seed=args.seed_base)
+            for d in (d_tr, d_va):
+                d["points"] = d["points"][idx]
+                d["output_fields"] = d["output_fields"][:, :, idx, :]
+            utils.process_dataset(d_tr, problem, norm, dt=None)
+            utils.process_dataset(d_va, problem, norm, dt=None)
         else:
             utils.process_dataset(d_tr, problem, norm, dt=None, num_points_subsample=args.subsample)
             utils.process_dataset(d_va, problem, norm, dt=None, num_points_subsample=args.subsample)
@@ -1337,7 +1546,13 @@ def main():
                                           local_width=args.local_width, local_depth=args.local_depth,
                                           local_omega0=args.local_omega0,
                                           local_gate_hidden=args.local_gate_hidden,
-                                          local_xy_min=local_xy_min, local_xy_max=local_xy_max)
+                                          local_xy_min=local_xy_min, local_xy_max=local_xy_max,
+                                          graph_decoder=args.graph_decoder,
+                                          graph_positions=(tf.range(len(graph_nodes_arr))
+                                                          if args.graph_decoder else None),
+                                          graph_adj_norm=graph_adj_norm_arr,
+                                          graph_hidden=args.graph_hidden,
+                                          graph_relax_steps=args.graph_relax_steps)
             sepnet = None
             if args.dyn_sep_state:
                 sepnet = SepStateDynamics(tau1_init=args.sep_state_tau1_init)
@@ -1473,6 +1688,12 @@ def main():
             # loss-weight and local-decoder use the identical raw flap points)
             np.save(md / "flap_xy.npy",
                    flap_xy_w if flap_xy_w is not None else local_ref_xy)
+        if args.graph_decoder:
+            # persisted so reconstruct_fields.py never needs --tri again --
+            # graph_nodes_arr are natural (full-grid) indices, reused as-is
+            # for reconstruction (which always runs on the full grid).
+            np.save(md / "graph_nodes.npy", graph_nodes_arr)
+            np.save(md / "graph_adj_norm.npy", graph_adj_norm_arr)
         with open(md / "config.json", "w") as f:
             json.dump({"problem": problem, "normalization": norm,
                        "num_latent_states": nls, "output_nl": args.output_nl,
@@ -1516,7 +1737,13 @@ def main():
                        "local": ({"width": args.local_width, "depth": args.local_depth,
                                   "omega0": args.local_omega0, "tau": args.local_tau,
                                   "gate_hidden": args.local_gate_hidden}
-                                if args.local_decoder else None)}, f, indent=2)
+                                if args.local_decoder else None),
+                       "graph_decoder": bool(args.graph_decoder),
+                       "graph": ({"n_nodes": int(len(graph_nodes_arr)),
+                                  "hidden": args.graph_hidden,
+                                  "relax_steps": args.graph_relax_steps,
+                                  "graph_nodes_path": str(args.graph_nodes)}
+                                if args.graph_decoder else None)}, f, indent=2)
 
         # --- persist loss history + run info (plot-ready, no re-run needed) ---
         with open(md / "loss_history.csv", "w", newline="") as f:
@@ -1551,6 +1778,7 @@ def main():
                        "sep_state_tau1_learned": (float(sepnet.tau1.numpy())
                                                   if sepnet is not None else None),
                        "local_decoder": bool(args.local_decoder),
+                       "graph_decoder": bool(args.graph_decoder),
                        "seed_base": args.seed_base,
                        "best_adam_val": best[0],
                        "bfgs_result": bfgs_result,
@@ -1558,8 +1786,33 @@ def main():
                        "phase_wall_s": phase_wall,
                        "total_wall_s": time.time() - t_run0}, f, indent=2)
 
+        ldnet_eval = ldnet
+        if args.graph_decoder:
+            # d_te is the FULL, naturally-ordered grid (never subsampled) --
+            # NNrec's train-time graph_positions=arange(Ng) assumed the
+            # "--sampling graph" reordering (graph nodes forced to the front
+            # of a size-args.subsample array) and is meaningless here. Build a
+            # second thin wrapper around the SAME trained sub-layers (Dense
+            # objects are shared by reference, not copied) with
+            # graph_positions pointing at the nodes' real indices in the full
+            # grid instead -- see graph_nodes.npy / graph_adjacency_norm().
+            NNrec_eval = GraphRelaxDecoder(
+                NNrec.global_net, din_mod=NNrec.din_mod,
+                graph_positions=graph_nodes_arr, adj_norm=graph_adj_norm_arr,
+                hidden=args.graph_hidden, n_relax=args.graph_relax_steps)
+            NNrec_eval.in_proj = NNrec.in_proj
+            NNrec_eval.self_layers = NNrec.self_layers
+            NNrec_eval.neigh_layers = NNrec.neigh_layers
+            NNrec_eval.out_proj = NNrec.out_proj
+            ldnet_eval, _ = make_ldnet(NNdyn, NNrec_eval, nls, problem, dt, dt_base,
+                                       output_nl=args.output_nl, fourier_B=fourier_B,
+                                       dyn_cond=args.dyn_cond, n_weight_cols=n_weight_cols,
+                                       loss_weight_boost=args.loss_weight_boost,
+                                       loss_weight_mode=args.loss_weight_mode,
+                                       loss_weight_residual_power=args.loss_weight_residual_power,
+                                       dyn_sep_state=args.dyn_sep_state, sepnet=sepnet)
         print("  eval (test, full grid):")
-        m = evaluate(ldnet, d_te, problem, norm, mean_fields=mean_fields)
+        m = evaluate(ldnet_eval, d_te, problem, norm, mean_fields=mean_fields)
         m["num_latent_states"] = nls
         all_metrics.append(m)
         with open(md / "metrics.json", "w") as f:
