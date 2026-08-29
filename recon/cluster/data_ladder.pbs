@@ -1,0 +1,67 @@
+#!/bin/bash
+#PBS -N data_ladder
+#PBS -q cpu
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=48:00:00
+#PBS -j oe
+#
+# DATA-VOLUME lever: retrain the champion (mean-split + CORAL o10, d_s=1, L6,
+# uniform sampling, bfgs=2000) on a LARGER training set, changing nothing else.
+#
+# Motivation (recon/analysis/coverage_stall_diagnostic.py, 2026-08-29): the
+# champion is trained on FIELDS_div_train.h5 = 15 samples, of which only ~2
+# reach the hard test case's near-flap separation level (median training
+# sample: 1.04% reversal vs Cc_060's 23.35% peak). The separation regime IS
+# in-envelope -- so this is not extrapolation -- but it is represented by
+# roughly two trajectories. Every one of the 11 levers tried against the
+# D-RES residual changed HOW the model learns; NONE changed how much of the
+# target regime it sees. The lc_N{30,60,100} datasets (same 11075-point
+# reference grid, same 150 timesteps) were built for the H-DATA ladder, which
+# was abandoned 2026-07-18 BEFORE mean-split and CORAL existed -- so data
+# volume x champion config has never been tested.
+#
+#   dataset          samples   family Cc (flap-driven, where separation lives)
+#   div_train             15    6   <- what the champion actually trained on
+#   lc_N30                30   14
+#   lc_N60                60   31
+#   lc_N100              100   50
+#
+# Cost note: measured baseline is ~10-13h wall for 15 samples (NOT the ~2h
+# initially misread from a connectivity-outage false signal). Cost scales
+# ~linearly with sample count, and the cpu queue's hard cap is 48h with no
+# checkpoint/resume in train_fields.py -- so N30 (~20-26h) is the safe first
+# rung, N60 (~40-52h) straddles the cap, N100 would certainly exceed it and
+# needs a different strategy (fewer BFGS iters or a resume mechanism).
+#
+# mean_fields and the normalization are recomputed from whichever --train file
+# is given (train_fields.py:1339-1353), and both are persisted into the model
+# dir, so switching datasets is self-consistent with no code change.
+#
+# qsub -v N=30,SEED=0 cluster/data_ladder.pbs
+: "${N:?pass -v N=30|60|100}"
+: "${SEED:?pass -v SEED=<int>}"
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+OUT=models/meansplit_study/coral_o10_N${N}_s${SEED}
+
+echo "=== data_ladder N=$N SEED=$SEED start $(date) ==="
+hostname
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      mkdir -p $OUT; \
+      python3 -u train_fields.py --train data/FIELDS_lc_N${N}_train.h5 \
+        --valid data/FIELDS_div_valid.h5 --test data/FIELDS_Cc060.h5 \
+        --out $OUT --latents 1 \
+        --adam 300 --bfgs 2000 --restarts 2 --output-nl linear --log-every 1 \
+        --seed-base $SEED --mean-split --decoder coral --siren-omega0 10 \
+        > $OUT/train.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 \
+        --out results/ms_coral_o10_N${N}_s${SEED}_rom_a025 > $OUT/recon.log 2>&1; \
+      python3 -u reconstruct_fields.py --model $OUT/latent_1 \
+        --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 \
+        --out results/ms_coral_o10_N${N}_s${SEED}_rom_cc060 >> $OUT/recon.log 2>&1; \
+      echo DATA_LADDER_N${N}_s${SEED}_DONE"
+echo "=== data_ladder N=$N SEED=$SEED end $(date) exit $? ==="
