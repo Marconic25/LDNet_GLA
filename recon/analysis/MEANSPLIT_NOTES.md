@@ -1058,3 +1058,86 @@ least in a LINEAR modal sense, is weaker than that framing assumed. Caveat,
 stated plainly: DMD is a **linear** method: a genuinely nonlinear
 localized/transient structure could still exist that this diagnostic
 cannot see. This is evidence, not proof, against clean separability.
+
+### GraphRelaxDecoder (recommendation B) RESULT (2026-08-26/29): LOSES, n=3 confirmed
+
+`--graph-decoder`: additive correction via GENUINE local mesh-graph
+message-passing (2 relax rounds, real mesh adjacency, row-normalized mean
+aggregation) on a small FIXED 200-node near-flap subgraph, scattered back
+via a one-hot-matmul. Distinct from lever 10 (`GatedLocalDecoder`): that
+head never mixed information between points (every point decoded from
+(z,u,x,y) alone); this one performs real neighbor mixing, the exact
+"genuine message-passing, not a fixed gate" distinction the literature
+review flagged as unresolved by lever 10's null result.
+
+**Graph construction bug caught before launch**: the first `graph_nodes.npy`
+(200 nodes, pure random subsample over the wide near-flap band) had avg
+mesh-neighbor degree = 0.4 -- most nodes had ZERO real neighbors in the
+subset, confirmed via a real cluster smoke test. Rebuilt via multi-source
+BFS on real mesh connectivity seeded from the sign-flip event's own
+worst-error near-flap nodes: avg degree 5.4, zero isolated nodes, a tightly
+localized patch (x=0.917-1.419) around the actual event, not a scattered
+sample across the whole band.
+
+**Cluster smoke test also caught a real shape bug**: the generic
+force-build dummy call (`NNrec(zeros(1,1,1,n_rec))`, points-axis size 1)
+breaks `GraphRelaxDecoder.call()`'s fixed-index `tf.gather` on the points
+axis (index out of range for indices >= 1) -- fixed by sizing the dummy to
+the largest graph-node index when `graph_decoder` is active. Also required
+a genuinely new mechanism not seen in any prior lever: the trained decoder's
+`graph_positions` differ between training (subsampled batch, graph nodes
+forced to the front via `--sampling graph`, `graph_positions=arange(Ng)`)
+and evaluation/reconstruction (full natural-order grid, `graph_positions=`
+the nodes' real scattered indices) -- solved by building a second thin
+`GraphRelaxDecoder` wrapper that shares the SAME trained sub-layers
+(Dense objects reused by reference, not copied) with a different
+`graph_positions` constant, verified correct via a local rebind-consistency
+check (`_check_graph_decoder.py`) before ever touching the cluster.
+
+**n=3 result** (seeds 0/100/200, mean-split + CORAL o10 base, sim_Cc_060):
+
+| seed | near static | near dynamic | surface static | surface dynamic | combined NRMSE | sign-flip% | ROM reversed-flow frac |
+|---|---|---|---|---|---|---|---|
+| champion | 3.80e-3 | 2.054e-2 | 4.98e-3 | 2.266e-2 | 6.14e-3 | 21.67% | 0.0214 |
+| s0 | 7.28e-3 | 2.158e-2 | 3.91e-3 | 2.195e-2 | 7.02e-3 | **17.67%** | 0.0591 |
+| s100 | 6.38e-3 | 2.365e-2 | 6.12e-3 | 2.739e-2 | 7.64e-3 | 22.89% | 0.0093 |
+| s200 | 5.64e-3 | 2.688e-2 | 4.41e-3 | 3.145e-2 | 7.35e-3 | 23.00% | 0.0035 |
+| **avg** | **6.43e-3** | **2.404e-2** | **4.81e-3** | **2.693e-2** | **7.34e-3** | **21.19%** | **0.0240** |
+
+**Reading**: s0 alone looked like the first genuinely promising result of
+the whole investigation (sign-flip 21.67%->17.67%, ROM reversed-flow frac
+nearly tripled). It did NOT replicate -- s100 and s200 both land WORSE than
+the champion on sign-flip (22.89%, 23.00%) and show LESS of the event
+captured than baseline (ROM frac 0.0093, 0.0035, both below champion's
+0.0214). The n=3 average (21.19%) is statistically indistinguishable from
+the champion (21.67%) -- this is noise, not signal, the exact same
+"promising single seed that doesn't replicate" pattern already documented
+for flap loss-weight (see [[stall-separation-confirmed-and-closed]]).
+Static error is consistently worse in every seed/region (near +69% avg,
+wake/far similarly), and dynamic near/surface are worse on average too
+(+17%/+19%) -- no clean win anywhere, combined NRMSE +19.5% worse on
+average. **LOSES.** Even genuine local mesh-graph message-passing --
+the literature's highest-ranked, most mechanistically-motivated remaining
+candidate after the DMD diagnostic ruled out a two-timescale split -- does
+not move the needle on the target metric once n=3 is honestly averaged.
+
+### CUMULATIVE SUMMARY UPDATE: 11 independent levers tried, champion still unbeaten
+
+Combined with the 10 previously-closed levers (depth+CORAL, near-wall
+sampling, BFGS budget, multiple shooting, Neural-CDE, residual-curriculum,
+signal-rates, flap loss-weight, Goman-Khrabrov sep-state, local/gated
+decoder), the champion (`coral_o10_s0`) has now also survived a genuinely
+new decoder-locality MECHANISM (real message-passing, not just a spatial
+gate) -- 11 structurally distinct angles, zero wins. Combined with the DMD
+diagnostic's negative result (no cleanly separable localized/transient
+linear mode), this is now very strong, multi-method evidence that the
+D-RES residual is a genuine architectural ceiling for this LDNet class, not
+an artifact of any single design choice, sampling scheme, loss weighting,
+or decoder locality mechanism tried so far.
+
+**Investigation CLOSED again, no further untried candidates identified**
+from the post-closure literature pass. Recommendation C (Courant-style
+learned-attention decoder) was explicitly ranked below B by the literature
+review with weaker/mixed evidence and is not expected to fare better given
+B's clean loss; not pursued. Write up as an even more thoroughly-evidenced
+structural-limit finding for the thesis.
