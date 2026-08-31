@@ -224,11 +224,24 @@ velocity, not merely its magnitude, and the residual is the transient separation
 cove. It proved robust to a systematic set of modifications spanning decoder architecture
 and conditioning, locally gated and mesh-graph decoders, point sampling, optimiser budget,
 multiple shooting, dynamics conditioning and loss weighting, none of which improved the
-near-flap dynamic error beyond seed scatter. Training trajectories that reach that
-separation level are present in the dataset, so the limit is one of the model class rather
-than of data coverage: a global coordinate decoder driven by a one-dimensional latent state
-reconstructs the attached field to under $2\%$ of the range of each field, and does not
-represent the separated one.
+near-flap dynamic error beyond seed scatter.
+
+The residual is nonetheless not a property of the architecture. Every modification above
+changed how the surrogate learns; none changed how often it sees the event. Counting, per
+training trajectory, the peak fraction of near-flap nodes in reversed flow shows why this
+matters: the $15$-trajectory set used above reaches the test case's separation level in
+only two of its members, and its median trajectory peaks at $1\%$ reversal, so the regime
+is present but represented a handful of times. Retraining the same architecture, unchanged,
+on $60$ trajectories --- of which $18$ reach that level --- moves every quantity at once.
+Averaged over two seeds the near-flap sign error falls from $21.7\%$ to $14.9\%$ and the
+reversed-flow fraction the surrogate reproduces rises from $2.1\%$ to $9.4\%$, against the
+$23.4\%$ of the reference, while the near and surface dynamic errors fall by $16\%$ and the
+combined error by $19\%$. This is the opposite signature to the modifications listed above,
+several of which lowered the combined error while leaving the target region worse. The
+limitation is therefore one of how densely the separated regime is sampled, not of the
+model class: a global coordinate decoder driven by a one-dimensional latent state
+reconstructs the attached field to under $2\%$ of the range of each field, and represents
+the separated one to the extent that the training set contains it.
 
 \begin{table}[t]
 \centering

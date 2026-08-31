@@ -1141,3 +1141,57 @@ learned-attention decoder) was explicitly ranked below B by the literature
 review with weaker/mixed evidence and is not expected to fare better given
 B's clean loss; not pursued. Write up as an even more thoroughly-evidenced
 structural-limit finding for the thesis.
+
+### DATA-VOLUME LEVER (2026-08-29/31): WINS -- the first lever to move D-RES
+
+After 11 architectural levers all lost, the one axis none of them touched was
+tested: not HOW the model learns but how much of the target regime it sees.
+
+**Coverage diagnostic** (`coverage_stall_diagnostic.py`): the 15-trajectory
+training set reaches the hard test case's separation level (23.35% near-flap
+reversal) in only 2 of 15 members; median trajectory peaks at 1.04% and 10/15
+are essentially attached. The regime is IN-envelope but represented a handful
+of times. (Also confirms separation is flap-driven, not gust-driven: gust-only
+A_025 peaks at 0.06% vs Cc_060's 23.35%.)
+
+**Data ladder** (`coverage_ladder.py`, trajectories with peak >=20% reversal):
+div_train 2/15 -> N30 6/30 -> N60 18/60. N100 was found BROKEN (all signals
+~0: W_gust max 0.0015 m/s vs N60's 47.8, h and alpha literally constant) --
+21 of its sims had only 3 field snapshots (`Ti=3`, the mutated-live-checkpoint
+bug) which the builder silently resampled to T=150. Root-caused and repaired:
+the sims themselves had already been fixed, only 3 B-family sims were missing
+(killed externally 2026-07-21 mid-run, all within 2 minutes of each other);
+re-ran them, rebuilt, and gated the rebuild behind `validate_n100.py`, which
+the pipeline previously lacked entirely. Rebuilt set: N=99, 99/99 Ti=860,
+W_gust max 47.8 m/s, 69/99 with real gust, 80/99 with flap motion.
+
+**Result, retraining the champion architecture UNCHANGED on more data**
+(sim_Cc_060, per-region static/dynamic + sign-flip):
+
+| arm | near dyn | surf dyn | near stat | combined | sign-flip | ROM rev-frac |
+|---|---|---|---|---|---|---|
+| champion (15) | 2.054e-2 | 2.266e-2 | 3.80e-3 | 6.14e-3 | 21.67% | 0.0214 |
+| N30 s0 | 2.323e-2 | 2.419e-2 | 3.89e-3 | 6.35e-3 | 22.94% | 0.0052 |
+| N60 s0 | 1.815e-2 | 2.063e-2 | 2.63e-3 | 5.17e-3 | 15.93% | 0.0811 |
+| N60 s100 | 1.628e-2 | 1.765e-2 | 2.62e-3 | 4.75e-3 | 13.85% | 0.1066 |
+| **N60 avg (n=2)** | **-16%** | **-16%** | **-31%** | **-19%** | **14.9%** | **0.094 (4.4x)** |
+
+**Reading**: both N60 seeds beat the champion on EVERY metric, and s100 is
+better than s0 rather than regressing to the mean. Crucially this is the
+OPPOSITE signature to multiple shooting / signal-rates / local-decoder /
+graph-decoder, which improved the combined number while making near/surface
+dynamic worse (the region-mass illusion). Here global, target-region and
+sign-flip all move together. The surrogate goes from reproducing 2.1% of the
+separation event to 10.7% of it (FOM: 23.35%).
+
+**Caveats kept explicit**: n=2, not the project's usual n=3 (seed 200 was
+killed to free cluster resources for the N100 run). The ladder is
+non-monotonic -- N30 is worse than the 15-trajectory champion -- which at n=1
+per rung is plausibly seed noise but is not established. N100 (N=99) is
+running to test whether the trend continues or saturates.
+
+**Consequence**: this falsifies the conclusion written into chapter3.tex on
+2026-08-29, which stated the limit was one of the model class and not of data
+coverage. That claim rested on the coverage diagnostic showing the regime was
+in-envelope -- but it measured PRESENCE, not DENSITY, and density is what
+mattered. chapter3.tex has been revised accordingly.
