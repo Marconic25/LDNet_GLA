@@ -1,9 +1,9 @@
 #!/bin/bash
-# One-shot status of the four E2 jobs (run ON the cluster; called via ssh).
+# One-shot status of the E2 jobs (run ON the cluster; called via ssh).
 #   ./status_e2.sh          -> full-run logs E2?.log
 #   ./status_e2.sh .smoke   -> smoke logs E2?.smoke.log
 cd "$(dirname "$0")" || exit 1
-for p in G:e2_gate K:e2_kalman M:e2_mpc S:e2_sensor; do
+for p in M:e2_mpc; do
   L=${p%%:*}; S=${p##*:}
   LOG="E2$L$1.log"
   if grep -q "^# DONE" "$LOG" 2>/dev/null; then st="DONE"

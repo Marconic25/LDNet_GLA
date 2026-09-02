@@ -71,13 +71,10 @@ where the denormalisation constants introduced in \cref{subsec:ldnet_arch} are t
 \qquad
 \mathbf{y}_w = \tfrac{1}{2}\bigl(\mathbf{y}_{\max} - \mathbf{y}_{\min}\bigr),
 \]
-with $\mathbf{y}_{\min}$ and $\mathbf{y}_{\max}$ the componentwise minimum and maximum of $(F_y,\,M_z)$ over all samples of the training trajectories. The nonlinear output layer is $g(\tilde{y}) = (\tilde{y}^3 + \beta\tilde{y})/(1+\beta)$, with $\beta = 0.05$, which satisfies $g(\pm 1)=\pm 1$ and $g(0)=0$, so its saturation values map exactly onto the extreme loads seen in training. Its gradient $g'(\tilde{y}) = (3\tilde{y}^2+\beta)/(1+\beta)$ grows with $|\tilde{y}|$, so training errors on peak aerodynamic loads --- reached during strong gusts --- propagate a larger gradient signal than errors near the trim condition, biasing the network towards accurate prediction of load extremes.
+with $\mathbf{y}_{\min}$ and $\mathbf{y}_{\max}$ the componentwise minimum and maximum of $(F_y,\,M_z)$ over all samples of the training trajectories. The nonlinear output layer acts on the normalised network output $a$ as $g(a) = (a^3 + \beta a)/(1+\beta)$, with $\beta = 0.05$, which satisfies $g(\pm 1)=\pm 1$ and $g(0)=0$, so its saturation values map exactly onto the extreme loads seen in training. Its gradient $g'(a) = (3a^2+\beta)/(1+\beta)$ grows with $|a|$, so training errors on peak aerodynamic loads --- reached during strong gusts --- propagate a larger gradient signal than errors near the trim condition, biasing the network towards accurate prediction of load extremes.
 
-Once trained, the LDNet operates in closed-loop rollout: the latent state $\mathbf{s}_n$ and structural state $\boldsymbol{\zeta}_n$ advance using only the model's own predictions and the exogenous inputs, the flap deflection $\delta_n$ and the gust velocity $W_n$. The predicted loads advance the structural state through the stepper of \cref{subsubsec:stepper},
-\[
-\boldsymbol{\zeta}_{n+1} = \boldsymbol{\Phi}(\boldsymbol{\zeta}_n,\, F_{y,n},\, M_{z,n},\, \Delta t),
-\]
-and the updated state feeds the networks at the next step. The initial conditions are $\mathbf{s}_0 = \mathbf{0}$ and $\boldsymbol{\zeta}_0$ equal to the pre-gust CFD trim state.
+Once trained, the LDNet operates in closed-loop rollout: the latent state $\mathbf{s}_n$ and structural state $\boldsymbol{\zeta}_n$ advance using only the model's own predictions and the exogenous inputs, the flap deflection $\delta_n$ and the gust velocity $W_n$. The predicted loads advance the structural state through the stepper of
+\cref{subsubsec:stepper}~\eqref{eq:rk45_update}, and the updated state feeds the networks at the next step. The initial conditions are $\mathbf{s}_0 = \mathbf{0}$ and $\boldsymbol{\zeta}_0$ equal to the pre-gust CFD trim state.
 
 \subsubsection{Receding-horizon solution}
 \label{subsubsec:mpc_solution}
@@ -99,14 +96,18 @@ The candidate set $\Delta_G$ is a uniform grid of $G = 161$ deflections over the
 \subsubsection{Gust preview fusion}
 \label{subsubsec:fusion}
 
-The gust is imposed uniformly over the inlet by \labelcref{eq:bc} and convects as a frozen disturbance, so the gust field carries no transverse variation: $W$ depends on the streamwise coordinate and time only, through $W(x,t) = W(t - x/U_\infty)$. The measurement therefore samples a one-dimensional profile, and the $J_{\max}$ nodes are streamwise stations ahead of the airfoil, spaced by the distance $U_\infty\Delta t$ the flow covers in one control step, with node $j$ carrying the gust value that reaches the airfoil $j$ steps later. Which transverse line the beam follows is immaterial in this model. The geometry is sketched in \cref{fig:lidar_nodes}. The variance $\sigma_j^2$ of each sample is the one prescribed by the noise models of \cref{subsec:controller}. The raw samples of the measurement model~\eqref{eq:meas_model} are fused per node $m$ by inverse-variance weighting, the minimum-variance combination of independent measurements with known variances~\cite{kay1993estimation}, accumulated in running sums as new scans arrive,
+The gust is imposed uniformly over the inlet by \labelcref{eq:bc} and convects as a frozen disturbance, so the gust field carries no transverse variation: $W$ depends on the streamwise coordinate and time only, through $W(x,t) = W(t - x/U_\infty)$. As sketched in \cref{fig:lidar_nodes}, the measurement samples a one-dimensional profile, and the $J_{\max}$ nodes are streamwise stations ahead of the airfoil, spaced by the distance $U_\infty\Delta t$ the flow covers in one control step, with node $j$ carrying the gust value that reaches the airfoil $j$ steps later. Which transverse line the beam follows is immaterial in this model.  The variance $\sigma_j^2$ of each sample is the one prescribed by the noise models of \cref{subsec:controller}. The raw samples of the measurement model~\eqref{eq:meas_model} are turned into the preview vector in three stages.
+
+Because the profile convects rigidly, the same gust value is re-measured at every scan from a shorter range: the sample taken at the control step $n$ from the node $j$ estimates the gust value that reaches the wing at step $m = n+j$, so all the samples sharing that sum refer to the same $W(t_m)$ and are combined per node by inverse-variance weighting, which is the minimum-variance combination of independent measurements with known variances~\cite{kay1993estimation}, accumulated in running sums as new scans arrive,
 \begin{equation}
 \bar{y}_m = \frac{a_m}{b_m}, \qquad
 a_m = \!\!\sum_{(n,j)\,:\, n+j=m}\!\! \frac{y_j(t_n)}{\sigma_j^2}, \qquad
 b_m = \!\!\sum_{(n,j)\,:\, n+j=m}\!\! \frac{1}{\sigma_j^2},
 \label{eq:invvar}
 \end{equation}
-where the constraint $n+j=m$ collects all the samples referring to the same gust value $W(t_m)$, i.e.\ the one reaching the wing at step $m$: $a_m$ is their inverse-variance weighted sum, $b_m$ the accumulated weight and $\bar{y}_m$ the resulting fused estimate of $W(t_m)$, with the database pre-filled by the $J_{\max}-1$ scans preceding $t=0$. The fused profile over the look-ahead window is then re-fitted by a Tikhonov-regularised~\cite{tikhonov1977solutions} weighted least squares with a second-difference smoothness penalty, the weighted Whittaker smoother~\cite{whittaker1923graduation,eilers2003perfect},
+with $a_m$ their inverse-variance weighted sum, $b_m$ the accumulated weight and $\bar{y}_m$ the resulting fused estimate of $W(t_m)$, whose variance is $1/b_m$. The accumulated weight is the precision reached at each node, and weights the fidelity term of \cref{eq:tikhonov} as such. The database is pre-filled by the $J_{\max}-1$ scans preceding $t=0$.
+
+Fusion treats each node separately, so the error it leaves is uneven along the profile: a node entering the far end carries one sample taken at the worst range, one about to reach the wing carries all $J_{\max}$. Neighbouring nodes are not independent, though, being samples of a single smooth profile one control step apart, and that regularity is restored by a Tikhonov-regularised~\cite{tikhonov1977solutions} weighted least squares with a second-difference smoothness penalty, the weighted Whittaker smoother~\cite{whittaker1923graduation,eilers2003perfect},
 \begin{equation}
 \mathbf{W}^\ast = \arg\min_{\mathbf{W}} \sum_m b_m\bigl(W_m - \bar{y}_m\bigr)^2
 + \lambda_s\,\bar{b}\,\bigl\lVert \mathbf{D}_2\,\mathbf{W} \bigr\rVert^2
@@ -114,21 +115,23 @@ where the constraint $n+j=m$ collects all the samples referring to the same gust
 \bigl(\mathrm{diag}(\mathbf{b}) + \lambda_s\,\bar{b}\,\mathbf{D}_2^{\mathsf{T}}\mathbf{D}_2\bigr)\mathbf{W}^\ast = \mathbf{b}\odot\bar{\mathbf{y}},
 \label{eq:tikhonov}
 \end{equation}
-where $\mathbf{W}$ is the free variable of the minimisation, a candidate gust profile whose entries $W_m$ are the nodal values over the look-ahead window, $\mathbf{W}^\ast$ its smoothed minimiser, $\mathbf{b}$ and $\bar{\mathbf{y}}$ stack the weights $b_m$ and the fused estimates $\bar{y}_m$, $\odot$ is the element-wise product, $\mathbf{D}_2$ is the second-difference operator, $(\mathbf{D}_2\mathbf{W})_m = W_{m+1} - 2W_m + W_{m-1}$, penalising the curvature of the reconstructed profile, $\bar{b}$ the mean weight and $\lambda_s$ the regularisation strength: $\lambda_s = 0$ under the constant noise model of \cref{subsec:controller} and $\lambda_s = 1$ under the range-proportional model. The first $N$ nodes of the solution, clamped to non-negative values, form the preview vector $\widehat{W}_k = \max(0,\,W_k^\ast)$, $k = 1,\dots,N$.
+where $\mathbf{W}$ is the free variable of the minimisation, a candidate gust profile whose entries $W_m$ are the nodal values over the look-ahead window, $\mathbf{W}^\ast$ its smoothed minimiser, $\mathbf{b}$ and $\bar{\mathbf{y}}$ stack the weights $b_m$ and the fused estimates $\bar{y}_m$, $\odot$ is the element-wise product, $\mathbf{D}_2$ is the second-difference operator, $(\mathbf{D}_2\mathbf{W})_m = W_{m+1} - 2W_m + W_{m-1}$, penalising the curvature of the reconstructed profile, $\lambda_s$ the regularisation strength and $\bar{b}$ the mean weight, which makes $\lambda_s$ invariant to a rescaling of all the variances. The first term keeps the profile close to the fused data in proportion to the accumulated weight $b_m$; the second removes the node-to-node scatter that survives fusion, at the cost of a bias that flattens curvature, and with it the gust peak. That bias is worth accepting only where that scatter is large: $\lambda_s = 0$ under the constant noise model of \cref{subsec:controller}, $\lambda_s = 1$ under the range-proportional one.
+
+The first $N$ nodes of the solution, clamped to non-negative values, form the preview vector $\widehat{W}_k = \max(0,\,W_k^\ast)$, $k = 1,\dots,N$. The look-ahead window is the memory over which the estimate is accumulated and the horizon the span over which the controller decides, so a value entering the cost has already been measured $J_{\max}-N+1 = 43$ times. The clamp removes the negative excursions that noise leaves where the gust of \cref{eq:gust} vanishes, and applies to the output alone, since clamping the raw samples would bias their mean upward.
 
 \subsection{Dataset generation}
 \label{subsec:dataset}
 
-The training of an LDNet requires a dataset of input--output pairs obtained from either high-fidelity numerical simulations or experimental measurements. In this context, the data are generated by a full-order model (FOM): a coupled FSI solver that resolves the system \labelcref{eq:coupled_system} for a finite set of operating conditions, producing for each sample the time-dependent input signals $\boldsymbol{\eta}(t)$, output signals $\mathbf{y}_{\mathrm{sig}}(t)$, and output fields $\mathbf{y}_{\mathrm{fld}}(\mathbf{x},t)$ sampled at discrete times and spatial points. The campaign that selects those operating conditions is described below, together with the excitation prescribed in each of them, since these are the choices that shape the data seen by the surrogate; the numerical solution of the coupled problem is standard and is reported in \cref{app:fom}, its verification and validation in \cref{app:vv}.
+The training of an LDNet requires a dataset of input--output pairs obtained from either high-fidelity numerical simulations or experimental measurements. In this context, the data are generated by a full-order model (FOM): a coupled FSI solver that resolves the system \labelcref{eq:coupled_system} for a finite set of operating conditions, producing for each sample the time-dependent inputs $\boldsymbol{\eta}(t)$ and the aerodynamic loads $\mathbf{y}(\mathbf{x},t)$ modelled by the LDNet, sampled at discrete times. The campaign that selects those operating conditions is described below, together with the excitation prescribed in each of them, since these are the choices that shape the data seen by the surrogate; the numerical solution of the coupled problem is standard and is reported in \cref{app:fom}, its verification and validation in \cref{app:vv}.
 
-The coupled problem is advanced by a loosely coupled partitioned scheme, with the fluid sub-cycled over co-simulation windows of $\Delta t_{\mathrm{win}} = 3.5$~ms (\cref{subsec:partitioned}); the flow is solved by \texttt{pimpleFoam} (OpenFOAM~v7) with the $k$--$\omega$ SST closure on a deformable grid morphed around the wing and the flap by a custom mesh-motion solver (\cref{openfoam}), and a Python driver coordinates the two solvers and integrates the structural equations (\cref{python-struct}). Every run covers $3$~s and starts from the same pre-gust state, restored from a checkpoint common to the whole campaign, so that all trajectories share the initial condition $\boldsymbol{\zeta}_0$; the structural state, the aerodynamic loads and the two excitations are recorded every four fluid steps, giving $11\,143$ samples per trajectory.
+The coupled problem is advanced by a loosely coupled partitioned scheme, with the fluid sub-cycled over co-simulation windows (\cref{subsec:partitioned}); the flow is solved by \texttt{pimpleFoam} (OpenFOAM) with the $k$--$\omega$ SST closure on a deformable grid morphed around the wing and the flap by a custom mesh-motion solver (\cref{openfoam}), and a Python driver coordinates the two solvers and integrates the structural equations (\cref{python-struct}). Every run covers $3$~s and starts from the same pre-gust state, restored from a checkpoint common to the whole campaign, so that all trajectories share the initial condition $\boldsymbol{\zeta}_0$; the structural state, the aerodynamic loads and the two excitations are recorded every four fluid steps.
 
 \subsubsection{Simulation campaign and preprocessing}
 \label{subsubsec:campaign}
 
-The dataset is organised into three families of simulations, distinguished by the type of excitation applied to the aeroelastic system (Table~\ref{tab:dataset_families}). The gust is the ``$1-\cos$'' pulse~\eqref{eq:gust} of peak $W_0$, duration $T_g$ and onset $t_0$; the nondimensional amplitude $r_g = W_0/U_\infty$ measures the peak gust velocity relative to the freestream. The freestream is held at $U_\infty = 80$~m/s and the onset at $t_0 = 0$ throughout, so within each family the operating condition reduces to a handful of scalar parameters, drawn by Latin hypercube sampling~\cite{mckay1979lhs} over their admissible intervals and stratified into training, validation and test sets.
+The dataset is organised into three families of simulations, distinguished by the type of excitation applied to the aeroelastic system (\cref{tab:dataset_families}). The gust is the ``$1-\cos$'' pulse~\eqref{eq:gust} of peak $W_0$, duration $T_g$ and onset $t_0$; the nondimensional amplitude $r_g = W_0/U_\infty$ measures the peak gust velocity relative to the freestream. The freestream is held at $U_\infty = 80$~m/s and the onset at $t_0 = 0$ throughout, so within each family the operating condition reduces to the handful of scalar parameters listed in \cref{tab:dataset_families}, drawn by Latin hypercube sampling~\cite{mckay1979lhs} over the intervals reported there and stratified into training, validation and test sets.
 
-Family A isolates the gust response: the flap is locked at $\delta = 0$ and the gust is drawn over $r_g \in [0.10,\,0.60]$ and $T_g \in [0.30,\,1.20]$~s. Family B isolates the flap: the gust is switched off and the excitation is a prescribed deflection history built from a peak $\delta_{\mathrm{pk}}$, with $\lvert\delta_{\mathrm{pk}}\rvert$ sampled over $[2,\,15]^\circ$, and a slew rate $\dot\delta_{\mathrm{lim}}$ sampled over $[20,\,200]^\circ$/s. The flap ramps linearly from zero to $\delta_{\mathrm{pk}}$ at that rate, over a rise time $t_r = \lvert\delta_{\mathrm{pk}}\rvert/\dot\delta_{\mathrm{lim}}$, and then returns linearly to zero over the remainder of the run, so that each trajectory contains one fast stroke and one slow release. Half of the family is assigned a negative peak, since the cambered section responds asymmetrically to upward and downward deflections. Family Cc combines the two excitations: $r_g$ and $T_g$ are drawn over the same intervals as in family A, and the flap follows an open-loop feed-forward law on the gust,
+Family A isolates the gust response. Family B isolates the flap: the gust is switched off and the flap is driven by a prescribed deflection history, a linear ramp from zero to the sampled peak $\delta_{\mathrm{pk}}$ at the sampled rate limit $\dot\delta_{\mathrm{lim}}$ followed by a linear return to zero over the remainder of the run, so that each trajectory contains one fast stroke and one slow release; the peak is negative in half of the family, since the cambered section responds asymmetrically to upward and downward deflections. Family Cc combines the two excitations: the gust is drawn as in family A, while the flap is commanded in open loop by a feed-forward law on the gust,
 \[
 \delta_{\mathrm{ref}}(t) = -K_{\mathrm{ff}}\,W(t - t_d),
 \qquad
@@ -136,27 +139,45 @@ Family A isolates the gust response: the flap is locked at $\delta = 0$ and the 
 \qquad
 \lvert\dot\delta\rvert \le \dot\delta_{\mathrm{lim}},
 \]
-with the gain $K_{\mathrm{ff}}$ sampled over $[0.05,\,0.20]^\circ$/(m/s), the lag $t_d$ over $[0,\,0.30]$~s and the rate limit over the same interval as in family B; saturation is applied first, the rate limit afterwards on the increment between consecutive fluid steps. A positive $\delta$ deflects the flap downwards and increases lift, so the negative sign makes the flap oppose the gust: family Cc therefore carries the gust--flap correlation produced by an alleviation command, while families A and B decorrelate the two inputs by excluding one of them at a time.
+with $K_{\mathrm{ff}}$ the feed-forward gain and $t_d$ the lag of the command; saturation is applied first, the rate limit afterwards on the increment between consecutive fluid steps. A positive $\delta$ deflects the flap downwards and increases lift, so the negative sign makes the flap oppose the gust.
 
 \begin{table}[t]
     \centering
-    \begin{tabular}{|l|c|c|c|c|c|c|c|}
+    \begin{tabular}{|l|c|c|c|}
     \hline
     \rowcolor{bluePoli!40}
-    Family & Train & Val & Test & $W_0$ [m/s] & $T_g$ [s] & $r_g$ & Actuation \T\B \\
+    Family & A & B & Cc \T\B \\
     \hline\hline
-    A  & 20 & 5  & 5  & 8.66--47.77 & 0.30--1.17 & 0.11--0.60 & Gust only \T\B \\
+    Excitation           & Gust       & Flap           & Gust + flap \T\B \\
     \hline
-    B  & 30 & 8  & 8  & ---         & ---        & ---        & Flap only \T\B \\
-    \hline
-    Cc & 50 & 10 & 10 & 8.03--47.94 & 0.31--1.20 & 0.10--0.60 & Gust + flap \T\B \\
+    Runs, train/val/test & 20/5/5     & 30/8/8         & 50/10/10 \T\B \\
     \hline\hline
-    Total & 100 & 23 & 23 & --- & --- & --- & --- \B \\
+    Gust peak $W_0$ [m/s]                                 & 8--48      & ---            & 8--48 \T\B \\
+    \hline
+    Gust amplitude $r_g$                                  & 0.10--0.60 & ---            & 0.10--0.60 \T\B \\
+    \hline
+    Gust duration $T_g$ [s]                               & 0.30--1.20 & ---            & 0.30--1.20 \T\B \\
+    \hline
+    Flap peak $\delta_{\mathrm{pk}}$ [$^{\circ}$]         & ---        & $\pm(2$--$15)$  & $-(0.5$--$9.2)$ \T\B \\
+    \hline
+    Rate limit $\dot\delta_{\mathrm{lim}}$ [$^{\circ}$/s] & ---        & 20--200        & 20--200 \T\B \\
+    \hline
+    Gain $K_{\mathrm{ff}}$ [$^{\circ}$/(m/s)]             & ---        & ---            & 0.05--0.20 \T\B \\
+    \hline
+    Lag $t_d$ [s]                                         & ---        & ---            & 0--0.30 \T\B \\
+    \hline\hline
+    Deflection range $\delta$ [$^{\circ}$]                & $0$        & $-14.1$--$14.8$ & $-8.5$--$0$ \B \\
     \hline
     \end{tabular}
     \\[6pt]
-    \caption{Dataset overview: gust and flap families, with the per-family train/validation/test
-    split (146 simulations, stratified).}
+    \caption{Design of the simulation campaign, 146 runs in total: excitation, split and Latin
+    hypercube intervals of the parameters varied in each family, with a dash marking a parameter
+    that does not act in that family. The flap peak is sampled and signed in family B, negative in
+    half of the trajectories, whereas in family Cc it is not sampled but follows from the
+    feed-forward command as $\min(K_{\mathrm{ff}}\,W_0,\,20^{\circ})$, with $K_{\mathrm{ff}}$ the
+    gain and $t_d$ the lag of that command. The last row is the signed range of deflection
+    actually spanned, which stays below the commanded peak of family Cc because of the rate
+    limit.}
     \label{tab:dataset_families}
 \end{table}
 
@@ -256,9 +277,9 @@ $\mathcal{NN}_\mathrm{dyn}$ and decoded by $\mathcal{NN}_\mathrm{rec}$.}
 The loss is therefore formulated in rollout mode: the 2-DOF aeroelastic ODE is
 integrated from the network's own predicted loads $(F_y,\,M_z)$ over a horizon of
 $N_\mathrm{rollout} = 800$ steps, with $\delta$ and $W$ treated as exogenous
-signals taken from the data. The aerodynamic outputs $F_y$ and $M_z$ are scalars
-reconstructed at the single fixed query point $\mathbf{x}_\mathrm{query}$, so the spatial
-summation present in the general LDNet formulation collapses to one term per step. The
+signals taken from the data. The aerodynamic outputs $F_y$ and $M_z$ are
+reconstructed at the query point $\mathbf{x}_\mathrm{query}$ of \cref{subsec:ldnet_arch}, so the
+spatial summation of the general LDNet formulation collapses to one term per step. The
 per-step discrepancy is
 \begin{equation}
 \mathcal{E}(\tilde{\mathbf{y}}, \mathbf{y}) =
@@ -376,71 +397,101 @@ whose curvature information reaches a markedly lower loss in far fewer iteration
 smooth, deterministic full-batch objective, and it is this stage that sets the final
 accuracy.
 
-Both stages act on a landscape dominated by the latent recurrence. Training is a
-deterministic full-batch map: the outcome of a run is the critical point selected by its
-initialisation, and re-running it unchanged differs only through the order of floating-point
-reduction on the accelerator. Differentiating the latent update of \cref{eq:latent_dyn}, whose
-normalised step is unity, the sensitivity of the latent state at the end of a window of
-$N_\mathrm{unroll}$ steps to a perturbation at its first step is the Jacobian
-product~\cite{bengio1994,pascanu2013}
-\begin{equation}
-\frac{\partial \mathbf{s}_{N_\mathrm{unroll}}}{\partial \mathbf{s}_0}
-  = \prod_{n=0}^{N_\mathrm{unroll}-1} \mathbf{J}_n,
-\qquad
-\mathbf{J}_n = (1-\lambda)\,\mathbf{I}
-  + \left.\frac{\partial \widetilde{\mathcal{NN}}_\mathrm{dyn}}
-                {\partial \mathbf{s}}\right|_n ,
-\label{eq:jacobian_product}
-\end{equation}
-with $\mathbf{I}$ the identity of order $d_s$, and $N_\mathrm{unroll} = N_\mathrm{rollout}$
-under the rollout loss or $1592$ over a whole trajectory in the teacher-forced runs. Writing
-$\theta$ for the dominant eigenvalue of
-$\partial\widetilde{\mathcal{NN}}_\mathrm{dyn}/\partial\mathbf{s}$, the undamped gain across the
-window is $|1+\theta|^{N_\mathrm{unroll}}$, which stays bounded only for
-$|\theta| \lesssim 1/N_\mathrm{unroll} \approx 6\cdot10^{-4}$: the admissible spectrum is a
-narrow neighbourhood of the origin. Outside it lies a local minimum where the latent dynamics
-is inert and the model degenerates into a memoryless map of the instantaneous inputs; there the
-gradient reaching $\mathbf{w}_\mathrm{dyn}$ is negligible and the line search stalls. The
-Tikhonov term therefore acts first as a conditioning control, bounding the layer norms to keep
-that spectrum near the origin, and has a useful window: at a weight of $10^{-3}$, three times
-the value retained in \cref{subsec:training_results}, the accurate outcome is no longer reached
-at $d_s = 10$. The outcomes being discrete rather than scattered about a mean, the statistic to
-take over restarts is the minimum selected on validation, not the average.
-
-The width of $\mathcal{NN}_\mathrm{dyn}$ bounds what that spectrum can hold. With two hidden
-layers of seven neurons,
-$\partial\widetilde{\mathcal{NN}}_\mathrm{dyn}/\partial\mathbf{s} =
-\mathbf{W}_3\mathbf{D}_2\mathbf{W}_2\mathbf{D}_1\mathbf{W}_{1,s}$, with $\mathbf{W}_1$,
-$\mathbf{W}_2$, $\mathbf{W}_3$ the layer weight matrices, $\mathbf{W}_{1,s}$ the block of
-$\mathbf{W}_1$ acting on $\mathbf{s}$, and $\mathbf{D}_1$, $\mathbf{D}_2$ the diagonal $\tanh$
-Jacobians: the product factors through $\mathbb{R}^7$ and has rank at most seven for any
-$d_s$. For $d_s > 7$ at least $d_s - 7$ eigenvalues of $\mathbf{J}_n$ in
-\cref{eq:jacobian_product} equal $1-\lambda$ exactly, and unity without the decay: latent
-directions the dynamics network cannot drive, integrators that only the decay term renders
-contractive. Raising $d_s$ without widening $\mathcal{NN}_\mathrm{dyn}$ adds no usable
-dynamics.
+% ---------------------------------------------------------------------------
+% Blocco commentato su richiesta dell'utente (2026-08-21): il meccanismo dei
+% bacini discreti dell'addestramento (prodotto di Jacobiane, finestra del
+% termine di Tikhonov, argomento di rango su d_s e larghezza) resta senza una
+% cornice che lo agganci al resto del testo -- nessuna frase di apertura lo
+% introduce come risposta a una domanda, nessuna di chiusura lo consegna a
+% dove le sue conseguenze si vedono (\cref{subsubsec:latent_dim},
+% \cref{subsubsec:depth}). Conservato commentato, non eliminato, in attesa di
+% una decisione su dove e come ricollocarlo.
+%
+% Both stages act on a landscape dominated by the latent recurrence. Training is a
+% deterministic full-batch map: the outcome of a run is the critical point selected by its
+% initialisation, and re-running it unchanged differs only through the order of floating-point
+% reduction on the accelerator. The recurrence dominates because the rollout forward pass applies
+% the latent update~\eqref{eq:latent_dyn} $N_\mathrm{rollout}$ times in a chain, so a perturbation
+% introduced at the start of the window only reaches its end after being carried through every
+% intermediate step. Differentiating that update with respect to $\mathbf{s}_n$, the latent state
+% at step $n$ of the recurrence of \cref{subsec:discretisation}, gives the per-step sensitivity
+% $\partial\mathbf{s}_{n+1}/\partial\mathbf{s}_n = (1-\lambda)\,\mathbf{I} +
+% (\Delta t/\Delta t_\mathrm{ref})\,\partial\widetilde{\mathcal{NN}}_\mathrm{dyn}/\partial\mathbf{s}$;
+% training runs at the normalised step $\Delta t = \Delta t_\mathrm{ref}$, so the ratio is unity
+% and drops out. The sensitivity of the state at the end of the window to a perturbation at its
+% start follows by the same chain rule applied once per step, hence the product of these per-step
+% Jacobians~\cite{bengio1994,pascanu2013}
+% \begin{equation}
+% \frac{\partial \mathbf{s}_{N_\mathrm{rollout}}}{\partial \mathbf{s}_0}
+%   = \prod_{n=0}^{N_\mathrm{rollout}-1} \mathbf{J}_n,
+% \qquad
+% \mathbf{J}_n = (1-\lambda)\,\mathbf{I}
+%   + \left.\frac{\partial \widetilde{\mathcal{NN}}_\mathrm{dyn}}
+%                 {\partial \mathbf{s}}\right|_n ,
+% \label{eq:jacobian_product}
+% \end{equation}
+% with $\mathbf{I}$ the identity of order $d_s$. Writing $\theta$ for the dominant eigenvalue of
+% $\partial\widetilde{\mathcal{NN}}_\mathrm{dyn}/\partial\mathbf{s}$, the undamped gain --- the
+% factor by which a perturbation to $\mathbf{s}_0$ is amplified after propagating the whole window
+% with the decay switched off, $\lambda = 0$ --- across the $N_\mathrm{rollout} = 800$ steps of the
+% window is $|1+\theta|^{N_\mathrm{rollout}}$, which stays bounded only for
+% $|\theta| \lesssim 1/N_\mathrm{rollout} \approx 1.3\cdot10^{-3}$: the admissible spectrum is a
+% narrow neighbourhood of the origin. Outside it lies a local minimum where the latent dynamics is
+% inert and the model degenerates into a memoryless map of the instantaneous inputs; there the
+% gradient reaching $\mathbf{w}_\mathrm{dyn}$ is negligible and the line search stalls. The
+% Tikhonov term therefore serves two conflicting roles. Too little regularisation leaves $\theta$
+% free to drift outside the narrow admissible band, landing in the memoryless minimum just
+% described; too much shrinks every weight, including those $\mathcal{NN}_\mathrm{dyn}$ needs to
+% represent the aeroelastic response, trading recurrence stability for capacity. The window is
+% narrow: at a weight of $10^{-3}$, three times the value retained in
+% \cref{subsec:training_results}, this second failure already dominates and the accurate outcome
+% is no longer reached at $d_s = 10$. The outcomes being discrete rather than scattered about a
+% mean, the statistic to take over restarts is the minimum selected on validation, not the
+% average.
+%
+% The width of $\mathcal{NN}_\mathrm{dyn}$ bounds what that spectrum can hold. With two hidden
+% layers of seven neurons,
+% $\partial\widetilde{\mathcal{NN}}_\mathrm{dyn}/\partial\mathbf{s} =
+% \mathbf{V}_3\mathbf{D}_2\mathbf{V}_2\mathbf{D}_1\mathbf{V}_{1,s}$, with $\mathbf{V}_1$,
+% $\mathbf{V}_2$, $\mathbf{V}_3$ the layer weight matrices, $\mathbf{V}_{1,s}$ the block of
+% $\mathbf{V}_1$ acting on $\mathbf{s}$, and $\mathbf{D}_1$, $\mathbf{D}_2$ the diagonal $\tanh$
+% Jacobians: the product factors through $\mathbb{R}^7$ and has rank at most seven for any
+% $d_s$. For $d_s > 7$ at least $d_s - 7$ eigenvalues of $\mathbf{J}_n$ in
+% \cref{eq:jacobian_product} equal $1-\lambda$ exactly, and unity without the decay: latent
+% directions the dynamics network cannot drive, integrators that only the decay term renders
+% contractive. Raising $d_s$ without widening $\mathcal{NN}_\mathrm{dyn}$ adds no usable dynamics.
+% This is a necessary-condition argument, not a guarantee: the $d_s = 20$ cell of
+% \cref{subsubsec:latent_dim} sits exactly where it predicts undriven directions and never
+% reaches the accurate minimum, but widening $\mathcal{NN}_\mathrm{dyn}$ at that same cell, tested
+% in \cref{subsubsec:depth}, does not recover it either --- the wider network is also the less
+% regularised one at the fixed $\alpha_\mathrm{reg}$ tuned for the baseline, so that probe does
+% not isolate the rank effect on its own.
 
 \subsubsection{Hyperparameter selection and accuracy metrics}
 \label{subsubsec:hyperparam_method}
 
-The architecture depends on a small set of hyperparameters --- the width and depth of
-$\mathcal{NN}_\mathrm{dyn}$ and $\mathcal{NN}_\mathrm{rec}$, the latent dimension $d_s$, the
+A full grid over the architecture's hyperparameters is not attempted, since every node of it
+would cost a complete training run: \cref{subsec:training_results} instead sweeps the degrees of
+freedom that dominate the validation loss --- the latent dimension $d_s$, the depth of
+$\mathcal{NN}_\mathrm{dyn}$ and $\mathcal{NN}_\mathrm{rec}$, and the composition of the input
+vector $\boldsymbol{\eta}$ --- while the remaining hyperparameters (network width, the
 regularisation weights $\alpha_\mathrm{dyn}$, $\alpha_\mathrm{rec}$, the decay coefficient
-$\lambda$ and the reference time constant $\Delta t_\mathrm{ref}$ --- selected by grid
-search: each candidate configuration is trained in multiple independent runs, every run is
-scored by the loss on the validation set, and the run with the lowest validation loss is
-retained. Repeated runs guard the comparison against the sensitivity of the full-batch
-optimisation to its trajectory. The outcome of the selection is reported in
-\cref{subsec:training_results}.
+$\lambda$ and the reference time constant $\Delta t_\mathrm{ref}$) are held fixed at the values
+reported there. Along each swept axis the candidate configurations are trained in
+multiple independent runs that differ only in the random initialisation of the weights, every
+run is scored by the loss on the validation set, and the run with the lowest validation loss is
+retained, so that the comparison is guarded against the sensitivity of the full-batch
+optimisation to its trajectory.
 
 Following~\cite{Regazzoni}, accuracy is measured by the normalised root-mean-square error and
-by the Pearson dissimilarity $1-\rho$. For a scalar load $q\in\{F_y,M_z\}$ with prediction
-$\tilde q$ over the $N$ test samples and time steps,
+by the Pearson dissimilarity $1-\rho$. For a scalar load $y\in\{F_y,M_z\}$, a component of the
+output $\mathbf{y}$ of \cref{subsec:ldnet_arch}, with prediction $\tilde y$ over the $N$ test
+samples and time steps,
 \begin{equation}
-\mathrm{NRMSE}(q) =
-  \frac{\sqrt{\tfrac{1}{N}\sum_{k} (\tilde q_k - q_k)^2}}{\max_k q_k - \min_k q_k},
+\mathrm{NRMSE}(y) =
+  \frac{\sqrt{\tfrac{1}{N}\sum_{k} (\tilde y_k - y_k)^2}}{\max_k y_k - \min_k y_k},
 \qquad
-\rho(q) = \frac{\mathrm{cov}(\tilde q, q)}{\sigma_{\tilde q}\,\sigma_q},
+\rho(y) = \frac{\mathrm{cov}(\tilde y, y)}{\sigma_{\tilde y}\,\sigma_y},
 \label{eq:acc_metrics}
 \end{equation}
 so that both $\mathrm{NRMSE}$ and $1-\rho$ vanish for a perfect reconstruction. The two loads

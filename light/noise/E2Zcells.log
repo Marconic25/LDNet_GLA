@@ -1,0 +1,9 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783608109.722804 1392841 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+/home/marco/LDNet_OF/tfvenv/lib/python3.12/site-packages/keras/src/layers/core/dense.py:107: UserWarning: Do not pass an `input_shape`/`input_dim` argument to a layer. When using Sequential models, prefer using an `Input(shape)` object as the first layer in the model instead.
+  super().__init__(activity_regularizer=activity_regularizer, **kwargs)
+# axis E2-zctrl [cells] N=8 DAMULT=3 | w10t07 cex0=0.2075 | w30t07 cex0=0.5791
+
+=== w10t07 dlr 1-3m/s (lam=1) ===
+  w10t07  A dlr 1-3m/s      :   +92.0% [ +91.2, +93.2] std= 0.77 flags=0/6  sig_del=0.19

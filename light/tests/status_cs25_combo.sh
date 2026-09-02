@@ -5,10 +5,7 @@ for pair in \
     "cs25combo.smoke:cs25_combo_study.py" \
     "cs25combo_c10:cs25_combo_study.py" \
     "cs25combo_c20:cs25_combo_study.py" \
-    "cs25combo_c30:cs25_combo_study.py" \
-    "cs25combo_o10:cs25_combo_study.py" \
-    "cs25combo_o20:cs25_combo_study.py" \
-    "cs25combo_o30:cs25_combo_study.py"; do
+    "cs25combo_c30:cs25_combo_study.py"; do
   L=${pair%%:*}; P=${pair##*:}
   LOG="${L}.log"
   [ -f "$LOG" ] || continue

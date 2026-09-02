@@ -2,6 +2,9 @@ venv/
 src/venv/
 data/venv
 *.npy
+*_vtk/
+*.vtp
+*.pvd
 *.so
 *.so.*
 .claude

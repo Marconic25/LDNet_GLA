@@ -2,58 +2,50 @@
 Axis E2-MPC — N-step preview-horizon MPC as intrinsic noise dilution
 (LITERATURE.md Technique 7), home cell W30/Tg0.4, DAMULT=3.
 
-The one-step wnext optimal consumes a SINGLE noisy preview sample W(t+dt) and
-collapses at sigma ~ 1%*W0 (branch lottery). The literature's most consistent
-finding is that controllers integrating the preview over an N-step horizon
-inside the cost tolerate order-100% preview errors, because the optimal move
-depends on a weighted integral of the disturbance and per-sample noise
-averages down [Mendez, Whidborne, Chen, "Wind Preview-Based Model Predictive
-Control of Multi-Rotor UAVs Using LiDAR", Sensors 23(7):3711, 2023:
-preview-MPC beats no-preview-MPC up to ~120% magnitude error; Sinner et al.,
-"Insensitivity to propagation timing in a preview-enabled wind turbine control
-experiment", Frontiers in Mech. Eng. 9, 2023: feedforward benefit retained
-across +-20% timing error]. Our own axis E pointed the same way: MPCConst N=4
-WITHOUT preview (noisy current gust held over the horizon) was the most
-noise-tolerant arm. This script tests whether an N-step NOISY PREVIEW consumed
-through the integrated cost beats BOTH the one-step controller and the
-no-preview MPC.
+The literature's most consistent finding is that controllers integrating the
+preview over an N-step horizon inside the cost tolerate order-100% preview
+errors, because the optimal move depends on a weighted integral of the
+disturbance and per-sample noise averages down [Mendez, Whidborne, Chen,
+"Wind Preview-Based Model Predictive Control of Multi-Rotor UAVs Using
+LiDAR", Sensors 23(7):3711, 2023: preview-MPC beats no-preview-MPC up to
+~120% magnitude error; Sinner et al., "Insensitivity to propagation timing in
+a preview-enabled wind turbine control experiment", Frontiers in Mech. Eng.
+9, 2023: feedforward benefit retained across +-20% timing error]. MPCConst
+N=4 WITHOUT preview (noisy current gust held over the horizon) is a known
+noise-tolerant reference. This script tests whether an N-step NOISY PREVIEW
+consumed through the integrated cost beats the no-preview MPC.
 
 All arms see white noise sigma = frac*W0 on the gust signal (rng 100+seed,
 identical streams across arms -> paired comparison), frac in {0.02, 0.05},
 6 seeds, same metrics/flags/pick rule as everywhere else.
 
-  none     one-step optimal (wnext) on the noisy 1-step preview — the
-           unmitigated baseline reproduced in-file for pairing (== axis E)
   mpc-cur  MPCConstRef N=4 gate-none on the noisy CURRENT gust (no preview)
            — the axis-E noise-tolerant reference reproduced in-file
   mpcp     MPCPrevRef N in {2,4,8}: constant-flap MPC whose horizon step k is
            evaluated at an INDEPENDENT noisy sample of W(t+(k+1)*dt) from the
-           PreviewSensor (the wnext convention of light/optimal.py extended to
-           the horizon: step k advances the plant from t+k*dt into
-           t+(k+1)*dt, so it is costed at the gust one step later)
+           PreviewSensor (the wnext convention: step k advances the plant
+           from t+k*dt into t+(k+1)*dt, so it is costed at the gust one step
+           later)
   anchors  mpcp N in {2,4,8} at frac=0 (clean preview through the sensor,
-           single rollout each): the one-step clean anchor is +76.58%; we need
-           the integrated-cost MPC's clean-preview level before judging its
-           noise tolerance.
+           single rollout each): we need the integrated-cost MPC's
+           clean-preview level before judging its noise tolerance.
 
 Sensor/controller coupling: harness_noise.rollout calls wc_fun BEFORE
 ctrl.compute at every step, so PreviewSensor.wc_fun draws the N noisy future
 samples once per step, caches them in sensor.last for the MPC, and returns
-element j=1 — r['_Wc'] therefore logs exactly the 1-step preview a one-step
-controller would see.
+element j=1 — r['_Wc'] therefore logs the 1-step preview channel.
 
 Runtime: each horizon step costs one batch_step over the 161-point flap grid,
-so a rollout costs ~N x the one-step controller's (~1 min): N=8 ~ 8 min per
+so a rollout costs ~N x a single-step scan (~1 min): N=8 ~ 8 min per
 rollout. Arms are ordered so the cheap ones print results first (anchors,
-none, mpc-cur, then mpcp by ascending N). Full study: 63 controlled rollouts
-(~240 one-step-equivalents, ~4 h). DAMULT=3 must be set in the environment by
-the runner, as for all axis scripts.
+mpc-cur, then mpcp by ascending N). DAMULT=3 must be set in the environment
+by the runner, as for all axis scripts.
 
 Trajectories stored: all 6 seeds of the best mpcp N at each frac (pick rule:
-max mean CLred s.t. zero flags, else max mean) + the paired 'none' seeds.
+max mean CLred s.t. zero flags, else max mean).
 
 Output: results/E2_mpc.npz.
---smoke: frac=0 anchor for N=4 + arms none and mpcp N=4 at frac=0.02 with
+--smoke: frac=0 anchor for N=4 + arm mpcp N=4 at frac=0.02 with
 2 seeds; saves to the SAME output and prints # DONE.
 """
 import os
@@ -79,7 +71,7 @@ class PreviewSensor:
     """Generates, once per step, N independent noisy samples of the future
     gust W(t+j*dt)+eps_j, j=1..N (each clamped >= 0), caches them in
     self.last; wc_fun returns element j=1 (so r['_Wc'] logs the 1-step
-    preview the one-step controller would see), the MPC reads self.last.
+    preview channel), the MPC reads self.last.
     For frac=0 the noise term vanishes — same code path, clean preview."""
 
     def __init__(self, rng, frac, N):
@@ -104,9 +96,9 @@ class MPCPrevRef(MPCConstRef):
     z leak correction each step, rate mask vs prev, argmin, clip, no causal
     gate) with ONE change: horizon step k (k = 0..N-1) is evaluated at
     sensor.last[k] — the noisy sample of W(t+(k+1)*dt) — instead of the held
-    scalar Wc. This is the wnext convention of the one-step controller
-    extended to the horizon: step k advances the batch plant from t+k*dt and
-    the wnext finding says evaluate that step at the gust one step LATER.
+    scalar Wc. This is the wnext convention over the horizon: step k
+    advances the batch plant from t+k*dt into t+(k+1)*dt, so it is costed
+    at the gust one step LATER.
 
     compute() IGNORES the scalar Wc argument of the harness API and reads
     self.sensor.last instead (fresh each step: harness_noise.rollout calls
@@ -126,7 +118,7 @@ class MPCPrevRef(MPCConstRef):
         reach = self.delta_dot_max * H.DT
         ratem = np.abs(dg - self._prev) <= reach + 1e-9
 
-        z_b = np.tile(np.asarray(aero._z, float).reshape(1, -1), (G, 1))
+        z_b = np.tile(np.asarray(self._z_ctrl, float).reshape(1, -1), (G, 1))
         x_b = np.tile(np.asarray(state, float).reshape(1, -1), (G, 1))
         J = self.R * dg ** 2
         for k in range(self.N):
@@ -140,15 +132,13 @@ class MPCPrevRef(MPCConstRef):
         d = float(np.clip(d, self._prev - reach, self._prev + reach))
         d = float(np.clip(d, -self.delta_max, self.delta_max))
         self._prev = d
+        # advance the controller's OWN latent; MPCPrevRef has no fused current
+        # node, so use Wc (= last[0], the 1-step preview) as the current proxy
+        self._z_ctrl = aero.advance_z(self._z_ctrl, state, d, float(Wc), H.U, H.DT)
         return d
 
 
-# ---- Wc generators for the paired in-file baselines (== noise_mitigation.py) --
-def wc_plain(rng, frac):
-    """Noisy 1-step preview (== axis A / axis E 'none')."""
-    return lambda i, Wt, N: max(0.0, Wt[min(i + 1, N - 1)] + rng.normal(0.0, frac * W0))
-
-
+# ---- Wc generator for the paired in-file baseline ------------------------------
 def wc_current(rng, frac):
     """Noisy CURRENT gust (no preview) — for the MPC reference."""
     return lambda i, Wt, N: max(0.0, Wt[i] + rng.normal(0.0, frac * W0))
@@ -189,8 +179,7 @@ points = {}   # (arm, detail-or-N, frac) -> (rec, ms, rs)
 
 
 # ---- frac=0 anchors: clean preview through the sensor --------------------------
-print("\n=== frac=0.00 anchors (clean preview; one-step clean anchor +76.58%) ===",
-      flush=True)
+print("\n=== frac=0.00 anchors (clean preview) ===", flush=True)
 for N in NS_MPCP:
     rng = np.random.default_rng(100)
     ctrl, wc = pair_mpcp(rng, 0.0, N)
@@ -203,14 +192,9 @@ for N in NS_MPCP:
           f"flap_max={m['flap_max']:5.1f} flag='{m['flag']}'", flush=True)
 
 
-# ---- noisy arms (cheap first: none, mpc-cur, then mpcp by ascending N) ---------
+# ---- noisy arms (cheap first: mpc-cur, then mpcp by ascending N) ---------------
 for frac in FRACS:
     print(f"\n=== frac={frac:.2f} (sigma={frac*W0:.2f} m/s) ===", flush=True)
-
-    k = ('none', '', frac)
-    points[k] = run_point(lambda rng, f: (H.make_optimal(R=3e-4), wc_plain(rng, f)),
-                          frac, axis='E2', arm='none', detail='',
-                          W0=W0, Tg=Tg, R=3e-4)
 
     if not SMOKE:
         k = ('mpc-cur', 4, frac)
@@ -243,12 +227,6 @@ for frac in FRACS:
                                   detail=f'N={key_b[1]}', N=key_b[1],
                                   W0=W0, Tg=Tg, frac=frac, seed=seed,
                                   label=f'E2M_best_f{frac:g}_s{seed}'))
-    # paired one-step baseline trajectories for the same frac
-    rec_n, ms_n, rs_n = points[('none', '', frac)]
-    for seed, (m, r) in enumerate(zip(ms_n, rs_n)):
-        recs.append(H.traj_record(r, m, axis='E2', arm='none', detail='',
-                                  W0=W0, Tg=Tg, frac=frac, seed=seed,
-                                  label=f'E2M_none_f{frac:g}_s{seed}'))
 
 H.save_records(OUT, recs)
 print("# DONE", flush=True)

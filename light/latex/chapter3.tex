@@ -1,17 +1,6 @@
 \section{Results}
 \label{sec:results}
 
-% A page holding only floats (no body text) gets LaTeX's default \@fptop/\@fpbot
-% glue, both 0pt plus 1fil: infinitely stretchable space above AND below the
-% float, which centres it vertically instead of pinning it to the top. This is
-% why [t] (and even [H]) alone does not fix it: the placement specifier only
-% says a float MAY start a page, not how the leftover space on that page is
-% distributed. Killing the stretch above forces it to the top, leaving the
-% (still stretchy) \@fpbot to absorb the rest of the page below.
-\makeatletter
-\setlength{\@fptop}{0pt}
-\makeatother
-
 This section reports the results of the study. \Cref{subsec:training_results} assesses the accuracy of the trained LDNet on the held-out test set and documents the hyperparameter selection. \Cref{subsec:mpc_results} evaluates the closed-loop controller over the CS-25 discrete-gust envelope in nominal conditions, and \cref{subsec:noise_results,subsec:systematic_results} probe its robustness to stochastic measurement noise and to systematic sensing and model errors.
 
 \subsection{Surrogate accuracy and hyperparameter tuning}

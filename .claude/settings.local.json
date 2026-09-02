@@ -108,7 +108,8 @@
       "Bash(wsl -d Ubuntu -- bash -lc 'which apptainer singularity docker 2>/dev/null; ls /home/marco/*.sif /work 2>/dev/null')",
       "Bash(wsl -d Ubuntu -- bash -lc 'python3 -c \"import sys; print\\(sys.path\\)\"; pip3 list 2>/dev/null | grep -i -E \"tensor|keras|torch\"')",
       "Bash(wsl.exe -d Ubuntu -- bash -lc 'cd ~/LDNet_OF && scp -q light/cs25_study.py light/cs25_plots.py u10677113@10.78.18.100:/work/u10677113/LDNet_GLA/light/ && ssh -o BatchMode=yes u10677113@10.78.18.100 \"bash -s\"')",
-      "Bash(wsl.exe -d Ubuntu -- bash -lc 'sleep 240; ssh -o BatchMode=yes u10677113@10.78.18.100 \"cd /work/u10677113/LDNet_GLA && for W in 10 20 30; do echo ===W\\\\$W===; grep -vE \\\\\"tensorflow|cuDNN|cuFFT|cuBLAS|oneDNN|rebuild|instructions\\\\\" cs25_W\\\\$W.log | head -5; done\"')"
+      "Bash(wsl.exe -d Ubuntu -- bash -lc 'sleep 240; ssh -o BatchMode=yes u10677113@10.78.18.100 \"cd /work/u10677113/LDNet_GLA && for W in 10 20 30; do echo ===W\\\\$W===; grep -vE \\\\\"tensorflow|cuDNN|cuFFT|cuBLAS|oneDNN|rebuild|instructions\\\\\" cs25_W\\\\$W.log | head -5; done\"')",
+      "Bash(ls -la /home/marco/ 2>&1 | head -20; echo \"---\"; ls -la \"//wsl.localhost/Ubuntu/home/marco/\" 2>&1 | head -20; echo \"---\"; ls -la \"/mnt/c\" 2>&1 | head -5; echo \"---which platform\"; uname -a)"
     ]
   }
 }

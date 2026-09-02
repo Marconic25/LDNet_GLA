@@ -1,9 +1,8 @@
 #!/bin/bash
 # Launch one study axis inside the TF container (cluster only).
-#   Usage:  nohup ./run_axis.sh noise_white.py > A.log 2>&1 &
-# Thread caps: 5 axes run concurrently on the login node (16 threads), so each
-# job gets 3 intra-op threads. The regression gate is run with the SAME env so
-# the FP-sensitive chaotic-seed anchors validate this exact configuration.
+#   Usage:  nohup ./run_axis.sh e2_mpc.py > E2M.log 2>&1 &
+# Thread caps: several axes run concurrently on the login node (16 threads),
+# so each job gets 3 intra-op threads.
 cd "$(dirname "$0")" || exit 1
 HERE="$(pwd)"
 exec apptainer exec --writable-tmpfs \

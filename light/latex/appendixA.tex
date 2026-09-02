@@ -1,7 +1,7 @@
 \section{Full-order model: numerical methods and co-simulation setup}
 \label{app:fom}
 
-This appendix reports the numerical solution of the full-order model \labelcref{eq:coupled_system} used to generate the dataset of \cref{subsec:dataset}: the scheme that couples fluid and structure in time, the fluid solver with its mesh and mesh-motion strategy, and the driver that orchestrates the two. None of these components is specific to the surrogate; they are collected here so that the campaign can be reproduced.
+This appendix reports the numerical solution of the full-order model \labelcref{eq:coupled_system} used to generate the dataset of \cref{subsec:dataset}: the scheme that couples fluid and structure in time, the fluid solver with its mesh and mesh-motion strategy, and the driver that orchestrates the two.
 
 \subsection{Partitioned coupling scheme}
 \label{subsec:partitioned}
@@ -65,17 +65,17 @@ The first-order hold keeps the mesh velocity continuous across the window bounda
 \label{openfoam}
 \label{subsubsec:fluidsolver}
 
-The flow is solved on the deformable domain $\Omega_f(t)$ in the Arbitrary Lagrangian-Eulerian (ALE) description~\cite{Donea2004ALE}: each grid point is given an arbitrary velocity $\mathbf{w}(\mathbf{x},t)$, generally different from the fluid velocity $\mathbf{u}$, so that the mesh conforms to the moving surface near $\Gamma_I(t)$ and stays almost fixed in the far field, limiting distortion. Mass and momentum conservation read
+The flow is solved on the deformable domain $\Omega_f(t)$ in the Arbitrary Lagrangian-Eulerian (ALE) description~\cite{Donea2004ALE}: each grid point is given an arbitrary velocity $\mathbf{u}_g(\mathbf{x},t)$, generally different from the fluid velocity $\mathbf{u}$, so that the mesh conforms to the moving surface near $\Gamma_I(t)$ and stays almost fixed in the far field, limiting distortion. Mass and momentum conservation read
 \begin{equation}
     \nabla \cdot \mathbf{u} = 0,
     \qquad
     \frac{\partial \mathbf{u}}{\partial t}\bigg|_{\boldsymbol\chi}
-    + \bigl[(\mathbf{u} - \mathbf{w}) \cdot \nabla\bigr]\mathbf{u}
+    + \bigl[(\mathbf{u} - \mathbf{u}_g) \cdot \nabla\bigr]\mathbf{u}
     = -\frac{1}{\rho}\nabla p + \nu\,\nabla^2 \mathbf{u},
     \qquad \text{in } \Omega_f(t)\times(0,T],
     \label{eq:ns-ale}
 \end{equation}
-with $\rho$ the air density and $\nu$ its kinematic viscosity. The time derivative is taken at fixed grid coordinate $\boldsymbol\chi$, so the convective velocity is the relative one $\mathbf{u}-\mathbf{w}$: the formulation recovers the Lagrangian description when $\mathbf{w}=\mathbf{u}$ and the Eulerian one when $\mathbf{w}=\mathbf{0}$. The grid velocity satisfies the Geometric Conservation Law, so that a uniform flow is reproduced without spurious mass sources due to mesh motion. The boundary and initial conditions coincide with those of the system \labelcref{eq:coupled_system}.
+with $\rho$ the air density and $\nu$ its kinematic viscosity. The time derivative is taken at fixed grid coordinate $\boldsymbol\chi$, so the convective velocity is the relative one $\mathbf{u}-\mathbf{u}_g$: the formulation recovers the Lagrangian description when $\mathbf{u}_g=\mathbf{u}$ and the Eulerian one when $\mathbf{u}_g=\mathbf{0}$. The grid velocity satisfies the Geometric Conservation Law, so that a uniform flow is reproduced without spurious mass sources due to mesh motion. The boundary and initial conditions coincide with those of the system \labelcref{eq:coupled_system}.
 
 The discretisation and numerical solution of Equation~\eqref{eq:ns-ale} are carried out by \texttt{pimpleFoam}, the incompressible transient solver of OpenFOAM~v7. The exact numerical settings are collected in the case dictionaries archived in the repository; the following text reports only the qualitative choices needed to reproduce and trust the data. The physical properties are those of standard air, density $\rho = 1.225$~kg/m\(^3\) and kinematic viscosity $\nu = 10^{-5}$~m\(^2\)/s.
 

@@ -4,16 +4,13 @@ gust W(t) while the CONTROLLER receives a corrupted gust signal Wc(t).
 
 light/run.py cannot express this separation (both arms see the true W), so this
 module replicates its loop (== 76/preview_study.py::rollout_customW) importing
-the physics and the controller from light/ — nothing is duplicated or modified:
-structure.py, ldnet_aero.py, optimal.py are the verified originals.
+the physics from light/ — nothing is duplicated or modified:
+structure.py and ldnet_aero.py are the verified originals.
 
 Controller API used by rollout():
     ctrl.reset()
     ctrl.compute(state, W_true, Wc) -> delta [deg]
-light/optimal.py's OptimalController matches positionally (state, W, W_next):
-with use_wnext=True it reads only W_next = Wc, so the corrupted preview drives
-BOTH the candidate scan and the causal gate — the controller has no clean W.
-Reference laws in controllers_ref.py follow the same signature and document
+Reference laws in controllers_ref.py follow this signature and document
 which of (W_true, Wc) each one is allowed to read.
 
 DAMULT must be in the environment BEFORE importing this module (structure.
@@ -29,7 +26,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 import structure
 from ldnet_aero import LDNetAero
-from optimal import OptimalController  # noqa: F401  (re-exported for the axis scripts)
 
 structure.D_ALPHA *= float(os.environ.get('DAMULT', '1'))
 
@@ -69,13 +65,6 @@ def gust_array(W0, Tg, TEND=3.0):
     ts = np.arange(N) * DT
     Wt = np.array([gust(t, W0, Tg) for t in ts])
     return ts, Wt
-
-
-def make_optimal(R=3e-4, refine=True):
-    """Fresh final controller (defaults of light/optimal.py untouched)."""
-    return OptimalController(aero, U=U, dt=DT, R=R, C_L_trim=CLTRIM,
-                             delta_max=DMAX, delta_dot_max=DDOT_MAX,
-                             n_grid=161, use_wnext=True, refine=refine)
 
 
 # ---------------------------------------------------------------------------

@@ -30,6 +30,20 @@ class OptimizationProblem():
         self.iterations_history = list()
         self.loss_train_history = list()
         self.loss_valid_history = list()
+
+        # Optional best-validation checkpointing / early stopping (opt-in).
+        # When track_best_valid is True the weights that minimise the validation
+        # loss are stored and can be restored via restore_best(); with a finite
+        # `patience` (measured in recorded validation samples, i.e. every 10
+        # iterations) the optimiser stops once the validation loss stops
+        # improving. Default False keeps the original behaviour for other callers.
+        self.track_best_valid = False
+        self.patience = None
+        self._best_valid = np.inf
+        self._best_params = None
+        self._since_improved = 0
+        self._stop_requested = False
+
         self.iteration_callback()
 
     def compile(self):
@@ -71,8 +85,18 @@ class OptimizationProblem():
             self.iterations_history.append(self.iteration)
             self.loss_train_history.append(self.ag_train_loss())
             self.loss_valid_history.append(self.ag_valid_loss())
-            print('epoch% 5d   -   training loss: %1.3e   -   validation loss %1.3e' % 
+            print('epoch% 5d   -   training loss: %1.3e   -   validation loss %1.3e' %
                   (self.iteration, self.loss_train_history[-1], self.loss_valid_history[-1]))
+            if self.track_best_valid:
+                v = float(self.loss_valid_history[-1])
+                if v < self._best_valid:
+                    self._best_valid = v
+                    self._best_params = self.stitcher.stitch(self.variables).numpy().copy()
+                    self._since_improved = 0
+                else:
+                    self._since_improved += 1
+                    if self.patience is not None and self._since_improved >= self.patience:
+                        self._stop_requested = True
         if self.checkpoint_callback is not None and self.iteration > 0 and self.iteration % self.checkpoint_every == 0:
             self.checkpoint_callback(self.iteration)
         self.iteration += 1
@@ -81,22 +105,56 @@ class OptimizationProblem():
         for _ in range(num_epochs):
             optimizer.apply_gradients(zip(self.ag_train_grad(), self.variables))
             self.iteration_callback()
-        
-    def optimize_BFGS(self, num_epochs):
-        options = {'maxiter': num_epochs, 'gtol': 1e-100}
-        init_params = self.stitcher.stitch(self.variables).numpy()
+            if self._stop_requested:
+                break
 
+    def optimize_BFGS(self, num_epochs):
+        # scipy's BFGS aborts as soon as its line search fails, often after only
+        # a few hundred iterations, leaving the model undertrained. Restart it
+        # from the current point (fresh inverse-Hessian estimate) whenever it
+        # returns without our validation-plateau stop having fired, until either
+        # the patience criterion triggers, the iteration budget is spent, or a
+        # restart makes no further progress.
         def callback(_):
             self.iteration_callback()
-            return False
-    
-        sopt.minimize(fun = self.ag_train_loss_grad_numpy,
-                x0 = init_params,
-                method = 'BFGS',
-                jac = True,
-                tol = 1e-100,
-                options = options,
-                callback = callback)
+            if self._stop_requested:
+                # StopIteration halts scipy.optimize.minimize across versions
+                raise StopIteration
+
+        remaining = num_epochs
+        while remaining > 0 and not self._stop_requested:
+            options = {'maxiter': remaining, 'gtol': 1e-100}
+            init_params = self.stitcher.stitch(self.variables).numpy()
+            start = self.iteration
+            try:
+                sopt.minimize(fun = self.ag_train_loss_grad_numpy,
+                        x0 = init_params,
+                        method = 'BFGS',
+                        jac = True,
+                        tol = 1e-100,
+                        options = options,
+                        callback = callback)
+            except StopIteration:
+                print('  [early-stop] validation loss plateaued (patience reached)')
+                break
+            progressed = self.iteration - start
+            remaining -= progressed
+            if progressed <= 5:
+                # line search cannot make further progress from here
+                print(f'  [BFGS] converged/stalled after restart (progress {progressed})')
+                break
+            print(f'  [BFGS restart] line search aborted after {progressed} iters; '
+                  f'restarting ({remaining} iters left)')
+
+    def restore_best(self):
+        """Restore the weights that achieved the lowest validation loss.
+
+        No-op unless track_best_valid was enabled and at least one validation
+        sample was recorded. Returns the best validation loss (or None)."""
+        if self._best_params is not None:
+            self.stitcher.update_variables(self._best_params)
+            return self._best_valid
+        return None
 
 class VariablesStitcher:
     """

@@ -1,58 +1,75 @@
 """
-Figure: CLred vs sigma/W0 for E2-combo vs one-step none.
-Reads results/W_combo.npz. Run locally after scp.
+Thesis figure (chapter 3): CLred vs raw white-noise sigma for the MPC with
+inverse-variance sensor fusion (Jmax=50, N=8), home cell W30/Tg0.4, 6 seeds.
+
+Reads results/W_combo.npz (arm='combo' records only). Generates
+fig_ch3_noise_white.png in results/ and light/latex/Images/.
+
+Style follows light/latex/AGENTS.md ("Linee guida per i plot").
+Run locally after scp:  python3 -s -u plots_noise_white_combo.py
 """
 import os
+import shutil
 import numpy as np
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
-recs = list(np.load(os.path.join(DIR, 'W_combo.npz'), allow_pickle=True)['records'])
+_THIS   = os.path.dirname(os.path.abspath(__file__))
+DIR     = os.path.join(_THIS, 'results')
+IMG_DIR = os.path.join(_THIS, '..', 'latex', 'Images')
+os.makedirs(IMG_DIR, exist_ok=True)
 
-combo = [r for r in recs if r.get('kind') == 'point' and r.get('arm') == 'combo']
-none  = [r for r in recs if r.get('kind') == 'point' and r.get('arm') == 'none']
+plt.rcParams.update({
+    'font.family': 'serif',
+    'mathtext.fontset': 'cm',
+    'font.size': 9,
+    'axes.labelsize': 9,
+    'xtick.labelsize': 8,
+    'ytick.labelsize': 8,
+    'legend.fontsize': 8,
+    'axes.grid': True,
+    'grid.alpha': 0.25,
+    'savefig.dpi': 300,
+})
+C_CLOSED = '#4477AA'
 
-combo_f = sorted({float(r['frac']) for r in combo})
-none_f  = sorted({float(r['frac']) for r in none})
+recs  = list(np.load(os.path.join(DIR, 'W_combo.npz'), allow_pickle=True)['records'])
+combo = sorted((r for r in recs if r.get('kind') == 'point' and r.get('arm') == 'combo'),
+               key=lambda r: float(r['frac']))
 
-def get_stats(rows, frac):
-    pts = [r for r in rows if abs(float(r['frac']) - frac) < 1e-9]
-    if not pts: return None
-    r = pts[0]
-    return float(r['mean']), float(r['lo']), float(r['hi'])
+pcts  = [100 * float(r['frac'])  for r in combo]
+mean  = [float(r['mean'])        for r in combo]
+lo    = [float(r['lo'])          for r in combo]
+hi    = [float(r['hi'])          for r in combo]
+nflag = [int(r['nflag'])         for r in combo]
+nseed = [len(r['seeds'])         for r in combo]
+sdel  = [float(r['sigma_del'])   for r in combo]
+clean = mean[0]
 
-fig, ax = plt.subplots(figsize=(7, 4))
-c_fracs = combo_f
-n_fracs = none_f
-
-c_means, c_lo, c_hi = [], [], []
-for f in c_fracs:
-    s = get_stats(combo, f)
-    c_means.append(s[0]); c_lo.append(s[1]); c_hi.append(s[2])
-
-n_means, n_lo, n_hi = [], [], []
-for f in n_fracs:
-    s = get_stats(none, f)
-    if s: n_means.append(s[0]); n_lo.append(s[1]); n_hi.append(s[2])
-    else: n_means.append(float('nan')); n_lo.append(float('nan')); n_hi.append(float('nan'))
-
-pcts = [f * 100 for f in c_fracs]
-ax.fill_between(pcts, c_lo, c_hi, alpha=0.2, color='tab:blue')
-ax.plot(pcts, c_means, 'o-', color='tab:blue', label='E2-combo (Jmax=50, N=8)')
-
-if n_fracs:
-    npcts = [f * 100 for f in n_fracs]
-    ax.fill_between(npcts, n_lo, n_hi, alpha=0.2, color='tab:red')
-    ax.plot(npcts, n_means, 's--', color='tab:red', label='one-step optimal (no fusion)')
-
-ax.axhline(0, color='gray', lw=0.7)
-ax.axhline(32.0, color='gray', lw=0.7, ls=':', label='prop-W clean (+32%)')
-ax.set_xlabel('Raw measurement noise sigma / W0 [%]')
+x = np.arange(len(pcts))          # category spacing: sweep levels, not linear
+fig, ax = plt.subplots(figsize=(4.4, 2.9))
+ax.fill_between(x, lo, hi, alpha=0.25, color=C_CLOSED, lw=0,
+                label='min--max over seeds')
+ax.plot(x, mean, 'o-', ms=4, color=C_CLOSED, label='mean over seeds')
+flg = [i for i in range(len(pcts)) if nflag[i] > 0]
+ax.plot(x[flg], [mean[i] for i in flg], 'o', ms=9,
+        mfc='none', mec='#CC3311', mew=1.2, label='stability flag raised')
+for i in flg:
+    ax.annotate(f'{nflag[i]}/{nseed[i]}', (x[i], hi[i]),
+                textcoords='offset points', xytext=(0, 6),
+                ha='center', fontsize=7, color='#CC3311')
+ax.axhline(clean, color='k', ls=':', lw=0.8)
+ax.text(0.05, clean - 2.5, 'noise-free value', ha='left', va='top', fontsize=7)
+ax.set_xticks(x)
+ax.set_xticklabels([f'{p:g}\n{s:.2f}' for p, s in zip(pcts, sdel)])
+ax.set_xlabel(r'raw noise $\sigma / W_0$ [%] (upper) '
+              r'/ delivered $\sigma_{\mathrm{del}}$ [m/s] (lower)')
 ax.set_ylabel('CLred [%]')
-ax.set_title('White-noise robustness -- E2-combo vs one-step (W30/Tg0.4, DAMULT=3)')
-ax.legend(frameon=False); ax.grid(alpha=0.3)
-plt.tight_layout()
-fn = os.path.join(DIR, 'fig_noise_white_combo.png')
-fig.savefig(fn, dpi=150, bbox_inches='tight'); plt.close(fig)
-print(f'saved {fn}')
+ax.set_ylim(0, 100)
+ax.legend(frameon=False, loc='lower left')
+fig.tight_layout()
+
+fn = os.path.join(DIR, 'fig_ch3_noise_white.png')
+fig.savefig(fn, bbox_inches='tight'); plt.close(fig)
+shutil.copy(fn, os.path.join(IMG_DIR, 'fig_ch3_noise_white.png'))
+print(f'saved {fn} (+ latex/Images)')

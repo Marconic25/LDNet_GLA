@@ -1,0 +1,322 @@
+### Task 1: Axis C2 — spatial per-shot jitter script + cluster wrappers + plot
+
+**Files:**
+- Create: `light/noise/noise_jitter_combo.py`
+- Create: `light/noise/launch_noise_jitter_combo.sh`
+- Create: `light/noise/status_noise_jitter_combo.sh`
+- Create: `light/noise/plots_noise_jitter_combo.py`
+
+**Interfaces:**
+- Consumes: `harness_noise` utilities and `optimal.FusedPreviewSensor/MPCPreviewController` (unchanged).
+- Produces: `results/C2_jitter.npz` with `point` records keyed `axis='C2'`, `arm='jitter'`, `value` (k, max node offset), `frac` (0.0 jitter-only / 0.02 compound), `sigma_del`, `bias_del`.
+
+- [ ] **Step 1: Write `light/noise/noise_jitter_combo.py`** with exactly this content:
+
+```python
+"""
+Spatial per-shot jitter robustness of the E2-combo pipeline.
+
+Each individual shot samples the gust at the WRONG node: the sensor believes
+it measured node i+j but the returned value is W at node i+j+eta, with
+eta ~ U{-k..+k} drawn independently per shot (range-gate error / probe-volume
+averaging / frozen-field violation -- the 1D surrogate of lidar coherence
+loss, Schlipf/Guo WES 2023). Inverse-variance fusion cannot cancel it: node m
+averages samples of its neighbours, so the fused profile converges to W
+convolved with the jitter distribution -- a spatial low-pass that degrades
+the PHASE content (gradients, zero crossings) the MPC lives on.
+
+At the node spacing U*dt = 0.16 m, k in {1,2,5} = 0.16/0.32/0.80 m of range
+error. k=0 skips the eta draws entirely and reproduces FusedPreviewSensor
+bit-exactly (anchor gate +80.51%).
+
+Points: anchor k=0 clean (deterministic); jitter-only k in {1,2,5}
+(sigma=1e-9, 6 seeds -- eta is the only randomness); compound k=2 with
+sigma=2%*W0 (6 seeds).
+
+Config: Jmax=50, lam=0, N=8, R=3e-4, R_du=0, home cell W30/Tg0.4, DAMULT=3.
+Output: results/C2_jitter.npz
+--smoke: k=0 clean + k=2 jitter-only 2 seeds.
+"""
+import os, sys
+import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+import harness_noise as H
+from optimal import FusedPreviewSensor, MPCPreviewController
+
+W0, Tg   = 30.0, 0.4
+JMAX, N  = 50, 8
+R        = 3e-4
+R_DU     = 0.0
+LAM      = 0.0
+SMOKE    = '--smoke' in sys.argv
+NSEED    = 2 if SMOKE else 6
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', 'C2_jitter.npz')
+
+if SMOKE:
+    PTS = [(0, 0.0, 1), (2, 0.0, NSEED)]          # (k, frac, nseed)
+else:
+    PTS = ([(0, 0.0, 1)]
+           + [(k, 0.0, NSEED) for k in (1, 2, 5)]
+           + [(2, 0.02, NSEED)])
+
+
+def _delivered(r):
+    """(sigma_del, bias_del) of the Wc channel vs the true next-step gust."""
+    t, Wt, Wc = r['_t'], r['_Wt'], r['_Wc']
+    n = len(t)
+    Wnext = Wt[np.minimum(np.arange(n) + 1, n - 1)]
+    mw  = t <= (Tg + 0.5)
+    err = Wc[mw] - Wnext[mw]
+    return float(np.std(err)), float(np.mean(err))
+
+
+class JitterSensor(FusedPreviewSensor):
+    """
+    FusedPreviewSensor whose every shot samples the field at a jittered node.
+
+    The value registered at node i+j is W(clip(i+j+eta)) + noise with
+    eta ~ U{-k..+k} per shot; the registration index is unchanged (the sensor
+    does not know it sampled the wrong place). wc_fun body duplicated from
+    optimal.FusedPreviewSensor (kept in sync by eye) with the sampled index
+    perturbed. k=0 draws no eta and reproduces the parent bit-exactly (same
+    rng stream).
+    """
+
+    def __init__(self, rng, sigma_fun, Jmax, N, lam=0.0, k=0):
+        super().__init__(rng, sigma_fun, Jmax, N, lam=lam)
+        self.k = int(k)
+
+    def _eta(self, size):
+        if self.k == 0:
+            return np.zeros(size, dtype=int)
+        return self.rng.integers(-self.k, self.k + 1, size=size)
+
+    def wc_fun(self, i, Wt, Nsteps):
+        js, sigs, inv2 = self.js, self.sigs, self.inv2
+        if self.num is None:
+            self.num = np.zeros(Nsteps)
+            self.den = np.zeros(Nsteps)
+            for ii in range(-(self.Jmax - 1), 0):
+                mm = ii + js
+                keep = mm >= 0
+                mk = np.minimum(mm[keep], Nsteps - 1)
+                mt = np.clip(mm[keep] + self._eta(int(keep.sum())), 0, Nsteps - 1)
+                yk = Wt[mt] + self.rng.normal(0.0, sigs[keep])
+                np.add.at(self.num, mk, yk * inv2[keep])
+                np.add.at(self.den, mk, inv2[keep])
+
+        m_reg  = np.minimum(i + js, Nsteps - 1)
+        m_true = np.clip(i + js + self._eta(js.size), 0, Nsteps - 1)
+        y = Wt[m_true] + self.rng.normal(0.0, sigs)
+        np.add.at(self.num, m_reg, y * inv2)
+        np.add.at(self.den, m_reg, inv2)
+
+        lo = min(i + 1, Nsteps - 1)
+        hi = min(i + self.Jmax, Nsteps - 1)
+        w = self.den[lo:hi + 1].copy()
+        n = w.size
+        ybar = np.zeros(n)
+        good = w > 0.0
+        ybar[good] = self.num[lo:hi + 1][good] / w[good]
+
+        if self.lam == 0.0 or n < 3:
+            u = ybar
+        else:
+            lam_eff = self.lam * float(np.mean(w))
+            D = (np.eye(n - 2, n, 0) - 2.0 * np.eye(n - 2, n, 1)
+                 + np.eye(n - 2, n, 2))
+            A = np.diag(w) + lam_eff * (D.T @ D)
+            u = np.linalg.solve(A, w * ybar)
+
+        idx = np.minimum(np.arange(self.N), n - 1)
+        self.last = np.maximum(0.0, u[idx])
+        return float(self.last[0])
+
+
+# ---- harness adapter: wc_fun sets sensor.last; compute reads it ----------------
+class _ComboCtrl:
+    def __init__(self, sensor, mpc):
+        self._sensor = sensor
+        self._mpc    = mpc
+        self._delta_prev = 0.0
+
+    def reset(self):
+        self._sensor.reset()
+        self._mpc.reset()
+        self._delta_prev = 0.0
+
+    def compute(self, state, W_true, Wc):
+        # sensor.last set by wc_fun before this call (harness protocol)
+        return self._mpc.compute(state, self._sensor.last)
+
+
+def make_combo(rng, frac, k):
+    sigma_fun = (lambda j: frac * W0) if frac > 0.0 else (lambda j: 1e-9)
+    sensor = JitterSensor(rng, sigma_fun, JMAX, N, lam=LAM, k=k)
+    mpc    = MPCPreviewController(
+        H.aero, U=H.U, dt=H.DT, rho=1.225, S=0.05, C=H.C,
+        C_L_trim=H.CLTRIM, N=N, R=R, R_du=R_DU,
+        G=161, delta_max=H.DMAX, delta_dot_max=H.DDOT_MAX)
+    return _ComboCtrl(sensor, mpc), sensor.wc_fun
+
+
+OL   = H.rollout(None, W0, Tg)
+cex0 = H.metrics(OL, OL, Tg)['exo']
+print(f"# C2_jitter | W{W0:g}/Tg{Tg:g} DAMULT={os.environ.get('DAMULT','1')} "
+      f"N={N} Jmax={JMAX} R={R:g} R_du={R_DU:g} | open cex0={cex0:.4f}"
+      f"{' | SMOKE' if SMOKE else ''}", flush=True)
+
+recs = [dict(kind='open', axis='C2', W0=W0, Tg=Tg, cex0=cex0,
+             t=OL['_t'], W=OL['_Wt'], CL=OL['CL'])]
+
+for k, frac, nseed in PTS:
+    ms, sds, bds = [], [], []
+    for seed in range(nseed):
+        rng = np.random.default_rng(100 + seed)
+        ctrl, wc = make_combo(rng, frac, k)
+        r = H.rollout(ctrl, W0, Tg, wc_fun=wc)
+        ms.append(H.metrics(r, OL, Tg))
+        sd, bd = _delivered(r)
+        sds.append(sd); bds.append(bd)
+    rec = H.point_record(ms, axis='C2', arm='jitter', value=int(k),
+                         W0=W0, Tg=Tg, R=R, N=N, Jmax=JMAX, lam=LAM, R_du=R_DU,
+                         frac=frac, sigma_del=float(np.mean(sds)),
+                         bias_del=float(np.mean(bds)))
+    recs.append(rec)
+    print(f"  jitter k={k} frac={frac:.0%}: {H.fmt_stats(H.seed_stats(ms))}  "
+          f"sig_del={np.mean(sds):.3g}  bias_del={np.mean(bds):+.3g} m/s", flush=True)
+
+H.save_records(OUT, recs)
+print("# DONE", flush=True)
+```
+
+- [ ] **Step 2: Write `light/noise/launch_noise_jitter_combo.sh`**:
+
+```bash
+#!/bin/bash
+# Launch noise_jitter_combo.py (cluster only).
+#   ./launch_noise_jitter_combo.sh smoke
+#   ./launch_noise_jitter_combo.sh full
+cd /work/u10677113/LDNet_GLA/light/noise || exit 1
+if [ "$1" = "smoke" ]; then
+    nohup ./run_axis.sh "noise_jitter_combo.py --smoke" > C2.smoke.log 2>&1 &
+    echo "launched noise_jitter_combo smoke pid $!"
+else
+    nohup ./run_axis.sh "noise_jitter_combo.py" > C2.log 2>&1 &
+    echo "launched noise_jitter_combo full pid $!"
+fi
+```
+
+- [ ] **Step 3: Write `light/noise/status_noise_jitter_combo.sh`**:
+
+```bash
+#!/bin/bash
+cd /work/u10677113/LDNet_GLA/light/noise 2>/dev/null || exit 1
+for pair in "C2.smoke:noise_jitter_combo.py --smoke" "C2:noise_jitter_combo.py"; do
+    L=${pair%%:*}; P=${pair##*:}
+    LOG="${L}.log"
+    [ -f "$LOG" ] || continue
+    if grep -q "^# DONE" "$LOG"; then st="DONE"
+    elif grep -qE "Traceback|Error|Killed" "$LOG"; then st="ERROR"
+    elif pgrep -f "python3 -s -u $P" >/dev/null 2>&1; then st="RUNNING"
+    else st="DEAD"; fi
+    last=$(grep -E "^  |^#" "$LOG" 2>/dev/null | tail -1)
+    echo "$L: $st | $last"
+done
+```
+
+- [ ] **Step 4: Write `light/noise/plots_noise_jitter_combo.py`**:
+
+```python
+"""
+Figure: CLred vs per-shot spatial jitter for the E2-combo.
+Reads results/C2_jitter.npz. Run locally after scp.
+"""
+import os
+import numpy as np
+import matplotlib; matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
+# our own npz (harness save_records object-array schema) -- trusted local file
+recs = list(np.load(os.path.join(DIR, 'C2_jitter.npz'), allow_pickle=True)['records'])
+pts  = [r for r in recs if r.get('kind') == 'point']
+
+ANCHOR = 80.51
+DX_M   = 0.16   # node spacing U*dt [m]
+
+def series(frac):
+    rows = sorted([r for r in pts if abs(float(r['frac']) - frac) < 1e-9],
+                  key=lambda r: float(r['value']))
+    return ([float(r['value']) for r in rows],
+            [float(r['mean']) for r in rows], [float(r['lo']) for r in rows],
+            [float(r['hi']) for r in rows], [int(r['nflag']) for r in rows],
+            [int(r['n']) if 'n' in r else len(r['clred']) for r in rows])
+
+fig, ax = plt.subplots(figsize=(7, 4.2))
+x, m, lo, hi, nf, nn = series(0.0)
+yerr = [np.array(m) - np.array(lo), np.array(hi) - np.array(m)]
+ax.errorbar(x, m, yerr=yerr, fmt='o-', color='tab:blue', capsize=3,
+            label='jitter only (6 seeds; k=0 deterministic)')
+for xi, mi, f in zip(x, m, nf):
+    if f:
+        ax.plot(xi, mi, 'o', mfc='none', mec='red', ms=12, mew=1.5)
+xn, mn, lon, hin, nfn, _ = series(0.02)
+if xn:
+    yerr = [np.array(mn) - np.array(lon), np.array(hin) - np.array(mn)]
+    ax.errorbar(xn, mn, yerr=yerr, fmt='s', color='tab:orange', capsize=3,
+                label='jitter + sigma=2% x 6 seeds')
+    for xi, mi, f in zip(xn, mn, nfn):
+        if f:
+            ax.plot(xi, mi, 's', mfc='none', mec='red', ms=12, mew=1.5)
+ax.axhline(ANCHOR, color='gray', lw=0.7, ls=':', label=f'clean anchor +{ANCHOR}%')
+ax.axhline(0, color='gray', lw=0.7)
+ticks = sorted(set(x) | set(xn))
+ax.set_xticks(ticks)
+ax.set_xticklabels([f'{int(t)}\n({t*DX_M:.2f} m)' for t in ticks])
+ax.set_xlabel('per-shot node jitter k  (range error)')
+ax.set_ylabel('CLred [%]')
+ax.set_title('C2 -- spatial per-shot jitter (red ring = flagged)\n'
+             'E2-combo, W30/Tg0.4, DAMULT=3')
+ax.grid(alpha=0.3); ax.legend(frameon=False, fontsize=8)
+plt.tight_layout()
+fn = os.path.join(DIR, 'fig_noise_jitter_combo.png')
+fig.savefig(fn, dpi=150, bbox_inches='tight'); plt.close(fig)
+print(f'saved {fn}')
+```
+
+- [ ] **Step 5: Parse-test all four files**
+
+```bash
+python3 - <<'EOF'
+import ast
+for f in ('light/noise/noise_jitter_combo.py', 'light/noise/plots_noise_jitter_combo.py'):
+    ast.parse(open(f).read()); print(f, 'parse OK')
+EOF
+bash -n light/noise/launch_noise_jitter_combo.sh && echo launch OK
+bash -n light/noise/status_noise_jitter_combo.sh && echo status OK
+```
+Expected: two `parse OK`, `launch OK`, `status OK`. (No TF locally — do NOT import the script.)
+
+- [ ] **Step 6: Commit (only the four new files)**
+
+```bash
+git add light/noise/noise_jitter_combo.py light/noise/launch_noise_jitter_combo.sh light/noise/status_noise_jitter_combo.sh light/noise/plots_noise_jitter_combo.py
+git commit -m "feat(noise): C2 spatial per-shot jitter robustness axis for E2-combo"
+```
+
+---
+## Global Constraints
+
+- Do NOT modify `light/optimal.py`, `light/noise/harness_noise.py`, `light/structure.py`, or any existing results (`light/noise/results/*.npz`, `light/results_cs25*/`).
+- Fixed config: W0=30, Tg=0.4 (home cell), Jmax=50, N=8, R=3e-4, R_du=0, lam=0, G=161, seeds rng(100+seed), 6 seeds per stochastic point, metrics window t<=Tg+0.5, explosion flags 3x open-loop, DAMULT=3 (set by run_axis.sh).
+- Anchor (dp45 tree, must reproduce or STOP): combo clean = **+80.51%** (zero-error point of each sweep).
+- Local tree has uncommitted user changes: `git add` ONLY the files this plan creates — never `git add -A` / `git add -u` / `git add .`.
+- New scripts import only: from `optimal` — `FusedPreviewSensor`, `MPCPreviewController`; from `harness_noise` — `rollout, metrics, point_record, seed_stats, fmt_stats, save_records, aero, U, DT, C, CLTRIM, DMAX, DDOT_MAX`; plus `import structure` (D2 only, for the toggle — read/setattr on D_ALPHA/K_ALPHA only, at runtime, never editing the file).
+- Cluster quoting trap: launch/status logic lives in `.sh` scripts ON the cluster invoked by path (no `$`/redirects through ssh). Cluster: `u10677113@10.78.18.100`, tree `/work/u10677113/LDNet_GLA`.
+- Smoke before full. Smoke gates are the zero-error anchors only; nonzero-error smoke rows are DATA.
+- D2 metrics rule: each perturbed plant is compared against ITS OWN open-loop rollout (same perturbed globals), never against the nominal open loop.
+
+---

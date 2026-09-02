@@ -1,17 +1,12 @@
 """
-CS-25.341-style gust study — one-step optimal OR E2-combo controller.
+CS-25.341-style gust study — E2-combo controller (MPC N=8 + oracle preview).
 
-Parametrised by env:
-  MODE=optimal  (default) -> results_cs25/         (dp45 re-run)
-  MODE=combo              -> results_cs25_combo/   (new)
-
-Env controls identical to cs25_study.py (W0, TEND, DAMULT).
+Env controls: W0 (one row), TEND, DAMULT, NH.
 R_GRID and pick rule (no-flag max CLred, fallback min-pitch) unchanged.
-NH=8 and R_du=0 are hard-coded for the combo arm.
+NH=8 and R_du=0 are the study defaults.
 
 Usage:
-  DAMULT=3 MODE=combo W0=30 python3 -s -u cs25_combo_study.py
-  DAMULT=3 MODE=optimal W0=10 python3 -s -u cs25_combo_study.py
+  DAMULT=3 W0=30 python3 -s -u cs25_combo_study.py
 """
 import os, sys
 import numpy as np
@@ -25,18 +20,12 @@ if 'W0' in os.environ:
     W0_LIST = [float(os.environ['W0'])]
 R_GRID = [1e-2, 3e-3, 1e-3, 3e-4, 1e-4]
 TEND   = float(os.environ.get('TEND', '3.0'))
-MODE   = os.environ.get('MODE', 'optimal')
+MODE   = 'combo'
 NH     = int(os.environ.get('NH', '8'))
 QTY    = ['CL', 'de', 'al', 'ad']
 
 _THIS = os.path.dirname(os.path.abspath(__file__))
-OUT_DIRS = {
-    'optimal': os.path.join(_THIS, '..', 'results_cs25'),
-    'combo':   os.path.join(_THIS, '..', 'results_cs25_combo'),
-}
-if MODE not in OUT_DIRS:
-    raise ValueError(f'MODE must be optimal|combo, got {MODE!r}')
-OUT_DIR = OUT_DIRS[MODE]
+OUT_DIR = os.environ.get('RESULTS_DIR_OVERRIDE', os.path.join(_THIS, '..', 'results_cs25_combo'))
 os.makedirs(OUT_DIR, exist_ok=True)
 
 print(f'# cs25_combo_study MODE={MODE} NH={NH}  W0_LIST={W0_LIST}  '
@@ -56,9 +45,7 @@ for W0 in W0_LIST:
 
         runs = []; ms = []
         for r in R_GRID:
-            kw = dict(TEND=TEND, R=float(r))
-            if MODE == 'combo':
-                kw['NH'] = NH; kw['R_du'] = 0.0
+            kw = dict(TEND=TEND, R=float(r), NH=NH, R_du=0.0)
             RES = Rn.simulate(MODE, W0, Tg, **kw)
             m   = Rn.metrics(RES, OL, Tg)
             m['pr'] = m['pitchpk'] / max(pk0, 1e-12)

@@ -1,0 +1,10 @@
+#!/bin/bash
+#PBS -N CO_0.5
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=48:00:00
+#PBS -j oe
+
+cd /work/u10677113/NACA2312
+source /work/u10677113/NACA2312/my_venv/bin/activate
+python3 courant_sweep.py run Co_0.5 2>&1 | tee /work/u10677113/NACA2312/courant_sweep/log_Co_0.5.txt

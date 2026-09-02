@@ -83,6 +83,16 @@ GUST_T_END   = 0.8    # gust end [s]
 DELTA_TIMES  = [0.0,  2.0]   # [s]
 DELTA_ANGLES = [0.0,  0.0]   # [deg]
 
+# Closed-loop MPC verification (--controller mpc). When active, delta_schedule(t)
+# ignores DELTA_TIMES/DELTA_ANGLES and returns the constant commanded by the
+# persistent MPC server for the CURRENT window (see mpc_call() below). Default
+# 'schedule' preserves the original prescribed-δ(t) behaviour exactly.
+CONTROLLER      = 'schedule'   # 'schedule' | 'mpc'
+_MPC_CUR_DELTA  = 0.0
+_MPC_CTRL_DT    = 0.002        # controller horizon step [s] — fixed at the
+                                # validated light/results_cs25_combo recipe,
+                                # independent of the FOM co-sim window size
+
 
 # Law 5 parameters — feed-forward on W_gust with rate limiting
 # δ_ref(t) = clip(-K_eff * W_g(t - tau), -DELTA_MAX_ABS, +DELTA_MAX_ABS)
@@ -130,6 +140,8 @@ def _build_law5_table(dt_sim, t_end):
 
 def delta_schedule(t):
     """Prescribed flap deflection in degrees at time t."""
+    if CONTROLLER == 'mpc':
+        return _MPC_CUR_DELTA
     if LAW == 5:
         if _LAW5_DELTA_TABLE is None:
             raise RuntimeError("Law 5 table not built — call _build_law5_table() first")
@@ -542,6 +554,72 @@ RANS_DIR = CASE_DIR.parent / "rans_baseline"
 CONTAINER = "/work/u10677113/of7.sif"
 APPTAINER_CMD = ["apptainer", "exec", "--bind", "/work", CONTAINER]
 
+# ──────────────────── MPC controller server (--controller mpc) ──────────────
+# Neither Python env that runs THIS script has TensorFlow (only tensorflow_
+# gpu.sif does) — see light/tests/mpc_fom_server.py docstring. The server is
+# spawned ONCE (avoids per-window container+TF-import overhead) and talked to
+# over stdin/stdout with one line-JSON request per co-simulation window.
+
+TF_CONTAINER   = "/work/u10677113/tensorflow_gpu.sif"
+LDNET_GLA_DIR  = "/work/u10677113/LDNet_GLA"
+APPTAINER_CMD_TF = ["apptainer", "exec", "--bind", "/work", TF_CONTAINER]
+
+_MPC_PROC = None
+
+
+def start_mpc_server(model, R, N, damult, dt, U=80.0):
+    """Spawn the persistent MPC controller server inside the TF container."""
+    global _MPC_PROC
+    # OMP/TF thread limits are essential here: this server stays alive for the
+    # WHOLE co-simulation, sharing the job's cores with pimpleFoam's 16 MPI
+    # ranks. Without them TF defaults to using all visible cores for its
+    # thread pools, starving pimpleFoam's ranks and stalling MPI collectives
+    # (this caused hours-long hangs on Window 000 before being tracked down —
+    # the controller call itself was always fast, pimpleFoam was the victim).
+    cmd = APPTAINER_CMD_TF + [
+        "/bin/bash", "-c",
+        f"cd {LDNET_GLA_DIR}/light/tests && "
+        f"OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 "
+        f"python3 -u mpc_fom_server.py "
+        f"--model {model} --R {R} --N {N} --damult {damult} --dt {dt} --U {U}"
+    ]
+    print(f"  Starting MPC server: model={model} R={R} N={N} damult={damult} dt={dt}")
+    _MPC_PROC = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=sys.stderr, text=True, bufsize=1)
+    ready_line = _MPC_PROC.stdout.readline()
+    ready = json.loads(ready_line) if ready_line else {}
+    if not ready.get("ready"):
+        raise RuntimeError(f"MPC server failed to start: {ready_line!r}")
+    print(f"  MPC server ready: CLTRIM={ready.get('CLTRIM'):.4f}  lam={ready.get('lam')}")
+
+
+def mpc_reset():
+    _MPC_PROC.stdin.write(json.dumps({"cmd": "reset"}) + "\n")
+    _MPC_PROC.stdin.flush()
+    _MPC_PROC.stdout.readline()
+
+
+def mpc_call(state, wseq, wnow):
+    """One controller decision: state=(h,hd,a,ad), wseq=[N future gust samples],
+    wnow=current gust estimate. Returns the commanded flap deflection [deg]."""
+    req = {"state": list(state), "wseq": list(wseq), "wnow": float(wnow)}
+    _MPC_PROC.stdin.write(json.dumps(req) + "\n")
+    _MPC_PROC.stdin.flush()
+    resp = json.loads(_MPC_PROC.stdout.readline())
+    return float(resp["delta"])
+
+
+def mpc_shutdown():
+    if _MPC_PROC is None:
+        return
+    try:
+        _MPC_PROC.stdin.write(json.dumps({"cmd": "quit"}) + "\n")
+        _MPC_PROC.stdin.flush()
+        _MPC_PROC.wait(timeout=30)
+    except Exception as e:
+        print(f"  [WARN] MPC server shutdown: {e}")
+        _MPC_PROC.kill()
+
 
 def run_map_fields():
     """Map RANS steady-state solution onto cosim_main as initial condition."""
@@ -918,11 +996,36 @@ def main():
                         help="Law 5: controller delay tau [s] (default: 0)")
     parser.add_argument("--law5-rate-max", type=float, default=0.0,
                         help="Law 5: actuator rate limit [deg/s] (0=unlimited, default: 0)")
+    # Closed-loop MPC verification (FOM-in-the-loop, vs the prescribed --law schedules)
+    parser.add_argument("--controller", choices=["schedule", "mpc"], default="schedule",
+                        help="'schedule' (default): prescribed δ(t)/law5. "
+                             "'mpc': close the loop with the SAME preview MPC "
+                             "validated in light/results_cs25_combo, driven by "
+                             "the real FSI structural state each window.")
+    parser.add_argument("--mpc-model", type=str, default=None,
+                        help="LDNet model dir for the MPC controller (required if --controller mpc)")
+    parser.add_argument("--mpc-R", type=float, default=None,
+                        help="MPC flap-effort weight R* (required if --controller mpc; "
+                             "use the R* found for this (W0,Tg) cell in results_cs25_combo/summary.md)")
+    parser.add_argument("--mpc-N", type=int, default=8, help="MPC preview horizon length")
+    parser.add_argument("--damult", type=float, default=1.0,
+                        help="Pitch-damping multiplier applied to BOTH the real FOM structural "
+                             "model (this driver's D_ALPHA) and the controller's internal horizon "
+                             "prediction (light/structure.py's D_ALPHA), matching light/run.py's "
+                             "DAMULT convention. Use the same value the R* grid search was run "
+                             "with (DAMULT=3 for the light/results_cs25_combo production numbers).")
+    parser.add_argument("--also-spawn-mpc-idle", action="store_true",
+                        help="Debug isolation flag: spawn the persistent MPC server subprocess "
+                             "(same as --controller mpc) even when --controller is 'schedule', "
+                             "but never call it (delta_schedule keeps using the prescribed table). "
+                             "Isolates whether the mere co-residency of a second live apptainer/TF "
+                             "process causes the pimpleFoam stall, independent of the per-window "
+                             "mpc_call() round-trip.")
     args = parser.parse_args()
 
     # Override gust and flap parameters from CLI if provided
     global GUST_W0, GUST_T_START, GUST_T_END, DELTA_TIMES, DELTA_ANGLES
-    global LAW, LAW5_K_EFF, LAW5_TAU, LAW5_RATE_MAX
+    global LAW, LAW5_K_EFF, LAW5_TAU, LAW5_RATE_MAX, CONTROLLER, D_ALPHA, _MPC_CUR_DELTA
     if args.gust_w0      is not None: GUST_W0       = args.gust_w0
     if args.gust_t_start is not None: GUST_T_START  = args.gust_t_start
     if args.gust_t_end   is not None: GUST_T_END    = args.gust_t_end
@@ -932,6 +1035,15 @@ def main():
     if args.law5_k_eff   is not None: LAW5_K_EFF    = args.law5_k_eff
     if args.law5_tau     is not None: LAW5_TAU       = args.law5_tau
     if args.law5_rate_max is not None: LAW5_RATE_MAX = args.law5_rate_max
+    CONTROLLER = args.controller
+    _mpc_server_needed = (CONTROLLER == "mpc") or args.also_spawn_mpc_idle
+    if _mpc_server_needed:
+        if args.mpc_model is None or args.mpc_R is None:
+            raise ValueError("--controller mpc (or --also-spawn-mpc-idle) requires --mpc-model and --mpc-R")
+        if CONTROLLER == "mpc":
+            D_ALPHA = D_ALPHA * args.damult   # match the real wing to the controller's assumption
+        start_mpc_server(args.mpc_model, args.mpc_R, args.mpc_N, args.damult, _MPC_CTRL_DT)
+        mpc_reset()
 
     # Build law 5 delta table if needed (must happen after gust params are set)
     if LAW == 5:
@@ -1046,6 +1158,17 @@ def main():
         print(f"Window {window_idx:03d}: t = {t_cur:.5f} → {t_win_end:.5f} s  "
               f"({len(t_win)} steps)")
         print(f"  Wing state: h={h*1000:.3f}mm  α={np.degrees(a):.3f}°")
+
+        if CONTROLLER == "mpc":
+            # One controller decision per window, held constant over the window
+            # (same N-step-constant-flap semantics as light/optimal.py's MPC —
+            # here re-solved at the FSI coupling cadence instead of every native
+            # 0.002s ROM step; the horizon lookahead itself still samples the
+            # oracle gust at the validated 0.002s spacing, see _MPC_CTRL_DT).
+            w_seq = [gust_velocity(t_cur + (k + 1) * _MPC_CTRL_DT) for k in range(args.mpc_N)]
+            w_now = gust_velocity(t_cur)
+            _MPC_CUR_DELTA = mpc_call((h, hd, a, ad), w_seq, w_now)
+            print(f"  MPC delta_cmd = {_MPC_CUR_DELTA:.3f} deg  (w_now={w_now:.3f} m/s)")
 
         # Structural state arrays for this window — first-order hold (linear ramp).
         # Using h(t) = h + hd*(t - t_cur) and α(t) = a + ad*(t - t_cur) instead of
@@ -1198,6 +1321,9 @@ def main():
                 t_cur >= args.save_checkpoint and
                 not (CHECKPOINT_DIR / "cosim_state.json").exists()):
             save_checkpoint(t_cur, h, hd, a, ad, dt)
+
+    if _mpc_server_needed:
+        mpc_shutdown()
 
     print(f"\n{'='*60}")
     print(f"Co-simulation complete: {window_idx} windows, t_final={t_cur:.5f}s")

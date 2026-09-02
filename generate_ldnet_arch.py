@@ -1,38 +1,40 @@
 #!/usr/bin/env python3
 """
-generate_ldnet_arch.py
-Generates figs/ldnet_arch.drawio — LDNet GLA architecture diagram
-styled after the reference paper figure: individual neuron circles,
-gray weight lines, dark normalization strips, color-coded signal flows.
-
-Usage:
-    python3 generate_ldnet_arch.py
-    # opens figs/ldnet_arch.drawio in VS Code draw.io extension
+generate_ldnet_arch.py  v4
+Layout matched to reference paper figure:
+  - ∫dt → s(t) arrow goes DOWN-then-LEFT (below NN_dyn block)
+  - s(t) is shared: sits between blocks, receives from ∫dt on the right
+  - Orange rectangles around every s(t) neuron group (standalone + inside blocks)
 """
-import os, math
+import os
 
-# ─── Visual constants ─────────────────────────────────────────────────────────
-D    = 16    # neuron circle diameter [px]
-VGAP = 4     # gap between neuron circles [px]
-HGAP = 52    # center-to-center horizontal spacing between columns [px]
-NW   = 26    # normalization strip width [px]
+# ─── Visual constants ──────────────────────────────────────────────────────────
+D    = 16    # neuron diameter [px]
+VGAP = 4     # gap between neurons [px]
+NW   = 22    # normalisation strip width [px]
+HGAP = 52    # horiz centre-to-centre between neuron columns [px]
 
-# ─── Color palette ─────────────────────────────────────────────────────────────
+# ─── Colours ───────────────────────────────────────────────────────────────────
 C = {
-    'u':   ('#67AB9F', '#446359'),  # teal:   u(t) input neurons
-    'lat': ('#f0a30a', '#BD7000'),  # orange: s(t) latent state
-    'x':   ('#6c8ebf', '#23445D'),  # blue:   x spatial query
-    'hid': ('#ffffff', '#bbbbbb'),  # white:  hidden neurons
-    'oy':  ('#d9b3ff', '#7B3FB0'),  # purple: ỹ output neurons
+    'u':    ('#67AB9F', '#3d7a6e'),
+    'uinf': ('#a8d5c8', '#3d7a6e'),
+    'lat':  ('#f0a30a', '#BD7000'),
+    'x':    ('#6c8ebf', '#23445D'),
+    'hid':  ('#ffffff', '#aaaaaa'),
+    'oy':   ('#cc99ff', '#7B3FB0'),
 }
+TEAL   = '#3d7a6e'
+ORANGE = '#BD7000'
+BLUE   = '#23445D'
+PURPLE = '#7B3FB0'
 
 _id = [50]
 lines = []
 
-def uid():
-    _id[0] += 1; return _id[0]
+def uid(): _id[0] += 1; return _id[0]
+def col_h(n): return n * D + (n - 1) * VGAP
 
-# ─── Drawing primitives ────────────────────────────────────────────────────────
+# ─── Primitives ────────────────────────────────────────────────────────────────
 
 def neuron(cx, cy, col='hid'):
     fc, sc = C[col]
@@ -45,9 +47,7 @@ def neuron(cx, cy, col='hid'):
         f'</mxCell>')
 
 def neuron_col(cx, cen_y, n, col='hid'):
-    """Draw n neurons vertically centered at cen_y. Returns list of (cx, cy)."""
-    tot = n * D + (n - 1) * VGAP
-    top = cen_y - tot / 2
+    tot = col_h(n); top = cen_y - tot / 2
     pts = []
     for i in range(n):
         cy = top + i * (D + VGAP) + D / 2
@@ -56,7 +56,6 @@ def neuron_col(cx, cen_y, n, col='hid'):
     return pts
 
 def weight_lines(L, R, step=1):
-    """Gray weight connection lines from column L to R (subset for clarity)."""
     for i, (lx, ly) in enumerate(L):
         for j, (rx, ry) in enumerate(R):
             if (i + j) % max(1, step) == 0:
@@ -70,43 +69,51 @@ def weight_lines(L, R, step=1):
                     f'</mxGeometry></mxCell>')
 
 def norm_strip(x, y, h):
-    """Dark normalization strip with rotated 'normalization' label."""
     lines.append(
         f'<mxCell id="{uid()}" value="" '
-        f'style="fillColor=#555555;strokeColor=none;html=1;" '
+        f'style="fillColor=#444444;strokeColor=none;html=1;" '
         f'vertex="1" parent="1">'
-        f'<mxGeometry x="{x:.1f}" y="{y:.1f}" '
-        f'width="{NW}" height="{h:.1f}" as="geometry"/>'
+        f'<mxGeometry x="{x:.1f}" y="{y:.1f}" width="{NW}" height="{h:.1f}" as="geometry"/>'
         f'</mxCell>')
     tx = x + NW / 2; ty = y + h / 2
     lines.append(
         f'<mxCell id="{uid()}" value="normalization" '
         f'style="text;html=1;strokeColor=none;fillColor=none;align=center;'
-        f'fontSize=9;fontColor=#ffffff;rotation=-90;" '
+        f'fontSize=8;fontColor=#ffffff;rotation=-90;" '
         f'vertex="1" parent="1">'
-        f'<mxGeometry x="{tx - h/2:.1f}" y="{ty - 8:.1f}" '
-        f'width="{h:.1f}" height="16" as="geometry"/>'
+        f'<mxGeometry x="{tx - h/2:.1f}" y="{ty - 7:.1f}" '
+        f'width="{h:.1f}" height="14" as="geometry"/>'
         f'</mxCell>')
 
-def lbl(val, x, y, w, h, st='fontSize=13;align=center;'):
+def neuron_box(cx, cen_y, n, color=ORANGE):
+    """Orange rectangle outline around a column of n neurons (no fill)."""
+    PAD = 5
+    bw = D + PAD * 2; bh = col_h(n) + PAD * 2
+    bx = cx - D / 2 - PAD; by = cen_y - col_h(n) / 2 - PAD
+    lines.append(
+        f'<mxCell id="{uid()}" value="" '
+        f'style="rounded=0;fillColor=none;strokeColor={color};strokeWidth=2;html=1;" '
+        f'vertex="1" parent="1">'
+        f'<mxGeometry x="{bx:.1f}" y="{by:.1f}" '
+        f'width="{bw:.1f}" height="{bh:.1f}" as="geometry"/>'
+        f'</mxCell>')
+
+def lbl(val, x, y, w, h, st='fontSize=12;align=center;'):
     lines.append(
         f'<mxCell id="{uid()}" value="{val}" '
         f'style="text;html=1;strokeColor=none;fillColor=none;{st}" '
         f'vertex="1" parent="1">'
-        f'<mxGeometry x="{x:.1f}" y="{y:.1f}" '
-        f'width="{w:.1f}" height="{h:.1f}" as="geometry"/>'
+        f'<mxGeometry x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" as="geometry"/>'
         f'</mxCell>')
 
 def rect(val, x, y, w, h, st):
     lines.append(
         f'<mxCell id="{uid()}" value="{val}" style="{st}" vertex="1" parent="1">'
-        f'<mxGeometry x="{x:.1f}" y="{y:.1f}" '
-        f'width="{w:.1f}" height="{h:.1f}" as="geometry"/>'
+        f'<mxGeometry x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" as="geometry"/>'
         f'</mxCell>')
 
 def arrow(pts, color, w=2.5, dashed=False):
-    """Orthogonal arrow through a list of (x,y) waypoints."""
-    dash = 'dashed=1;' if dashed else ''
+    dash = 'dashed=1;dashPattern=8 4;' if dashed else ''
     src = pts[0]; tgt = pts[-1]; mid = pts[1:-1]
     wps = ''.join(f'<mxPoint x="{x:.1f}" y="{y:.1f}"/>' for x, y in mid)
     lines.append(
@@ -120,215 +127,230 @@ def arrow(pts, color, w=2.5, dashed=False):
         f'<Array as="points">{wps}</Array>'
         f'</mxGeometry></mxCell>')
 
-# ─── Architecture parameters ───────────────────────────────────────────────────
-NU    = 6   # u(t) input neurons: W_gust, δ, h, ḣ, α, α̇
-NS    = 4   # s(t) neurons shown (representative; true d_s=10)
-NH_D  = 7   # NN_dyn hidden layer size
-NO_D  = 5   # NN_dyn output neurons (ds/dt)
-NS_R  = 4   # s(t) neurons fed into NN_rec
-NX_R  = 2   # x spatial query neurons
-NH_R  = 6   # NN_rec hidden layer size
-NO_R  = 2   # NN_rec output: F_y, M_z
+# ─── Architecture ──────────────────────────────────────────────────────────────
+NU    = 6    # η(t): W_gust, δ, h, ḣ, α, α̇
+NS    = 4    # standalone s(t) neurons (d_s = 10 in reality)
+NH_D  = 7    # NN_dyn hidden
+NO_D  = 4    # NN_dyn output (ds/dt)
+NS_R  = 4    # s(t) fed into NN_rec
+NX_R  = 2    # x spatial query
+NH_R  = 6    # NN_rec hidden
+NO_R  = 2    # NN_rec output: F_y, M_z
 
-def col_h(n):
-    return n * D + (n - 1) * VGAP
-
-# ─── Canvas layout ─────────────────────────────────────────────────────────────
+# ─── X layout ─────────────────────────────────────────────────────────────────
 #
-#  x-axis:
-#   XS     = 68   s(t) column center
-#   XNORM  = 95   left norm strip left edge
-#   XC0    = 132  input column center  (inside NN blocks)
-#   XC1    = XC0 + HGAP  hidden-1
-#   XC2    = XC1 + HGAP  hidden-2
-#   XC3D   = XC2 + HGAP  output (NN_dyn)
-#   XC3R   = XC2 + HGAP  hidden-3 (NN_rec)
-#   XC4R   = XC3R+ HGAP  output (NN_rec)
+#  labels   s(t)  |left-norm|  inp   h1    h2   dyn-out  |right-norm|  ds/dt  ∫dt
+#   10       90      140        168   220   272   324        346         374   450
 #
-#  y-axis:
-#   YDYN   = 207  NN_dyn content center y
-#   YS     = 360  s(t) column center y
-#   YREC   = 530  NN_rec content center y
+XS      = 90       # standalone s(t) column centre-x
+XNRM_L  = 140      # left norm strip left edge (both blocks)
+XC0     = 168      # input column centre
+XC1     = XC0 + HGAP   # 220
+XC2     = XC1 + HGAP   # 272
+XC3     = XC2 + HGAP   # 324  (dyn out / rec h3)
+XC4     = XC3 + HGAP   # 376  (rec output)
 
-XS   = 68
-XNRM = 95    # left norm strip left edge (shared dyn/rec)
-XC0  = 134   # input column center
-XC1  = XC0 + HGAP
-XC2  = XC1 + HGAP
-XC3D = XC2 + HGAP   # NN_dyn output
-XC3R = XC2 + HGAP   # NN_rec hidden-3
-XC4R = XC3R + HGAP  # NN_rec output
+XNRM_RD = int(XC3 + D / 2 + 8)    # right norm NN_dyn   (348)
+XNRM_RR = int(XC4 + D / 2 + 8)    # right norm NN_rec   (400)
 
-XNRM_RD = int(XC3D + D/2 + 6)    # right norm strip x (dyn)
-XNRM_RR = int(XC4R + D/2 + 6)    # right norm strip x (rec)
+XARR_D  = XNRM_RD + NW + 10       # start of ds/dt label
+XINTEG  = XARR_D + 70             # ∫dt oval left edge
+INTEG_W = 60; INTEG_H = 60
 
-XDSDT  = XNRM_RD + NW + 8        # ds/dt label x
-XINTEG = XDSDT + 72               # ∫dt block x
-XOUT_R = XNRM_RR + NW + 8        # F_y/M_z label x
+XOUT_R  = XNRM_RR + NW + 14       # ỹ label x
 
-YDYN = 207
-YS   = 362
-YREC = 530
+# ─── Y layout ─────────────────────────────────────────────────────────────────
+YDYN = 190     # NN_dyn content centre-y
+YREC = 545     # NN_rec content centre-y
 
-# Block heights (add vertical padding)
-DYN_H = max(col_h(NU) + 14 + col_h(NS), col_h(NH_D), col_h(NO_D)) + 36
-REC_H = max(col_h(NS_R) + 14 + col_h(NX_R), col_h(NH_R), col_h(NO_R)) + 36
-DYN_T = YDYN - DYN_H // 2
-REC_T = YREC - REC_H // 2
+GAP14 = 18     # gap between u and s sub-groups inside block
 
-# y-centers of input sub-groups inside NN_dyn
-GAP14 = 14   # gap between u-group and s-group
-YU = YDYN - (col_h(NS) + GAP14) / 2 - col_h(NU) / 2 + col_h(NU) / 2
-YU = YDYN - (col_h(NU) + GAP14 + col_h(NS)) / 2 + col_h(NU) / 2
-YSd = YU + col_h(NU) / 2 + GAP14 + col_h(NS) / 2  # s input center (dyn)
-# Similar for rec
-YSr = YREC - (col_h(NS_R) + GAP14 + col_h(NX_R)) / 2 + col_h(NS_R) / 2
+# NN_dyn: u-group + gap + s-group + gap + U_inf
+UINF_SEP = 12
+inp_d_h  = col_h(NU) + GAP14 + col_h(NS) + UINF_SEP + D
+DYN_H    = max(inp_d_h, col_h(NH_D), col_h(NO_D)) + 50
+DYN_T    = YDYN - DYN_H // 2
+DYN_BOT  = DYN_T + DYN_H
+
+# sub-group y-centres inside NN_dyn
+YU    = DYN_T + 30 + col_h(NU) / 2
+YSd   = YU + col_h(NU) / 2 + GAP14 + col_h(NS) / 2
+YUinf = YSd + col_h(NS) / 2 + UINF_SEP + D / 2
+
+# s(t) standalone: positioned between NN_dyn bottom and NN_rec top,
+# closer to NN_dyn so the ∫dt feedback arrow is short
+YS    = DYN_BOT + 40 + col_h(NS) / 2    # standalone s(t) centre-y
+S_TOP = YS - col_h(NS) / 2
+S_BOT = YS + col_h(NS) / 2
+
+# NN_rec
+inp_r_h = col_h(NS_R) + GAP14 + col_h(NX_R)
+REC_H   = max(inp_r_h, col_h(NH_R), col_h(NO_R)) + 50
+# pin NN_rec top = S_BOT + gap
+REC_T   = S_BOT + 50
+YREC    = REC_T + REC_H // 2
+
+YSr = REC_T + 30 + col_h(NS_R) / 2
 YXr = YSr + col_h(NS_R) / 2 + GAP14 + col_h(NX_R) / 2
 
-# ─── Build diagram ─────────────────────────────────────────────────────────────
-
-# Fixed cells (root)
+# ─── Build ─────────────────────────────────────────────────────────────────────
 lines.append('<mxCell id="0"/>')
 lines.append('<mxCell id="1" parent="0"/>')
 
-# ── Title ──────────────────────────────────────────────────────────────────────
-lbl('LDNet &#8212; GLA Architecture', 130, 10, 550, 36,
-    st='fontSize=18;fontStyle=1;align=center;')
+CANVAS_W = max(XINTEG + INTEG_W + 80, XOUT_R + 220)
+CANVAS_H = REC_T + REC_H + 60
+
+# Title
+lbl('LDNet &#8212; GLA Architecture', 60, 12, CANVAS_W - 120, 28,
+    st='fontSize=16;fontStyle=1;align=center;fontColor=#333333;')
+
+# s(0)=0
+lbl('s(0) = &lt;b&gt;0&lt;/b&gt;', XS - 22, DYN_T - 20, 72, 16,
+    st='fontSize=10;fontColor=#aaaaaa;align=center;fontStyle=2;')
 
 # ── NN_DYN block ───────────────────────────────────────────────────────────────
-rect('', XNRM - 8, DYN_T, XNRM_RD - XNRM + NW + 16, DYN_H,
-     'rounded=1;fillColor=#EAF4FB;strokeColor=#6c8ebf;strokeWidth=1.5;html=1;')
-lbl('&lt;b&gt;NN&lt;sub&gt;dyn&lt;/sub&gt;&lt;/b&gt; &#160; w&lt;sub&gt;dyn&lt;/sub&gt; | tanh | 7&#8211;7&#8211;d&lt;sub&gt;s&lt;/sub&gt;',
-    XNRM, DYN_T + 4, 220, 18,
-    st='fontSize=10;fontColor=#6c8ebf;align=left;')
+BLK_W_D = XNRM_RD + NW - XNRM_L + 16
+rect('', XNRM_L - 8, DYN_T, BLK_W_D, DYN_H,
+     'rounded=1;arcSize=4;fillColor=#EBF5FB;strokeColor=#6c8ebf;strokeWidth=2;html=1;')
+lbl('&lt;b&gt;NN&lt;sub&gt;dyn&lt;/sub&gt;&lt;/b&gt;&#160;&#160;'
+    'w&lt;sub&gt;dyn&lt;/sub&gt;&#160;|&#160;tanh&#160;|&#160;7&#8211;7&#8211;d&lt;sub&gt;s&lt;/sub&gt;',
+    XNRM_L, DYN_T + 6, BLK_W_D - 12, 16,
+    st='fontSize=9;fontColor=#6c8ebf;align=left;')
+norm_strip(XNRM_L, DYN_T + 26, DYN_H - 32)
 
-norm_strip(XNRM, DYN_T + 22, DYN_H - 28)
+u_col    = neuron_col(XC0, YU,    NU,   'u')
+s_col_d  = neuron_col(XC0, YSd,   NS,   'lat')
+neuron(XC0, YUinf, 'uinf')
+uinf_pt  = [(XC0, YUinf)]
+inp_d    = u_col + s_col_d + uinf_pt
 
-# NN_dyn input neurons
-u_col  = neuron_col(XC0, YU,  NU, 'u')
-s_col_d = neuron_col(XC0, YSd, NS, 'lat')
-inp_d = u_col + s_col_d
-
-# NN_dyn hidden + output layers
 h1_d = neuron_col(XC1, YDYN, NH_D, 'hid')
 h2_d = neuron_col(XC2, YDYN, NH_D, 'hid')
-o_d  = neuron_col(XC3D, YDYN, NO_D, 'lat')  # ds/dt → orange
+o_d  = neuron_col(XC3, YDYN, NO_D, 'lat')
 
-weight_lines(inp_d, h1_d, step=1)
-weight_lines(h1_d,  h2_d, step=1)
-weight_lines(h2_d,  o_d,  step=1)
+weight_lines(inp_d, h1_d)
+weight_lines(h1_d,  h2_d)
+weight_lines(h2_d,  o_d)
+norm_strip(XNRM_RD, DYN_T + 26, DYN_H - 32)
 
-norm_strip(XNRM_RD, DYN_T + 22, DYN_H - 28)
+# Orange box around s(t) input group inside NN_dyn
+neuron_box(XC0, YSd, NS, ORANGE)
 
-# ds/dt and integration
-lbl('&lt;b&gt;d&lt;b&gt;s&lt;/b&gt;/dt&lt;/b&gt;', XDSDT, YDYN - 12, 65, 24,
-    st='fontSize=13;align=left;fontStyle=1;')
-rect('&amp;#8747;dt', XINTEG, YDYN - 32, 68, 58,
-     'rounded=1;html=1;strokeColor=#555555;fillColor=#f5f5f5;'
+# ds/dt label + dashed line + ∫dt oval
+lbl('&lt;b&gt;ds/dt&lt;/b&gt;', XARR_D - 2, YDYN - 11, 66, 22,
+    st='fontSize=11;fontStyle=1;align=left;fontColor=#333333;')
+rect('&#8747;dt', XINTEG, YDYN - INTEG_H // 2, INTEG_W, INTEG_H,
+     'ellipse;html=1;strokeColor=#555555;fillColor=#f5f5f5;'
      'fontSize=18;fontStyle=1;align=center;verticalAlign=middle;')
-# dashed line: ds/dt → ∫dt
-arrow([(XNRM_RD + NW + 2, YDYN), (XINTEG, YDYN)],
-      '#888888', w=1.5, dashed=True)
+arrow([(XNRM_RD + NW + 2, YDYN), (XINTEG, YDYN)], '#888888', w=1.5, dashed=True)
 
-# ── s(t) column (left side, between blocks) ────────────────────────────────────
+# ── standalone s(t) column ────────────────────────────────────────────────────
 s_main = neuron_col(XS, YS, NS, 'lat')
-lbl('&lt;b&gt;s&lt;/b&gt;(t)', XS - 22, YS - col_h(NS)/2 - 20, 60, 18,
-    st='fontSize=12;fontStyle=1;fontColor=#f0a30a;align=center;')
-lbl('&amp;isin; &amp;#8477;&lt;sup&gt;d&lt;sub&gt;s&lt;/sub&gt;&lt;/sup&gt;',
-    XS - 20, YS + col_h(NS)/2 + 4, 56, 16,
+# orange border box (the defining visual element of shared s(t))
+neuron_box(XS, YS, NS, ORANGE)
+lbl('&lt;b&gt;s&lt;/b&gt;(t)', XS - 26, S_TOP - 22, 72, 18,
+    st='fontSize=13;fontStyle=1;fontColor=#f0a30a;align=center;')
+lbl('&#8712;&#160;&lt;b&gt;&#8477;&lt;/b&gt;&lt;sup&gt;d&lt;sub&gt;s&lt;/sub&gt;&lt;/sup&gt;',
+    XS - 20, S_BOT + 5, 58, 16,
     st='fontSize=10;fontColor=#BD7000;align=center;')
 
 # ── NN_REC block ───────────────────────────────────────────────────────────────
-rect('', XNRM - 8, REC_T, XNRM_RR - XNRM + NW + 16, REC_H,
-     'rounded=1;fillColor=#EAF4FB;strokeColor=#6c8ebf;strokeWidth=1.5;html=1;')
-lbl('&lt;b&gt;NN&lt;sub&gt;rec&lt;/sub&gt;&lt;/b&gt; &#160; w&lt;sub&gt;rec&lt;/sub&gt; | tanh | 24&#8211;24&#8211;24&#8211;24',
-    XNRM, REC_T + 4, 260, 18,
-    st='fontSize=10;fontColor=#6c8ebf;align=left;')
+BLK_W_R = XNRM_RR + NW - XNRM_L + 16
+rect('', XNRM_L - 8, REC_T, BLK_W_R, REC_H,
+     'rounded=1;arcSize=4;fillColor=#EBF5FB;strokeColor=#6c8ebf;strokeWidth=2;html=1;')
+lbl('&lt;b&gt;NN&lt;sub&gt;rec&lt;/sub&gt;&lt;/b&gt;&#160;&#160;'
+    'w&lt;sub&gt;rec&lt;/sub&gt;&#160;|&#160;tanh&#160;|&#160;24&#8211;24&#8211;24&#8211;24',
+    XNRM_L, REC_T + 6, BLK_W_R - 12, 16,
+    st='fontSize=9;fontColor=#6c8ebf;align=left;')
+norm_strip(XNRM_L, REC_T + 26, REC_H - 32)
 
-norm_strip(XNRM, REC_T + 22, REC_H - 28)
-
-# NN_rec input neurons
 s_col_r = neuron_col(XC0, YSr, NS_R, 'lat')
 x_col_r = neuron_col(XC0, YXr, NX_R, 'x')
-inp_r = s_col_r + x_col_r
+inp_r   = s_col_r + x_col_r
 
-# NN_rec hidden + output layers
 h1_r = neuron_col(XC1, YREC, NH_R, 'hid')
 h2_r = neuron_col(XC2, YREC, NH_R, 'hid')
-h3_r = neuron_col(XC3R, YREC, NH_R, 'hid')
-o_r  = neuron_col(XC4R, YREC, NO_R, 'oy')   # F_y, M_z → purple
+h3_r = neuron_col(XC3, YREC, NH_R, 'hid')
+o_r  = neuron_col(XC4, YREC, NO_R, 'oy')
 
-weight_lines(inp_r, h1_r, step=1)
-weight_lines(h1_r,  h2_r, step=1)
-weight_lines(h2_r,  h3_r, step=1)
-weight_lines(h3_r,  o_r,  step=1)
+weight_lines(inp_r, h1_r)
+weight_lines(h1_r,  h2_r)
+weight_lines(h2_r,  h3_r)
+weight_lines(h3_r,  o_r)
+norm_strip(XNRM_RR, REC_T + 26, REC_H - 32)
 
-norm_strip(XNRM_RR, REC_T + 22, REC_H - 28)
+# Orange box around s(t) input group inside NN_rec
+neuron_box(XC0, YSr, NS_R, ORANGE)
 
 # ─── Output labels ─────────────────────────────────────────────────────────────
-# ỹ label + reconstruction formula
-lbl('&lt;b&gt;&#7929;(&lt;b&gt;x&lt;/b&gt;,t)&lt;/b&gt;', XOUT_R, YREC - 14, 80, 28,
-    st='fontSize=14;fontStyle=1;align=left;')
-lbl('F&lt;sub&gt;y&lt;/sub&gt;(t),  M&lt;sub&gt;z&lt;/sub&gt;(t)', XOUT_R, YREC + 16, 120, 24,
-    st='fontSize=12;fontColor=#7B3FB0;align=left;')
-lbl('y&lt;sub&gt;0&lt;/sub&gt; + y&lt;sub&gt;w&lt;/sub&gt; &#8857; NN&lt;sub&gt;rec&lt;/sub&gt;',
-    XOUT_R, YREC + 40, 160, 20,
-    st='fontSize=10;fontColor=#999999;align=left;')
+lbl('&lt;b&gt;&#7929;(&lt;b&gt;x&lt;/b&gt;,&#160;t)&lt;/b&gt;',
+    XOUT_R, YREC - 32, 110, 26,
+    st='fontSize=14;fontStyle=1;fontColor=#7B3FB0;align=left;')
+lbl('F&lt;sub&gt;y&lt;/sub&gt;(t),&#160;M&lt;sub&gt;z&lt;/sub&gt;(t)',
+    XOUT_R, YREC + 2, 130, 22,
+    st='fontSize=11;fontColor=#7B3FB0;align=left;')
+lbl('y&lt;sub&gt;0&lt;/sub&gt;&#160;&#8853;&#160;NN&lt;sub&gt;rec&lt;/sub&gt;',
+    XOUT_R, YREC + 26, 130, 18,
+    st='fontSize=9;fontColor=#aaaaaa;align=left;')
 
-# ─── u(t) input label ──────────────────────────────────────────────────────────
-lbl('&lt;b&gt;u&lt;/b&gt;(t)', 4, YU - 20, 65, 20,
+# ─── η(t) input labels ─────────────────────────────────────────────────────────
+lbl('&lt;b&gt;&#951;&lt;/b&gt;(t)', 6, YU - col_h(NU)/2 - 22, 76, 18,
     st='fontSize=13;fontStyle=1;fontColor=#446359;align=center;')
-# signal names
-names_u = ['W&lt;sub&gt;gust&lt;/sub&gt;', '&amp;delta;', 'h', 'h&amp;#775;', '&amp;alpha;', '&amp;alpha;&amp;#775;']
+names_u = ['W&lt;sub&gt;gust&lt;/sub&gt;', '&#948;', 'h', 'h&#775;', '&#945;', '&#945;&#775;']
 for k, (ux, uy) in enumerate(u_col):
-    lbl(names_u[k], 4, uy - 8, 64, 16, st='fontSize=9;fontColor=#446359;align=right;')
+    lbl(names_u[k], 6, uy - 8, 70, 16, st='fontSize=9;fontColor=#446359;align=right;')
+lbl('U&lt;sub&gt;&#8734;&lt;/sub&gt;', 6, YUinf - 8, 70, 16,
+    st='fontSize=9;fontColor=#3d7a6e;align=right;fontStyle=2;')
 
-# ─── x query label ─────────────────────────────────────────────────────────────
-rect('&lt;b&gt;x&lt;/b&gt; &amp;isin; &amp;Omega; &amp;sub; &amp;#8477;&lt;sup&gt;d&lt;/sup&gt;',
-     4, YXr - 30, 75, 56,
+# ─── x query box ───────────────────────────────────────────────────────────────
+xbox_w = 80; xbox_h = 52
+xbox_x = 6; xbox_y = YXr - xbox_h / 2
+rect('&lt;b&gt;x&lt;/b&gt;&#160;&#8712;&#160;&#937;&#160;&#8834;&#160;'
+     '&lt;b&gt;&#8477;&lt;/b&gt;&lt;sup&gt;d&lt;/sup&gt;',
+     xbox_x, xbox_y, xbox_w, xbox_h,
      'rounded=1;html=1;strokeColor=#82b366;fillColor=#d5e8d4;'
-     'fontSize=11;fontStyle=1;align=center;verticalAlign=middle;')
-
-# ─── s(0)=0 note ───────────────────────────────────────────────────────────────
-lbl('s(0) = &lt;b&gt;0&lt;/b&gt;', XS - 18, DYN_T - 20, 72, 16,
-    st='fontSize=10;fontColor=#999999;align=center;fontStyle=2;')
+     'fontSize=10;fontStyle=1;align=center;verticalAlign=middle;')
 
 # ─── ARROWS ────────────────────────────────────────────────────────────────────
-TEAL   = '#446359'
-ORANGE = '#BD7000'
-BLUE   = '#23445D'
-PURPLE = '#7B3FB0'
 
-# u(t) → NN_dyn input neurons (teal arrows, one per neuron)
+# 1. η(t) → left norm strip (one arrow per neuron)
 for ux, uy in u_col:
-    arrow([(68, uy), (XNRM + 1, uy)], TEAL, w=1.5)
+    arrow([(78, uy), (XNRM_L + 1, uy)], TEAL, w=1.5)
+# U_inf
+arrow([(78, YUinf), (XNRM_L + 1, YUinf)], '#3d7a6e', w=1.5)
 
-# s(t) column → NN_dyn input (orange, goes UP from s(t) top)
-S_TOP = YS - col_h(NS) / 2   # top of s(t) column
-arrow([(XS, S_TOP), (XS, YSd), (XNRM + 1, YSd)], ORANGE, w=2.5)
+# 2. s(t) standalone → NN_dyn (right side of s(t) box → enter block at YSd level)
+#    horizontal, goes from XS+box_right to XNRM_L
+BOX_PAD = 5
+arrow([(XS + D/2 + BOX_PAD + 2, YSd),
+       (XNRM_L + 1, YSd)], ORANGE, w=2.5)
 
-# ∫dt → s(t) column top  (orange feedback arc)
-INTEG_BOT = YDYN + 32 + 6   # bottom of ∫dt block  (≈YDYN-32+58=YDYN+26)
-arrow([(XINTEG + 34, INTEG_BOT),
-       (XINTEG + 34, YS - col_h(NS)/2 - 14),
-       (XS, YS - col_h(NS)/2 - 14),
-       (XS, YS - col_h(NS)/2)],
-      ORANGE, w=2.5)
+# 3. s(t) standalone → NN_rec (exits bottom of s(t) box, goes down to YSr)
+#    Exits bottom-centre, goes down then right to enter NN_rec at YSr level.
+arrow([(XS, S_BOT + BOX_PAD + 2),
+       (XS, YSr),
+       (XNRM_L + 1, YSr)], ORANGE, w=2.5)
 
-# s(t) → NN_rec input (orange, goes DOWN from s(t) bottom)
-S_BOT = YS + col_h(NS) / 2
-arrow([(XS, S_BOT), (XS, YSr), (XNRM + 1, YSr)], ORANGE, w=2.5)
+# 4. ∫dt → s(t) feedback
+#    Route: ∫dt bottom → go DOWN to just below NN_dyn block → LEFT to XS → UP to s(t) top
+#    This goes BELOW NN_dyn (no crossing) and arrives at s(t) from above.
+INTEG_CX   = XINTEG + INTEG_W / 2
+INTEG_BOT  = YDYN + INTEG_H / 2
+BELOW_DYN  = DYN_BOT + 16            # y just below NN_dyn block
+arrow([
+    (INTEG_CX, INTEG_BOT),            # ∫dt bottom centre
+    (INTEG_CX, BELOW_DYN),            # go DOWN below NN_dyn
+    (XS,       BELOW_DYN),            # go LEFT to s(t) column
+    (XS,       S_TOP - BOX_PAD - 2),  # arrive at top of s(t) box
+], ORANGE, w=2.5)
 
-# x query → NN_rec input (blue)
-arrow([(82, YXr), (XNRM + 1, YXr)], BLUE, w=2.0)
+# 5. x query → NN_rec input
+arrow([(xbox_x + xbox_w, YXr), (XNRM_L + 1, YXr)], BLUE, w=2.0)
 
-# NN_rec output → ỹ label (purple)
-arrow([(XNRM_RR + NW, YREC), (XOUT_R, YREC)], PURPLE, w=2.0)
+# 6. NN_rec output → ỹ label
+arrow([(XNRM_RR + NW + 2, YREC), (XOUT_R - 2, YREC)], PURPLE, w=2.0)
 
-# ─── Assemble XML ──────────────────────────────────────────────────────────────
-CANVAS_W = max(XINTEG + 120, XOUT_R + 170)
-CANVAS_H = REC_T + REC_H + 50
-
+# ─── Assemble XML ───────────────────────────────────────────────────────────────
 xml = f'''<mxfile host="app.diagrams.net" version="21.7.5">
   <diagram id="ldnet-arch" name="LDNet Architecture">
     <mxGraphModel dx="1200" dy="800" grid="0" gridSize="10"
@@ -346,5 +368,5 @@ out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figs', 'ldnet_ar
 with open(out, 'w', encoding='utf-8') as f:
     f.write(xml)
 print(f'Written → {out}')
-print(f'  Canvas: {CANVAS_W} × {CANVAS_H} px')
-print(f'  Elements generated: {_id[0] - 50}')
+print(f'  Canvas: {CANVAS_W} x {CANVAS_H} px')
+print(f'  Elements: {_id[0] - 50}')

@@ -1,0 +1,321 @@
+### Task 2: Axis D2 — structural model mismatch script + cluster wrappers + plot
+
+**Files:**
+- Create: `light/noise/noise_mismatch_combo.py`
+- Create: `light/noise/launch_noise_mismatch_combo.sh`
+- Create: `light/noise/status_noise_mismatch_combo.sh`
+- Create: `light/noise/plots_noise_mismatch_combo.py`
+
+**Interfaces:**
+- Consumes: `harness_noise` utilities, `optimal` classes, `structure` module globals (D_ALPHA, K_ALPHA — runtime setattr only).
+- Produces: `results/D2_mismatch.npz` with `point` records keyed `axis='D2'`, `arm in {'dalpha','kalpha','uinf','cltrim'}`, `value` (multiplier, or U in m/s for 'uinf'), `frac=0.0`, `cex0` (open-loop excursion of the plant actually used), `sigma_del`, `bias_del`.
+
+- [ ] **Step 1: Write `light/noise/noise_mismatch_combo.py`** with exactly this content:
+
+```python
+"""
+Structural model-mismatch robustness of the E2-combo pipeline.
+
+All previous axes corrupt what the controller SEES; here plant and internal
+model stop being twins: the PLANT flies with perturbed parameters while the
+MPC predicts its horizon with the nominal ones (Forte/NASA 2023: 2.5%
+disturbance-frequency mismatch collapsed their GLA 69->39%; Fournier 2022
+makes the synthesis robust to model uncertainty by construction).
+
+Arms (deterministic, oracle-clean preview -- the axis isolates model error):
+  dalpha  plant D_ALPHA x {0.67,0.83,1.17,1.33}  (plant DAMULT ~ 2,2.5,3.5,4
+          vs the controller's 3; DAMULT=3 is applied at import by the
+          harness, multipliers are relative to that nominal)
+  kalpha  plant K_ALPHA x {0.90,0.95,1.05,1.10}  (pitch stiffness -> natural
+          frequency, the Forte analogue)
+  uinf    controller U in {76,84} m/s vs plant 80 (airspeed estimate error:
+          the MPC's q AND its aero evaluations use the believed U)
+  cltrim  controller C_L_trim x {0.95,1.05} (trim estimate error)
+  anchor  all nominal (gate +80.51%)
+
+Mechanics: structure.D_ALPHA / structure.K_ALPHA are module globals read at
+call time by BOTH the plant step (structure.rhs via step_dp45) and the MPC
+horizon (optimal.dp45_batch). The adapter sets them to NOMINAL for the
+duration of mpc.compute and restores the PERTURBED values before returning,
+so the plant integrates with the perturbed structure while the controller
+predicts with the nominal one. Each perturbed plant is compared against ITS
+OWN open-loop rollout (cex0 logged per point). Declared limit: the LDNet
+aero model is shared plant/controller -- this axis tests STRUCTURAL
+mismatch only. X0 is the nominal equilibrium; the residual initial
+transient under perturbed stiffness is negligible vs the gust response and
+cancels in the relative metric.
+
+Config: Jmax=50, lam=0, N=8, R=3e-4, R_du=0, home cell W30/Tg0.4, DAMULT=3.
+Output: results/D2_mismatch.npz
+--smoke: anchor + dalpha x1.33.
+"""
+import os, sys
+import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+import harness_noise as H
+import structure as S
+from optimal import FusedPreviewSensor, MPCPreviewController
+
+W0, Tg   = 30.0, 0.4
+JMAX, N  = 50, 8
+R        = 3e-4
+R_DU     = 0.0
+LAM      = 0.0
+SMOKE    = '--smoke' in sys.argv
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', 'D2_mismatch.npz')
+
+DA_NOM = float(S.D_ALPHA)      # after the harness applied DAMULT=3
+KA_NOM = float(S.K_ALPHA)
+
+if SMOKE:
+    PTS = [('anchor', 1.0), ('dalpha', 1.33)]
+else:
+    PTS = ([('anchor', 1.0)]
+           + [('dalpha', m) for m in (0.67, 0.83, 1.17, 1.33)]
+           + [('kalpha', m) for m in (0.90, 0.95, 1.05, 1.10)]
+           + [('uinf', u) for u in (76.0, 84.0)]
+           + [('cltrim', m) for m in (0.95, 1.05)])
+
+
+def _delivered(r):
+    """(sigma_del, bias_del) of the Wc channel vs the true next-step gust."""
+    t, Wt, Wc = r['_t'], r['_Wt'], r['_Wc']
+    n = len(t)
+    Wnext = Wt[np.minimum(np.arange(n) + 1, n - 1)]
+    mw  = t <= (Tg + 0.5)
+    err = Wc[mw] - Wnext[mw]
+    return float(np.std(err)), float(np.mean(err))
+
+
+class _MismatchCtrl:
+    """
+    Combo adapter that runs mpc.compute under NOMINAL structure globals and
+    restores the PERTURBED (plant) values before returning, so the plant
+    step that follows in the harness loop integrates the perturbed system.
+    pert: list of (attr, plant_value, nominal_value); empty for uinf/cltrim
+    arms (those mis-set the controller's own constructor args instead).
+    """
+
+    def __init__(self, sensor, mpc, pert):
+        self._sensor = sensor
+        self._mpc    = mpc
+        self._pert   = list(pert)
+
+    def reset(self):
+        self._sensor.reset()
+        self._mpc.reset()
+
+    def compute(self, state, W_true, Wc):
+        for a, pv, nv in self._pert:
+            setattr(S, a, nv)
+        try:
+            return self._mpc.compute(state, self._sensor.last)
+        finally:
+            for a, pv, nv in self._pert:
+                setattr(S, a, pv)
+
+
+def build(arm, val):
+    """-> (pert list, mpc kwargs overrides)"""
+    if arm == 'dalpha':
+        return [('D_ALPHA', val * DA_NOM, DA_NOM)], {}
+    if arm == 'kalpha':
+        return [('K_ALPHA', val * KA_NOM, KA_NOM)], {}
+    if arm == 'uinf':
+        return [], dict(U=float(val))
+    if arm == 'cltrim':
+        return [], dict(C_L_trim=float(val) * H.CLTRIM)
+    return [], {}                                    # anchor
+
+
+def make_combo(rng, mpc_kw):
+    sensor = FusedPreviewSensor(rng, lambda j: 1e-9, JMAX, N, lam=LAM)
+    kw = dict(U=H.U, C_L_trim=H.CLTRIM)
+    kw.update(mpc_kw)
+    mpc = MPCPreviewController(
+        H.aero, U=kw['U'], dt=H.DT, rho=1.225, S=0.05, C=H.C,
+        C_L_trim=kw['C_L_trim'], N=N, R=R, R_du=R_DU,
+        G=161, delta_max=H.DMAX, delta_dot_max=H.DDOT_MAX)
+    return sensor, mpc
+
+
+OL_NOM   = H.rollout(None, W0, Tg)
+cex0_nom = H.metrics(OL_NOM, OL_NOM, Tg)['exo']
+print(f"# D2_mismatch | W{W0:g}/Tg{Tg:g} DAMULT={os.environ.get('DAMULT','1')} "
+      f"N={N} Jmax={JMAX} R={R:g} R_du={R_DU:g} | open cex0={cex0_nom:.4f}"
+      f"{' | SMOKE' if SMOKE else ''}", flush=True)
+
+recs = [dict(kind='open', axis='D2', W0=W0, Tg=Tg, cex0=cex0_nom,
+             t=OL_NOM['_t'], W=OL_NOM['_Wt'], CL=OL_NOM['CL'])]
+
+for arm, val in PTS:
+    pert, mpc_kw = build(arm, val)
+
+    # plant state = perturbed for the whole point (OL + closed loop)
+    for a, pv, nv in pert:
+        setattr(S, a, pv)
+    try:
+        OLp = H.rollout(None, W0, Tg) if pert else OL_NOM
+        cex0p = H.metrics(OLp, OLp, Tg)['exo']
+
+        rng = np.random.default_rng(100)
+        sensor, mpc = make_combo(rng, mpc_kw)
+        ctrl = _MismatchCtrl(sensor, mpc, pert)
+        r = H.rollout(ctrl, W0, Tg, wc_fun=sensor.wc_fun)
+        m = H.metrics(r, OLp, Tg)
+    finally:
+        for a, pv, nv in pert:
+            setattr(S, a, nv)
+
+    sd, bd = _delivered(r)
+    rec = H.point_record([m], axis='D2', arm=arm, value=float(val),
+                         W0=W0, Tg=Tg, R=R, N=N, Jmax=JMAX, lam=LAM, R_du=R_DU,
+                         frac=0.0, cex0=float(cex0p),
+                         sigma_del=sd, bias_del=bd)
+    recs.append(rec)
+    print(f"  {arm}={val:g}: {H.fmt_stats(H.seed_stats([m]))}  "
+          f"cex0={cex0p:.4f}", flush=True)
+
+H.save_records(OUT, recs)
+print("# DONE", flush=True)
+```
+
+- [ ] **Step 2: Write `light/noise/launch_noise_mismatch_combo.sh`**:
+
+```bash
+#!/bin/bash
+# Launch noise_mismatch_combo.py (cluster only).
+#   ./launch_noise_mismatch_combo.sh smoke
+#   ./launch_noise_mismatch_combo.sh full
+cd /work/u10677113/LDNet_GLA/light/noise || exit 1
+if [ "$1" = "smoke" ]; then
+    nohup ./run_axis.sh "noise_mismatch_combo.py --smoke" > D2.smoke.log 2>&1 &
+    echo "launched noise_mismatch_combo smoke pid $!"
+else
+    nohup ./run_axis.sh "noise_mismatch_combo.py" > D2.log 2>&1 &
+    echo "launched noise_mismatch_combo full pid $!"
+fi
+```
+
+- [ ] **Step 3: Write `light/noise/status_noise_mismatch_combo.sh`**:
+
+```bash
+#!/bin/bash
+cd /work/u10677113/LDNet_GLA/light/noise 2>/dev/null || exit 1
+for pair in "D2.smoke:noise_mismatch_combo.py --smoke" "D2:noise_mismatch_combo.py"; do
+    L=${pair%%:*}; P=${pair##*:}
+    LOG="${L}.log"
+    [ -f "$LOG" ] || continue
+    if grep -q "^# DONE" "$LOG"; then st="DONE"
+    elif grep -qE "Traceback|Error|Killed" "$LOG"; then st="ERROR"
+    elif pgrep -f "python3 -s -u $P" >/dev/null 2>&1; then st="RUNNING"
+    else st="DEAD"; fi
+    last=$(grep -E "^  |^#" "$LOG" 2>/dev/null | tail -1)
+    echo "$L: $st | $last"
+done
+```
+
+- [ ] **Step 4: Write `light/noise/plots_noise_mismatch_combo.py`**:
+
+```python
+"""
+Figure: CLred vs structural / controller-parameter mismatch for the E2-combo.
+Reads results/D2_mismatch.npz. Run locally after scp.
+"""
+import os
+import numpy as np
+import matplotlib; matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
+# our own npz (harness save_records object-array schema) -- trusted local file
+recs = list(np.load(os.path.join(DIR, 'D2_mismatch.npz'), allow_pickle=True)['records'])
+pts  = [r for r in recs if r.get('kind') == 'point']
+
+ANCHOR = 80.51
+U_NOM  = 80.0
+
+def series(arm):
+    rows = sorted([r for r in pts if r['arm'] == arm],
+                  key=lambda r: float(r['value']))
+    return ([float(r['value']) for r in rows],
+            [float(r['mean']) for r in rows],
+            [int(r['nflag']) for r in rows])
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+
+# left: structural multipliers (plant vs nominal internal model)
+ax = axes[0]
+for arm, color, label in [('dalpha', 'tab:blue', 'plant D_ALPHA x (ctrl assumes x1)'),
+                          ('kalpha', 'tab:green', 'plant K_ALPHA x (ctrl assumes x1)')]:
+    x, m, nf = series(arm)
+    x = x + [1.0]; m = m + [ANCHOR]; nf = nf + [0]
+    order = np.argsort(x)
+    x = list(np.array(x)[order]); m = list(np.array(m)[order])
+    nf = list(np.array(nf)[order])
+    ax.plot(x, m, 'o-', color=color, label=label)
+    for xi, mi, f in zip(x, m, nf):
+        if f:
+            ax.plot(xi, mi, 'o', mfc='none', mec='red', ms=12, mew=1.5)
+ax.axhline(ANCHOR, color='gray', lw=0.7, ls=':', label=f'clean anchor +{ANCHOR}%')
+ax.axhline(0, color='gray', lw=0.7)
+ax.set_xlabel('plant parameter multiplier vs internal model')
+ax.set_ylabel('CLred [%]')
+ax.set_title('D2 -- structural mismatch (red ring = flagged)')
+ax.grid(alpha=0.3); ax.legend(frameon=False, fontsize=8)
+
+# right: controller-side estimate errors (U, CLtrim), x = % error
+ax = axes[1]
+xu, mu, nfu = series('uinf')
+xu_pct = [(u / U_NOM - 1.0) * 100 for u in xu]
+xc, mc, nfc = series('cltrim')
+xc_pct = [(c - 1.0) * 100 for c in xc]
+for xs, ms_, nfs, color, mk, label in [
+        (xu_pct, mu, nfu, 'tab:purple', 'o', 'controller U error'),
+        (xc_pct, mc, nfc, 'tab:brown', 's', 'controller C_L_trim error')]:
+    xs = xs + [0.0]; ms_ = ms_ + [ANCHOR]; nfs = nfs + [0]
+    order = np.argsort(xs)
+    xs = list(np.array(xs)[order]); ms_ = list(np.array(ms_)[order])
+    nfs = list(np.array(nfs)[order])
+    ax.plot(xs, ms_, mk + '-', color=color, label=label)
+    for xi, mi, f in zip(xs, ms_, nfs):
+        if f:
+            ax.plot(xi, mi, mk, mfc='none', mec='red', ms=12, mew=1.5)
+ax.axhline(ANCHOR, color='gray', lw=0.7, ls=':', label=f'clean anchor +{ANCHOR}%')
+ax.axhline(0, color='gray', lw=0.7)
+ax.set_xlabel('controller estimate error [%]')
+ax.set_ylabel('CLred [%]')
+ax.set_title('D2 -- controller-side parameter errors')
+ax.grid(alpha=0.3); ax.legend(frameon=False, fontsize=8)
+
+fig.suptitle('E2-combo model-mismatch robustness (W30/Tg0.4, DAMULT=3)', y=1.02)
+plt.tight_layout()
+fn = os.path.join(DIR, 'fig_noise_mismatch_combo.png')
+fig.savefig(fn, dpi=150, bbox_inches='tight'); plt.close(fig)
+print(f'saved {fn}')
+```
+
+- [ ] **Step 5: Parse-test all four files** (same commands as Task 1 Step 5 with the mismatch filenames). Expected: `parse OK` x2, `launch OK`, `status OK`.
+
+- [ ] **Step 6: Commit (only the four new files)**
+
+```bash
+git add light/noise/noise_mismatch_combo.py light/noise/launch_noise_mismatch_combo.sh light/noise/status_noise_mismatch_combo.sh light/noise/plots_noise_mismatch_combo.py
+git commit -m "feat(noise): D2 structural model-mismatch robustness axis for E2-combo"
+```
+
+---
+## Global Constraints
+
+- Do NOT modify `light/optimal.py`, `light/noise/harness_noise.py`, `light/structure.py`, or any existing results (`light/noise/results/*.npz`, `light/results_cs25*/`).
+- Fixed config: W0=30, Tg=0.4 (home cell), Jmax=50, N=8, R=3e-4, R_du=0, lam=0, G=161, seeds rng(100+seed), 6 seeds per stochastic point, metrics window t<=Tg+0.5, explosion flags 3x open-loop, DAMULT=3 (set by run_axis.sh).
+- Anchor (dp45 tree, must reproduce or STOP): combo clean = **+80.51%** (zero-error point of each sweep).
+- Local tree has uncommitted user changes: `git add` ONLY the files this plan creates — never `git add -A` / `git add -u` / `git add .`.
+- New scripts import only: from `optimal` — `FusedPreviewSensor`, `MPCPreviewController`; from `harness_noise` — `rollout, metrics, point_record, seed_stats, fmt_stats, save_records, aero, U, DT, C, CLTRIM, DMAX, DDOT_MAX`; plus `import structure` (D2 only, for the toggle — read/setattr on D_ALPHA/K_ALPHA only, at runtime, never editing the file).
+- Cluster quoting trap: launch/status logic lives in `.sh` scripts ON the cluster invoked by path (no `$`/redirects through ssh). Cluster: `u10677113@10.78.18.100`, tree `/work/u10677113/LDNet_GLA`.
+- Smoke before full. Smoke gates are the zero-error anchors only; nonzero-error smoke rows are DATA.
+- D2 metrics rule: each perturbed plant is compared against ITS OWN open-loop rollout (same perturbed globals), never against the nominal open loop.
+
+---

@@ -39,6 +39,14 @@ class LDNetAero:
         self._cfg_leak = float(config.get('lambda_damp', 0.0))  # damped-ODE leak (0 = original model)
         self._dt_ref = self._norm['time']['time_constant']
 
+        # Decoder depth (defaults reproduce the original L=6 architecture: 2x7
+        # dyn layers, 4x24 rec layers). Absent for every checkpoint trained
+        # before the depth ablation, so the default keeps them loading as-is.
+        dyn_layers = int(config.get('dyn_layers', 2))
+        dyn_width  = int(config.get('dyn_width', 7))
+        rec_layers = int(config.get('rec_layers', 4))
+        rec_width  = int(config.get('rec_width', 24))
+
         # Detect output type: forces (F_y/M_z) or coefficients (C_L/C_M)
         out_names = [s if isinstance(s, str) else s['name']
                      for s in self._problem['output_signals']]
@@ -49,22 +57,18 @@ class LDNetAero:
         n_space   = self._problem['space']['dimension']       # 2 spatial coords (always 0,0 at eval)
 
         dyn_in = self._num_z + n_params + n_signals
-        self.NNdyn = tf.keras.Sequential([
-            tf.keras.layers.Dense(7, activation='tanh', input_shape=(dyn_in,)),
-            tf.keras.layers.Dense(7, activation='tanh'),
-            tf.keras.layers.Dense(self._num_z),
-        ])
+        dyn = [tf.keras.layers.Dense(dyn_width, activation='tanh', input_shape=(dyn_in,))]
+        dyn += [tf.keras.layers.Dense(dyn_width, activation='tanh') for _ in range(dyn_layers - 1)]
+        dyn += [tf.keras.layers.Dense(self._num_z)]
+        self.NNdyn = tf.keras.Sequential(dyn)
 
         # NNrec expects 4-D input (batch, x, y, features) to support spatial fields;
         # for scalar C_L/C_M we pass a single point at (0, 0).
         rec_in = self._num_z + n_signals + n_space
-        self.NNrec = tf.keras.Sequential([
-            tf.keras.layers.Dense(24, activation='tanh', input_shape=(None, None, rec_in)),
-            tf.keras.layers.Dense(24, activation='tanh'),
-            tf.keras.layers.Dense(24, activation='tanh'),
-            tf.keras.layers.Dense(24, activation='tanh'),
-            tf.keras.layers.Dense(len(self._problem['output_signals'])),
-        ])
+        rec = [tf.keras.layers.Dense(rec_width, activation='tanh', input_shape=(None, None, rec_in))]
+        rec += [tf.keras.layers.Dense(rec_width, activation='tanh') for _ in range(rec_layers - 1)]
+        rec += [tf.keras.layers.Dense(len(self._problem['output_signals']))]
+        self.NNrec = tf.keras.Sequential(rec)
 
         self._load_weights(model_dir)
         self._z      = np.zeros(self._num_z)
@@ -174,6 +178,18 @@ class LDNetAero:
         sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
         U_n    = self._normalize_U(U)
         self._z = self._advance_z(self._z, sigs_n, U_n, dt)
+
+    def advance_z(self, z, state, delta_deg, W, U, dt):
+        """Advance an EXTERNAL latent z one step and return z_new — PURE:
+        does NOT touch self._z. Mirrors advance() exactly (same forward-Euler
+        sub-steps with leak), so feeding identical (state, delta, W, U, dt)
+        yields a latent bit-identical to the plant's advance(). Lets a
+        controller carry its OWN latent z_ctrl while sharing the model."""
+        dt = float(dt)
+        h, hd, a, ad = state
+        sigs_n = self._normalize_signals(h, hd, a, ad, delta_deg, W)
+        U_n    = self._normalize_U(U)
+        return self._advance_z(np.asarray(z, float), sigs_n, U_n, dt)
 
     def predict_step(self, state, delta_deg, W, U, dt):
         """(C_L, C_M) that result AFTER advancing a COPY of z one step with this

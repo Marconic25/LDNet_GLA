@@ -1,0 +1,65 @@
+#!/bin/bash
+#PBS -N mpcfomOL
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_dagger/pbs_openloop.log
+#
+# Real FOM OPEN-LOOP (delta=0, no controller) run -- needed to get the TRUE
+# exo baseline for CLred, instead of relying on the ROM's own (possibly
+# biased, per this session's findings) open-loop prediction. Same case/
+# checkpoint/physics as mpc_fom_verify.pbs, --controller schedule with the
+# module's default DELTA_ANGLES=[0,0] (flap held at zero throughout).
+#
+# Submit:
+#   qsub -v W0=30,TG=0.40,TEND=1.25 mpc_fom_openloop.pbs
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+: "${W0:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>}"
+: "${TG:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>}"
+TEND="${TEND:-1.25}"
+
+SCRATCH="/scratch_local/$USER/mpcfomOL_W${W0}_Tg${TG}"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
+OUT_PERSIST="$WORK_BASE/mpc_fom_dagger/OpenLoop_W${W0}_Tg${TG}"
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+echo "=== MPC-FOM OPEN-LOOP  W0=$W0  Tg=$TG  (delta=0, no controller) ==="
+echo "    scratch=$SCRATCH"
+
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename "$proc")"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+cp "$WORK_BASE/recon/cluster/controlDict.extract" "$SCRATCH/system/controlDict"
+cp "$WORK_BASE/recon/cluster/cosim_driver_extract.py" "$SCRATCH/cosim_driver.py"
+
+cd "$SCRATCH"
+
+python3 -u cosim_driver.py \
+    --np 16 --window 50 --dt 7e-05 --t-end "$TEND" \
+    --from-checkpoint \
+    --gust-w0 "$W0" \
+    --gust-t-start 0.0 \
+    --gust-t-end "$TG" \
+    --controller schedule \
+    --delta-times 0.0 2.0 \
+    --delta-angles 0.0 0.0 \
+    2>&1 | tee log.cosim_driver_openloop
+
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+cp "$SCRATCH"/*.png "$OUT_PERSIST/" 2>/dev/null || true
+echo "=== DONE W0=$W0 Tg=$TG open-loop -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

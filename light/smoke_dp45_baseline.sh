@@ -1,5 +1,5 @@
 #!/bin/bash
-# Smoke regression: open + optimal (R=3e-4, R=1e-4) + combo oracle clean
+# Smoke regression: open + combo oracle clean (MPC N=8, R=3e-4)
 # at W30/Tg0.4 DAMULT=3, dp45 tree. Run from cluster light/ dir.
 cd /work/u10677113/LDNet_GLA/light
 apptainer exec --writable-tmpfs \

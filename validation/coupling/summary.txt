@@ -1,0 +1,44 @@
+/work/u10677113/NACA2312/cosim_main/validation_fsi/residuals.py:176: UserWarning: Data has no positive values, and therefore cannot be log-scaled.
+  fig.tight_layout()
+============================================================
+  FSI Coupling Convergence Validation
+============================================================
+
+[1/4] Loading force history from postProcessing/forces/ ...
+  Loaded 858 force windows from /work/u10677113/NACA2312/cosim_main/postProcessing/forces
+
+[2/4] Replaying structural trajectory ...
+  ICs from cosim_state_t0.json: h=-6.492mm  alpha=-0.0502deg
+  Replayed 858 windows: t=[3.000, 5.999]s  N_total=8572
+
+[3a/4] Residual study (858 windows, tol=1e-06) ...
+  Running residual study over 858 windows (tol=1e-06, max_iter=20)...
+  Converged windows: 858/858
+  Spectral radius: ρ ≈ 0 (all windows converge in 1 iteration — expected with surrogate fluid: deterministic integrator)
+  Iterations per window — avg=2.00  max=2
+
+[3b/4] Energy balance analysis ...
+  W_fluid total    : 3.9966e+00 J
+  ΔE_structural    : 2.7070e-02 J
+  W_damping total  : 3.9383e+00 J
+  Global imbalance : 7.8125e-03  (0.78%)
+  Per-window imbalance — median=1.8783e-05  max=4.1781e-03
+
+[4/4] Loose vs strong coupling comparison ...
+  Running loose coupling (single-pass)...
+  Running strong coupling (fixed-point, tol=1e-06, max_iter=20)...
+  Strong coupling avg iterations: 2.00  max: 2
+  Loose vs strong — L2_h=0.000e+00  L2_alpha=0.000e+00  phase_h=0.0000s  amp_h=0.000e+00
+
+────────────────────────────────────────────────────────────
+  FSI COUPLING VALIDATION SUMMARY
+────────────────────────────────────────────────────────────
+  Residual study : 858/858 windows converged
+  W_fluid total  : 3.9966e+00 J
+  ΔE_structural  : 2.7070e-02 J
+  W_damping      : 3.9383e+00 J
+  Global imbalance: 0.781%
+  Loose vs strong — L2_h=0.000e+00  L2_alpha=0.000e+00  phase_h=0.0000s  amp_h=0.000e+00
+  Strong coupling avg iters: 2.00  max: 2
+  Figures saved to: validation_fsi/figures/
+────────────────────────────────────────────────────────────

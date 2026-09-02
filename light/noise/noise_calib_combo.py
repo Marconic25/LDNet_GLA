@@ -67,7 +67,7 @@ class _ComboCtrl:
 
     def compute(self, state, W_true, Wc):
         # sensor.last set by wc_fun before this call (harness protocol)
-        return self._mpc.compute(state, self._sensor.last)
+        return self._mpc.compute(state, self._sensor.last, self._sensor.cur)
 
 
 def make_combo(rng, frac, bias=0.0, gain=1.0):

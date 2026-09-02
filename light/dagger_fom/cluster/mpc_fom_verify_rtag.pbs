@@ -1,0 +1,71 @@
+#!/bin/bash
+#PBS -N mpcfomR
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_dagger/pbs_run_rtag.log
+#
+# Minimal copy of recon/cluster/mpc_fom_verify.pbs (UNTOUCHED, UNMODIFIED --
+# same cosim_driver_extract.py, same light/optimal.py::MPCPreviewController,
+# no extra cost terms) with ONLY the scratch/output paths R-tagged, so
+# multiple R values for the SAME (W0,Tg) cell can run in parallel without
+# clobbering each other's persistent output (the original script has no R in
+# its OUT_PERSIST path, only safe for one R per cell at a time).
+#
+# Submit:
+#   qsub -v W0=30,TG=0.40,MPCR=0.003,TEND=1.25 mpc_fom_verify_rtag.pbs
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+: "${W0:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<R value>}"
+: "${TG:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<R value>}"
+: "${MPCR:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<R value>}"
+DAMULT="${DAMULT:-3.0}"
+MPC_MODEL="${MPC_MODEL:-/work/u10677113/LDNet_GLA/clean/models_rollout/latent_10}"
+TEND="${TEND:-3.0}"
+WINDOW="${WINDOW:-50}"    # co-sim coupling window [CFD steps]; controller re-plans once per window
+
+SCRATCH="/scratch_local/$USER/mpcfomR_W${W0}_Tg${TG}_R${MPCR}_win${WINDOW}"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
+OUT_PERSIST="$WORK_BASE/mpc_fom_dagger/Rsweep_W${W0}_Tg${TG}_R${MPCR}_win${WINDOW}"
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+echo "=== MPC-FOM R-sweep  W0=$W0  Tg=$TG  R=$MPCR  WINDOW=$WINDOW  DAMULT=$DAMULT  model=$MPC_MODEL ==="
+echo "    scratch=$SCRATCH  (original controller, unmodified: light/optimal.py::MPCPreviewController)"
+
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename "$proc")"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+cp "$WORK_BASE/recon/cluster/controlDict.extract" "$SCRATCH/system/controlDict"
+cp "$WORK_BASE/recon/cluster/cosim_driver_extract.py" "$SCRATCH/cosim_driver.py"
+
+cd "$SCRATCH"
+
+python3 -u cosim_driver.py \
+    --np 16 --window "$WINDOW" --dt 7e-05 --t-end "$TEND" \
+    --from-checkpoint \
+    --gust-w0 "$W0" \
+    --gust-t-start 0.0 \
+    --gust-t-end "$TG" \
+    --controller mpc \
+    --mpc-model "$MPC_MODEL" \
+    --mpc-R "$MPCR" \
+    --damult "$DAMULT" \
+    2>&1 | tee log.cosim_driver_mpc
+
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+cp "$SCRATCH"/*.png "$OUT_PERSIST/" 2>/dev/null || true
+echo "=== DONE W0=$W0 Tg=$TG R=$MPCR -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

@@ -1,0 +1,1 @@
+feat(run): add mode='combo' (MPCPreviewController oracle, NH=8) to simulate()

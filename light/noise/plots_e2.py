@@ -3,15 +3,14 @@ Chapter figures for the E2 study (LITERATURE.md techniques -> NOTES.md E2/E2C/
 E2CC sections). Reads results/E2_*.npz (record schema: harness_noise.py),
 needs numpy+matplotlib only (no TF/harness import — runs anywhere).
 
-  fig_E2_money.png   time traces, home cell W30/Tg0.4: worst one-step seed on
-                     the raw sigma=2% preview (explodes post-gust) vs a
-                     combo-dlr seed (fusion Jmax=50 + MPC N=8, raw LOS noise
-                     1-3 m/s) that tracks the clean optimum.
-  fig_E2_ladder.png  all E2 arms at the home cell, sigma=2% (dlr: raw 1-3 m/s),
-                     mean + [min,max] whiskers, colored by flag count, with
-                     the one-step-clean and combo-clean reference lines.
+  fig_E2_money.png   time traces, home cell W30/Tg0.4: a combo-dlr seed
+                     (fusion Jmax=50 + MPC N=8, raw LOS noise 1-3 m/s) that
+                     tracks the clean optimum.
+  fig_E2_ladder.png  the MPC-based E2 arms at the home cell, sigma=2%
+                     (dlr: raw 1-3 m/s), mean + [min,max] whiskers, colored
+                     by flag count, with the combo-clean reference line.
   fig_E2_cells.png   generality: the same untuned combo at the three study
-                     cells vs the one-step clean and noisy baselines.
+                     cells.
 """
 import os
 import numpy as np
@@ -42,44 +41,35 @@ def trajs(recs, prefix):
 
 CF = load('E2_combo_flat.npz')
 CD = load('E2_combo_dlr.npz')
-GA = load('E2_gate.npz')
-KA = load('E2_kalman.npz')
 MA = load('E2_mpc.npz')
-SA = load('E2_sensor.npz')
 W10 = load('E2_combo_cells_W10T07.npz')
 W30 = load('E2_combo_cells_W30T07.npz')
 
 OPEN = [r for r in CF if r['kind'] == 'open'][0]
 TRIM = float(OPEN['CL'][0])          # open loop starts from the trimmed state
-CLEAN_1STEP = 76.58                  # study regression anchor (light/run.py)
 CLEAN_COMBO = float(pt(CF, arm='anchor', R_du=0.0)['mean'])
 
 
 # ---- fig 1: money plot -----------------------------------------------------------
 def fig_money():
-    tn = min(trajs(CF, 'E2C_none_'), key=lambda r: r['clred'])
     td = min(trajs(CD, 'E2C_dlr_best_'), key=lambda r: r['clred'])
-    fig, ax = plt.subplots(3, 2, figsize=(10.5, 7.5), sharex=True, sharey='row')
-    for j, (tr, ttl) in enumerate([
-            (tn, f"one-step, raw preview σ=2%·W0 — worst seed "
-                 f"(CLred {tr_clred(tn)}, flag '{tn['flag']}')"),
-            (td, f"combo: fusion + MPC N=8, raw LOS 1–3 m/s "
-                 f"(CLred {tr_clred(td)}, no flags)")]):
-        t = tr['t']
-        ax[0, j].plot(t, tr['W'], 'k-', lw=1.6, label='W true')
-        ax[0, j].plot(t, tr['Wc'], color='tab:orange', lw=0.7, alpha=0.85,
-                      label='W seen (t+dt ch.)')
-        ax[1, j].plot(OPEN['t'], OPEN['CL'], color='0.65', lw=1.0, label='open loop')
-        ax[1, j].plot(t, tr['CL'], 'b-', lw=1.2, label='closed loop')
-        ax[1, j].axhline(TRIM, color='k', ls=':', lw=0.8)
-        ax[2, j].plot(t, tr['de'], 'g-', lw=1.2)
-        ax[0, j].set_title(ttl, fontsize=9.5)
-    ax[0, 0].set_ylabel('W [m/s]'); ax[1, 0].set_ylabel('$C_L$')
-    ax[2, 0].set_ylabel(r'$\delta$ [deg]')
-    for a in ax[2]: a.set_xlabel('t [s]'); a.set_xlim(0, 1.2)
-    ax[0, 0].legend(fontsize=8, loc='upper right')
-    ax[1, 0].legend(fontsize=8, loc='upper right')
-    fig.suptitle('W30/Tg0.4, DAMULT=3 — raw single-sample preview vs the composed pipeline',
+    fig, ax = plt.subplots(3, 1, figsize=(6.0, 7.5), sharex=True)
+    t = td['t']
+    ax[0].plot(t, td['W'], 'k-', lw=1.6, label='W true')
+    ax[0].plot(t, td['Wc'], color='tab:orange', lw=0.7, alpha=0.85,
+               label='W seen (t+dt ch.)')
+    ax[1].plot(OPEN['t'], OPEN['CL'], color='0.65', lw=1.0, label='open loop')
+    ax[1].plot(t, td['CL'], 'b-', lw=1.2, label='closed loop')
+    ax[1].axhline(TRIM, color='k', ls=':', lw=0.8)
+    ax[2].plot(t, td['de'], 'g-', lw=1.2)
+    ax[0].set_title(f"combo: fusion + MPC N=8, raw LOS 1–3 m/s "
+                    f"(CLred {tr_clred(td)}, no flags)", fontsize=9.5)
+    ax[0].set_ylabel('W [m/s]'); ax[1].set_ylabel('$C_L$')
+    ax[2].set_ylabel(r'$\delta$ [deg]')
+    ax[2].set_xlabel('t [s]'); ax[2].set_xlim(0, 1.2)
+    ax[0].legend(fontsize=8, loc='upper right')
+    ax[1].legend(fontsize=8, loc='upper right')
+    fig.suptitle('W30/Tg0.4, DAMULT=3 — the composed pipeline under raw lidar noise',
                  fontsize=11)
     fig.tight_layout()
     fig.savefig(os.path.join(RES, 'fig_E2_money.png'), dpi=180)
@@ -93,17 +83,12 @@ def tr_clred(tr):
 # ---- fig 2: mitigation ladder at the home cell ------------------------------------
 def fig_ladder():
     entries = [   # (label, point record)  — all at sigma=2% unless noted
-        ('one-step, raw preview',            pt(CF, arm='none')),
-        ('+ Kalman CV (q=1e4)',              pt(KA, arm='kf', detail='q=10000', frac=0.02)),
-        ('+ command washout τ=200ms',        pt(GA, arm='wash', detail='tau=200ms', frac=0.02)),
         ('MPC N4, current gust only',        pt(MA, arm='mpc-cur', frac=0.02)),
-        ('+ fusion J=50, λ=10 (one-step)',   pt(SA, arm='fuseT', detail='J=50 lam=10', frac=0.02)),
-        ('+ fusion J=25 (one-step)',         pt(SA, arm='fuse', detail='J=25', frac=0.02)),
         ('MPC N8, raw preview',              pt(MA, arm='mpcp', detail='N=8', frac=0.02)),
         ('COMBO: fusion + MPC N8',           pt(CF, arm='combo', detail='flat Rdu=0')),
         ('COMBO, raw LOS 1–3 m/s (!)',       pt(CD, arm='combo', detail='dlr lam=1 Rdu=0')),
     ]
-    fig, ax = plt.subplots(figsize=(9, 5.2))
+    fig, ax = plt.subplots(figsize=(9, 3.6))
     y = np.arange(len(entries))[::-1]
     for yi, (lab, r) in zip(y, entries):
         n = len(r['seeds'])
@@ -116,8 +101,6 @@ def fig_ladder():
                 f"{r['mean']:+.1f}%  ({r['nflag']}/{n} flags)",
                 va='center', fontsize=8.5)
     ax.axvline(0, color='k', lw=0.8)
-    ax.axvline(CLEAN_1STEP, color='0.4', ls='--', lw=1.0)
-    ax.text(CLEAN_1STEP, len(entries) - 0.25, ' one-step clean', fontsize=8, color='0.3')
     ax.axvline(CLEAN_COMBO, color='tab:blue', ls='--', lw=1.0)
     ax.text(CLEAN_COMBO, -0.65, ' combo clean', fontsize=8, color='tab:blue')
     ax.set_yticks(y)
@@ -133,30 +116,24 @@ def fig_ladder():
 
 # ---- fig 3: generality across cells ------------------------------------------------
 def fig_cells():
-    home = {'1step-clean': dict(mean=CLEAN_1STEP, lo=CLEAN_1STEP, hi=CLEAN_1STEP, nflag=0, seeds=[0]),
-            'anchor':      pt(CF, arm='anchor', R_du=0.0),
-            'none':        pt(CF, arm='none'),
+    home = {'anchor':      pt(CF, arm='anchor', R_du=0.0),
             'combo-flat':  pt(CF, arm='combo', detail='flat Rdu=0'),
             'combo-dlr':   pt(CD, arm='combo', detail='dlr lam=1 Rdu=0')}
     cells = [('W30/Tg0.4\n(home, sharp)', home),
              ('W10/Tg0.7\n(gentle; dlr raw = 10–30%·W0)',
               {a: pt(W10, arm=a) for a in
-               ('1step-clean', 'anchor', 'none', 'combo-flat', 'combo-dlr')}),
+               ('anchor', 'combo-flat', 'combo-dlr')}),
              ('W30/Tg0.7\n(strong, slower)',
               {a: pt(W30, arm=a) for a in
-               ('1step-clean', 'anchor', 'none', 'combo-flat', 'combo-dlr')})]
-    arms = [('1step-clean', 'one-step clean (oracle)', '0.6'),
-            ('none',        'one-step, σ=2% raw',      'tab:red'),
-            ('combo-flat',  'combo, σ=2%',             'tab:blue'),
+               ('anchor', 'combo-flat', 'combo-dlr')})]
+    arms = [('combo-flat',  'combo, σ=2%',             'tab:blue'),
             ('combo-dlr',   'combo, raw LOS 1–3 m/s',  'tab:green')]
     fig, ax = plt.subplots(figsize=(9, 5))
     W = 0.19
     for k, (aname, alab, col) in enumerate(arms):
-        xs, ms = [], []
         for i, (cl, d) in enumerate(cells):
             r = d[aname]
-            x = i + (k - 1.5) * W
-            xs.append(x); ms.append(r['mean'])
+            x = i + (k - 0.5) * W
             ax.bar(x, r['mean'], width=W * 0.92, color=col, alpha=0.8,
                    label=alab if i == 0 else None)
             if len(r['seeds']) > 1:

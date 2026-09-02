@@ -96,7 +96,7 @@ class _MismatchCtrl:
         for a, pv, nv in self._pert:
             setattr(S, a, nv)
         try:
-            return self._mpc.compute(state, self._sensor.last)
+            return self._mpc.compute(state, self._sensor.last, self._sensor.cur)
         finally:
             for a, pv, nv in self._pert:
                 setattr(S, a, pv)

@@ -1,0 +1,19 @@
+NACA 2312 — Temporal (coupling window) Discretization Study
+physical dt = 7e-05 s (production), flap step 0->15deg on [0,0.2]s,
+endTime = 1.0 s,  mesh = M3 (wingMotion2D_pimpleFoam)
+======================================================================================
+
+Level  window   dt_coup (s)  Co_max   CL_steady   NRMSE% vs DT4  CL_amp    wc/s (s)
+--------------------------------------------------------------------------------------
+DT1    100      7.00e-03     8.66     1.03295     0.602          0.0015    8.0     
+DT2    50       3.50e-03     8.66     1.03278     0.697          0.0042    18.0    
+DT3    25       1.75e-03     8.66     1.03279     0.352          0.0037    3.0     
+DT4    10       7.00e-04     8.66     1.03229     0.000          0.0032    3.0     
+
+Convergence check (relative change vs next finer level):
+  CL_steady DT1 -> DT2: 0.016%
+  CL_steady DT2 -> DT3: 0.001%
+  CL_steady DT3 -> DT4: 0.049%
+
+Selected coupling window: DT1  (window=100, dt_coup=7.00e-03 s)
+Criterion: largest coupling window with NRMSE < 1% vs DT4 on t in [0.25,1.0] s.

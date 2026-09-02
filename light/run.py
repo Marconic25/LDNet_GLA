@@ -2,9 +2,10 @@
 Closed-loop GLA simulation harness.
 
 Two arms:
-  'open'    — no control (delta = 0), open-loop reference
-  'optimal' — final one-step optimal controller (wnext + refine, optimal.py),
-              receives the true gust W(t) and its next sample W(t+dt)
+  'open'  — no control (delta = 0), open-loop reference
+  'combo' — N-step constant-flap preview MPC (MPCPreviewController,
+            optimal.py), receives the oracle gust preview
+            w_seq[k] = W(t+(k+1)*dt), k = 0..NH-1
 
 Both arms share the same plant, initial condition, flap saturation, rate limit
 and optional 2nd-order LPF smoothing chain, so comparisons isolate the control
@@ -16,13 +17,13 @@ Usage (cluster):
 import numpy as np, os, time
 import structure
 from ldnet_aero import LDNetAero
-from optimal import OptimalController, MPCPreviewController
+from optimal import MPCPreviewController
 
 structure.D_ALPHA *= float(os.environ.get('DAMULT', '1'))
 
 U = 80.; RHO = 1.225; C = 1.0; DT = 0.002; S = 0.05; q = 0.5*RHO*U**2*S
-MD = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                  '..', 'clean', 'models_rollout', 'latent_10')
+MD = os.environ.get('MD_OVERRIDE', os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                  '..', 'clean', 'models_rollout', 'latent_10'))
 
 aero = LDNetAero(MD); aero.reset(dt=DT)
 X0 = np.array([-6.49179e-3, 0.0, -8.76338e-4, 0.0])
@@ -49,22 +50,19 @@ def simulate(mode, W0, Tg, TEND=3.0, R=3e-4, DLPF=0.0, DMAX=14., NGRID=161, NH=8
     """
     Run one closed-loop gust simulation.
 
-    mode    : 'open' | 'optimal'
+    mode    : 'open' | 'combo'
     Returns : trajectory dict with keys h, hd, al, ad, hdd, add, de, CL, CM, Fy,
               plus _t, _Wt, _comp_ms, _cfg.
     """
+    if mode not in ('open', 'combo'):
+        raise ValueError(f"mode must be 'open' or 'combo', got {mode!r}")
     Nsteps = int(round(TEND/DT)) + 1
     ts = np.arange(Nsteps)*DT
     Wt = np.array([gust(t, W0, Tg) for t in ts])
 
     aero.reset(dt=DT)
     ctrl = None
-    if mode == 'optimal':
-        ctrl = OptimalController(
-            aero, U=U, dt=DT, R=R, n_grid=NGRID,
-            C_L_trim=CLTRIM, delta_max=DMAX, delta_dot_max=300.)
-        ctrl.reset()
-    elif mode == 'combo':
+    if mode == 'combo':
         ctrl = MPCPreviewController(
             aero, U=U, dt=DT, rho=RHO, S=S, C=C,
             C_L_trim=CLTRIM, N=NH, R=R, R_du=R_du,
@@ -77,18 +75,16 @@ def simulate(mode, W0, Tg, TEND=3.0, R=3e-4, DLPF=0.0, DMAX=14., NGRID=161, NH=8
 
     for i in range(Nsteps):
         Wi = float(Wt[i])
-        Wn = float(Wt[i+1]) if i + 1 < Nsteps else 0.0
 
-        if mode == 'optimal':
-            t0 = time.perf_counter()
-            de_raw = ctrl.compute(x, Wi, Wn)
-            comp_t += time.perf_counter()-t0; comp_n += 1
-        elif mode == 'combo':
+        if mode == 'combo':
             t0 = time.perf_counter()
             lo = i + 1; hi = min(i + 1 + NH, Nsteps)
             w_seq = np.zeros(NH)
             w_seq[:hi - lo] = Wt[lo:hi]
-            de_raw = ctrl.compute(x, w_seq)
+            # oracle pipeline: the controller's current-gust estimate is the
+            # true W(t); z_ctrl then advances identically to the plant latent
+            # (bit-identical at DLPF=0, the operating point).
+            de_raw = ctrl.compute(x, w_seq, Wi)
             comp_t += time.perf_counter()-t0; comp_n += 1
         else:
             de_raw = 0.0
@@ -167,7 +163,7 @@ if __name__ == '__main__':
 
     kw = dict(TEND=TEND, R=RW, DLPF=DLPF, DMAX=DMAX)
 
-    MODE  = os.environ.get('MODE', 'optimal')
+    MODE  = os.environ.get('MODE', 'combo')
     NH    = int(os.environ.get('NH',   '8'))
     R_DU  = float(os.environ.get('R_DU', '0.0'))
 

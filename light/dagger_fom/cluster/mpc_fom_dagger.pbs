@@ -1,0 +1,87 @@
+#!/bin/bash
+#PBS -N mpcdagger
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_dagger/pbs_run.log
+#
+# light/dagger_fom study variant of recon/cluster/mpc_fom_verify.pbs — same
+# FSI co-simulation harness, but drives the flap with
+# light/dagger_fom/controller_qadot.py::MPCPreviewControllerQadot (pitch-rate
+# move-suppression, --qadot) instead of light/optimal.py::MPCPreviewController,
+# and/or a candidate LDNet checkpoint from a DAgger retraining iteration
+# (--mpc-model). Writes to mpc_fom_dagger/ (separate from mpc_fom_verify/, the
+# original validated-controller verification results, never touched by this
+# study).
+#
+# Submit:
+#   qsub -v W0=30,TG=0.40,MPCR=0.0003,QADOT=0.01,TEND=1.25 mpc_fom_dagger.pbs
+#
+# R* baseline per cell is read off light/results_cs25_combo/summary.md.
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+: "${W0:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<R* from summary.md>}"
+: "${TG:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<R* from summary.md>}"
+: "${MPCR:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<R* from summary.md>}"
+DAMULT="${DAMULT:-3.0}"
+QADOT="${QADOT:-0.0}"
+VARIANT="${VARIANT:-qadot}"    # qadot | stable
+QH="${QH:-10000}"
+QALPHA="${QALPHA:-10000}"
+QCL="${QCL:-1000}"
+RSTABLE="${RSTABLE:-1.0}"
+MPC_MODEL="${MPC_MODEL:-/work/u10677113/LDNet_GLA/clean/models_rollout/latent_10}"
+TEND="${TEND:-3.0}"
+TAG="${TAG:-${VARIANT}}"
+
+SCRATCH="/scratch_local/$USER/mpcdagger_W${W0}_Tg${TG}_${TAG}"
+CONTAINER_ABS="/work/u10677113/of7.sif"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
+OUT_PERSIST="$WORK_BASE/mpc_fom_dagger/W${W0}_Tg${TG}_${TAG}"
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+echo "=== MPC-FOM dagger  W0=$W0  Tg=$TG  R*=$MPCR  DAMULT=$DAMULT  QADOT=$QADOT  model=$MPC_MODEL ==="
+echo "    scratch=$SCRATCH"
+
+# ── Copy case + checkpoint to scratch (own copy per job — enables parallel cells) ──
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename "$proc")"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+cp "$WORK_BASE/recon/cluster/controlDict.extract" "$SCRATCH/system/controlDict"
+cp "/work/u10677113/LDNet_GLA/light/dagger_fom/cluster/cosim_driver_dagger.py" "$SCRATCH/cosim_driver.py"
+
+cd "$SCRATCH"
+
+# ── Closed-loop MPC co-simulation (dagger_fom controller variant) ──
+python3 -u cosim_driver.py \
+    --np 16 --window 50 --dt 7e-05 --t-end "$TEND" \
+    --from-checkpoint \
+    --gust-w0 "$W0" \
+    --gust-t-start 0.0 \
+    --gust-t-end "$TG" \
+    --controller mpc \
+    --mpc-model "$MPC_MODEL" \
+    --mpc-R "$MPCR" \
+    --qadot "$QADOT" \
+    --controller-variant "$VARIANT" \
+    --Qh "$QH" --Qalpha "$QALPHA" --QCL "$QCL" --R "$RSTABLE" \
+    --damult "$DAMULT" \
+    2>&1 | tee log.cosim_driver_mpc
+
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+cp "$SCRATCH"/*.png "$OUT_PERSIST/" 2>/dev/null || true
+echo "=== DONE W0=$W0 Tg=$TG -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

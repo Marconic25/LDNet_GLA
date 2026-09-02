@@ -1,0 +1,58 @@
+#!/bin/bash
+#PBS -N isoltest
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=01:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_verify/pbs_isolate.log
+#
+# Isolating diagnostic: SAME case/checkpoint/window as mpc_fom_verify.pbs, but
+# --controller schedule (the ORIGINAL, never-touched-by-this-session code path)
+# with a constant 0.175deg flap from t=0 — matching the delta the MPC computed
+# for its Window 000 (see the memory note on the mpc_fom_verify.pbs hang).
+# Tests whether ANY nonzero flap right after a checkpoint restart is slow, or
+# whether it's specific to the --controller mpc / mpc_fom_server.py path.
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+SCRATCH="/scratch_local/$USER/isolate_schedule_test"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
+OUT_PERSIST="$WORK_BASE/mpc_fom_verify/isolate_schedule_test"
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+echo "=== ISOLATE TEST: schedule mode, constant 0.175deg flap from t=0 ==="
+echo "    scratch=$SCRATCH"
+
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename "$proc")"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+cp "$WORK_BASE/recon/cluster/controlDict.extract" "$SCRATCH/system/controlDict"
+cp "$WORK_BASE/recon/cluster/cosim_driver_extract.py" "$SCRATCH/cosim_driver.py"
+
+cd "$SCRATCH"
+
+python3 -u cosim_driver.py \
+    --np 16 --window 50 --dt 7e-05 --t-end 0.25 \
+    --from-checkpoint \
+    --gust-w0 20.0 \
+    --gust-t-start 0.0 \
+    --gust-t-end 0.50 \
+    --controller schedule \
+    --delta-times 0.0 3.0 \
+    --delta-angles 0.175 0.175 \
+    2>&1 | tee log.cosim_driver_isolate
+
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+echo "=== DONE isolate test -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

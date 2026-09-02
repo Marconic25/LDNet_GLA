@@ -1,0 +1,22 @@
+NACA 2312 — Courant sweep at fixed coupling window
+window = 50 steps x 7e-05 s = 3.5 ms (production value), adjustTimeStep yes, maxDeltaT = 0.0005 s
+gust: W0=40 m/s, t=[0.1,0.9] s (run-relative), t_end=1.2 s, warm start from checkpoint
+==================================================================================
+maxCo    Co_max real  dt_avg (s)   CL_base    CL_peak    dCL_amp    t_peak (s)  wall (s)  
+----------------------------------------------------------------------------------
+fixed    3.494        -1.000e+00   0.8394     1.6415     +0.8021    0.6675      5702      
+0.5      0.519        1.365e-05    0.8564     1.7928     +0.9364    0.6957      46444     
+1        1.015        2.748e-05    0.8477     1.7309     +0.8831    0.6817      2987      
+2        2.012        5.509e-05    0.8403     1.6758     +0.8356    0.6741      1555      
+4        4.010        1.102e-04    0.8343     1.6342     +0.7999    0.6661      844       
+
+Relative change in |dCL_amp| between consecutive maxCo levels:
+  maxCo 0.5 -> 1: 5.69%
+  maxCo 1 -> 2: 5.39%
+  maxCo 2 -> 4: 4.27%
+
+Relative deviation of |dCL_amp| vs fixed-dt production reference:
+  maxCo 0.5 vs fixed(7e-5): 16.75%
+  maxCo 1 vs fixed(7e-5): 10.10%
+  maxCo 2 vs fixed(7e-5): 4.17%
+  maxCo 4 vs fixed(7e-5): 0.28%

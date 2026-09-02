@@ -104,6 +104,9 @@ class RefitSensor(FusedPreviewSensor):
         np.add.at(self.num, m_idx, y * inv2)
         np.add.at(self.den, m_idx, inv2)
 
+        di = self.den[i]                               # fused CURRENT-gust node
+        self.cur = max(0.0, float(self.num[i] / di)) if di > 0.0 else 0.0
+
         if self._i0 is None or (i - self._i0) >= self.K:
             lo = min(i + 1, Nsteps - 1)
             hi = min(i + self.Jmax, Nsteps - 1)
@@ -148,7 +151,7 @@ class _ComboCtrl:
 
     def compute(self, state, W_true, Wc):
         # sensor.last set by wc_fun before this call (harness protocol)
-        return self._mpc.compute(state, self._sensor.last)
+        return self._mpc.compute(state, self._sensor.last, self._sensor.cur)
 
 
 def make_mpc():

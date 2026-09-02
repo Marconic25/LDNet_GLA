@@ -1,0 +1,79 @@
+#!/bin/bash
+#PBS -N mpcfom
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_verify/pbs_run.log
+#
+# Closed-loop MPC verification against the full-order FSI solver (the "next
+# step" from light/latex/Conclusion.tex): drives the flap with the SAME
+# preview MPC controller validated in light/results_cs25_combo, but reading
+# the true structural state from the real co-simulation each window instead
+# of from the LDNet surrogate. Compare the resulting structural_trajectory.csv
+# (CLred, pitch, flap) against the corresponding row of
+# light/results_cs25_combo/summary.md for this (W0,Tg) cell.
+#
+# Submit (one job per verification cell):
+#   qsub -v W0=20,TG=0.50,MPCR=0.0003 mpc_fom_verify.pbs   # mid-envelope
+#   qsub -v W0=30,TG=1.20,MPCR=0.01   mpc_fom_verify.pbs   # sharp/severe corner
+#
+# R* per cell is read off light/results_cs25_combo/summary.md (the "combo R*"
+# column) — do not guess a new one here, the point is to test the EXACT
+# validated configuration against real physics.
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+: "${W0:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<R* from summary.md>}"
+: "${TG:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<R* from summary.md>}"
+: "${MPCR:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<R* from summary.md>}"
+DAMULT="${DAMULT:-3.0}"
+MPC_MODEL="${MPC_MODEL:-/work/u10677113/LDNet_GLA/clean/models_rollout/latent_10}"
+TEND="${TEND:-3.0}"
+
+SCRATCH="/scratch_local/$USER/mpcfom_W${W0}_Tg${TG}"
+CONTAINER_ABS="/work/u10677113/of7.sif"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
+OUT_PERSIST="$WORK_BASE/mpc_fom_verify/W${W0}_Tg${TG}"
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+echo "=== MPC-FOM verify  W0=$W0  Tg=$TG  R*=$MPCR  DAMULT=$DAMULT  model=$MPC_MODEL ==="
+echo "    scratch=$SCRATCH"
+
+# ── Copy case + checkpoint to scratch (own copy per job — enables parallel cells) ──
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename "$proc")"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+cp "$WORK_BASE/recon/cluster/controlDict.extract" "$SCRATCH/system/controlDict"
+cp "$WORK_BASE/recon/cluster/cosim_driver_extract.py" "$SCRATCH/cosim_driver.py"
+
+cd "$SCRATCH"
+
+# ── Closed-loop MPC co-simulation ──
+python3 -u cosim_driver.py \
+    --np 16 --window 50 --dt 7e-05 --t-end "$TEND" \
+    --from-checkpoint \
+    --gust-w0 "$W0" \
+    --gust-t-start 0.0 \
+    --gust-t-end "$TG" \
+    --controller mpc \
+    --mpc-model "$MPC_MODEL" \
+    --mpc-R "$MPCR" \
+    --damult "$DAMULT" \
+    2>&1 | tee log.cosim_driver_mpc
+
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+cp "$SCRATCH"/*.png "$OUT_PERSIST/" 2>/dev/null || true
+echo "=== DONE W0=$W0 Tg=$TG -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

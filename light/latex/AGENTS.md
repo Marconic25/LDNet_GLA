@@ -85,6 +85,71 @@ contenuti; mantenerlo aggiornato se si spostano sottosezioni.
 - Materiale di terzi (figure, tabelle, dati pubblicati da altri) va usato solo con
   i permessi necessari e citando esplicitamente autore e fonte.
 
+## Stile delle references
+Lo stile di stampa è quello di Nature: `\bibliographystyle{naturemag}` con
+`natbib` (`[square, numbers, sort&compress]`). Rende cognome per primo e nome
+ridotto a iniziale puntata, `&` prima dell'ultimo autore, titolo in sentence
+case, rivista abbreviata, poi volume, pagine e anno fra parentesi:
+
+    Hochreiter, S. & Schmidhuber, J. Long short-term memory. Neural
+    Comput. 9, 1735--1780 (1997).
+
+La numerazione segue l'ordine di citazione, non l'ordine alfabetico: cambiando
+stile i numeri delle reference cambiano, quindi non citare mai una reference per
+numero nel testo o in una discussione, ma sempre per chiave o per autore.
+
+- Autori: sempre `Cognome, Nome` separati da ` and `, mai `Nome Cognome` e mai
+  senza virgola. `{A.R. Collar}` è sbagliato due volte, perché inverte l'ordine e
+  perché BibTeX legge `A.R.` come un unico token e in stampa lo tronca ad `A.`.
+  Il nome nel sorgente si scrive per esteso quando la fonte lo riporta per
+  esteso: è lo stile che lo riduce a iniziale, non l'autore del `.bib`.
+- Iniziali nel sorgente: solo quando la fonte pubblicata non riporta il nome
+  intero, e in quel caso spaziate e puntate, `Disney, T. E.`. Non si inventa un
+  nome intero a partire dalle iniziali: vale il vincolo "non inventare".
+- Caratteri accentati: forma BibTeX, `Dede{'}`, mai la lettera accentata diretta.
+- Titoli: sentence case, con le maiuscole obbligate protette fra graffe
+  (`{LDNet}`, `{CFD}`, `{N}avier--{S}tokes`), perché lo stile abbassa le altre.
+- Nome della rivista abbreviato secondo ISO 4, come lo stampa Nature:
+  `J. Comput. Phys.`, `Comput. Methods Appl. Mech. Eng.`, `AIAA J.`. Non lasciare
+  il nome per esteso: `naturemag` stampa il campo `journal` così com'è e non
+  abbrevia da solo.
+- Campi per tipo: `@article` porta `author`, `title`, `journal`, `year`,
+  `volume`, `number` se c'è, `pages`. Niente `publisher` né `address`, che lo
+  stile ignora per gli articoli e che oggi compaiono solo in una parte delle voci.
+- Chiavi: `AutoreAnno` per le voci multi-autore già presenti in quella forma
+  (`FrescaDedeManzoni2021`), `autoreAnnoTema` minuscolo per le altre
+  (`rawlings2017mpc`). Non introdurre una terza convenzione, e verificare che la
+  chiave non esista già: chiavi duplicate sono errori BibTeX, non avvisi.
+- Ogni voce presente deve essere citata almeno una volta. Le voci non citate non
+  vengono stampate e restano nel file come rumore: si eliminano, a meno che non
+  siano in attesa di essere citate.
+
+## Terminologia
+Regole non negoziabili, valide su tutto il documento (corpo, appendici, caption,
+titoli di sezione, legende delle figure). Sono l'analogo lessicale della regola
+"un simbolo, una grafia" della sezione "Simboli e variabili".
+
+- Un nome, una cosa. Ogni oggetto ha un solo nome in tutto il documento e non lo
+  cambia mai, nemmeno per evitare una ripetizione: variare per eleganza è un
+  errore, non uno stile. Se è il `full-order model`, è sempre il `full-order
+  model`, mai "high-fidelity model" o "high-fidelity simulation"; se è l'`LDNet`,
+  è sempre l'`LDNet`, mai "the surrogate" o "the network" quando si intende
+  quello. Nomi diversi sono ammessi solo per oggetti diversi: `surrogate` è la
+  classe generica nella rassegna di letteratura, `LDNet` è il modello di questo
+  lavoro, `internal model` è il ruolo che l'LDNet ricopre dentro l'anello di
+  controllo, `reduced-order model` è la classe POD-Galerkin. Prima di introdurre
+  un nome nuovo, verificare che non esista già un nome per quella cosa.
+- Acronimi: si definiscono una sola volta, alla prima occorrenza, nella forma
+  "Latent Dynamics Networks (LDNets)"; da lì in avanti si usa sempre e solo
+  l'acronimo. Non ridefinirlo in un capitolo successivo e non tornare alla forma
+  estesa, titoli di sezione compresi. Se un acronimo non viene riusato almeno una
+  volta, non va introdotto: si scrive il termine per esteso e basta.
+- Tono ingegneristico: frasi dichiarative, il nome dell'oggetto ripetuto invece
+  del pronome quando c'è ambiguità. Niente formule retoriche ("fits in this
+  picture", "moves the difficulty from ... to ...", "end to end"), niente verbi
+  figurati per operazioni tecniche (un controllore non "reasons on" un modello:
+  lo usa, o ci predice sopra).
+
 ## Forma
 - Evitare `\paragraph`, `\textbf`, `\emph` e corsivi se non strettamente
   necessari alla comprensione.
@@ -95,8 +160,12 @@ contenuti; mantenerlo aggiornato se si spostano sottosezioni.
   usare direttamente il termine più chiaro ("delayed"). Le parentesi restano
   per valori numerici, unità, sigle e riferimenti.
 - Lessico vietato (scelta dell'autore): mai "plant" (usare "controlled system",
-  "aeroelastic system", "reduced system" secondo il contesto) e mai
-  "traction(s)" (usare "stresses" e formulazioni equivalenti).
+  "aeroelastic system", "reduced system" secondo il contesto), mai
+  "traction(s)" (usare "stresses" e formulazioni equivalenti), e mai
+  "baseline"/"baseline value(s)" per indicare una configurazione di partenza
+  di uno sweep (larghezza, profondità, iperparametro): nominare il valore
+  esplicito ("$L=6$", "$7$ neurons") e, se serve dire che è il punto da cui
+  parte lo sweep, scriverlo per esteso ("the sweep starts from $L=6$").
 - Preferire la forma sintetica: mostrare equazioni, algoritmi e risultati
   (formule, pseudo-codice, tabelle, figure) invece di descriverli a parole. La
   prosa serve a spiegare e collegare quando necessario, non a sostituire ciò che
@@ -122,7 +191,8 @@ label degli assi nelle figure).
   merita una definizione, non merita di comparire.
 - Scelte già fissate, da non ribaltare: velocità del fluido $\mathbf{u}$, velocità
   della superficie strutturale $\dot{\mathbf{u}}_s$, velocità di griglia ALE
-  $\mathbf{w}$; il vettore degli ingressi del surrogato è $\boldsymbol{\eta}(t)$,
+  $\mathbf{u}_g$ (mai $\mathbf{w}$, riservato ai pesi delle reti $\mathbf{w}_\mathrm{dyn}$,
+  $\mathbf{w}_\mathrm{rec}$); il vettore degli ingressi del surrogato è $\boldsymbol{\eta}(t)$,
   $\boldsymbol{\eta}_n$ e mai $\mathbf{u}$, che resta riservato alla velocità del
   fluido (vale anche per le figure: l'etichetta in `generate_ldnet_arch.py` è
   $\boldsymbol{\eta}(t)$); picco di raffica $W_0$ (mai $W_\mathrm{max}$, le figure dei

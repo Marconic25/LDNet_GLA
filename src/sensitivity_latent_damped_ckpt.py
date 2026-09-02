@@ -39,6 +39,12 @@ dt_base         = 0.002
 num_epochs_Adam = int(os.environ.get("NADAM", "200"))
 LAMBDA_DAMP     = float(os.environ.get("LAMBDA_DAMP", "0.01"))
 num_epochs_BFGS = int(os.environ.get("NBFGS", "10000"))
+# Depth-parametrized (DYN_LAYERS x DYN_WIDTH, REC_LAYERS x REC_WIDTH). Defaults
+# 2x7 / 4x24 reproduce the original L=6 architecture bit-identically.
+DYN_LAYERS = int(os.environ.get("DYN_LAYERS", "2"))
+DYN_WIDTH  = int(os.environ.get("DYN_WIDTH", "7"))
+REC_LAYERS = int(os.environ.get("REC_LAYERS", "4"))
+REC_WIDTH  = int(os.environ.get("REC_WIDTH", "24"))
 
 # ---------------------------------------------------------------
 # Problem definition (identical to TestCase_OF.py)
@@ -92,19 +98,15 @@ normalization = {
 
 def build_networks(num_latent_states):
     n_inp = num_latent_states + len(problem['input_parameters']) + len(problem['input_signals'])
-    NNdyn = tf.keras.Sequential([
-        tf.keras.layers.Dense(7, activation=tf.nn.tanh, input_shape=(n_inp,)),
-        tf.keras.layers.Dense(7, activation=tf.nn.tanh),
-        tf.keras.layers.Dense(num_latent_states),
-    ])
+    dyn = [tf.keras.layers.Dense(DYN_WIDTH, activation=tf.nn.tanh, input_shape=(n_inp,))]
+    dyn += [tf.keras.layers.Dense(DYN_WIDTH, activation=tf.nn.tanh) for _ in range(DYN_LAYERS - 1)]
+    dyn += [tf.keras.layers.Dense(num_latent_states)]
+    NNdyn = tf.keras.Sequential(dyn)
     n_rec = num_latent_states + len(problem['input_signals']) + problem['space']['dimension']
-    NNrec = tf.keras.Sequential([
-        tf.keras.layers.Dense(24, activation=tf.nn.tanh, input_shape=(None, None, n_rec)),
-        tf.keras.layers.Dense(24, activation=tf.nn.tanh),
-        tf.keras.layers.Dense(24, activation=tf.nn.tanh),
-        tf.keras.layers.Dense(24, activation=tf.nn.tanh),
-        tf.keras.layers.Dense(len(problem['output_signals'])),
-    ])
+    rec = [tf.keras.layers.Dense(REC_WIDTH, activation=tf.nn.tanh, input_shape=(None, None, n_rec))]
+    rec += [tf.keras.layers.Dense(REC_WIDTH, activation=tf.nn.tanh) for _ in range(REC_LAYERS - 1)]
+    rec += [tf.keras.layers.Dense(len(problem['output_signals']))]
+    NNrec = tf.keras.Sequential(rec)
     return NNdyn, NNrec
 
 # ---------------------------------------------------------------
@@ -180,7 +182,8 @@ def train_one(num_latent_states, dataset_train, dataset_valid):
     import json as _json
     _ck = RESULTS_DIR / ('latent_%d' % num_latent_states)
     _ck.mkdir(parents=True, exist_ok=True)
-    _cfg = {'problem': problem, 'normalization': normalization, 'num_latent_states': num_latent_states, 'lambda_damp': LAMBDA_DAMP}
+    _cfg = {'problem': problem, 'normalization': normalization, 'num_latent_states': num_latent_states, 'lambda_damp': LAMBDA_DAMP,
+            'dyn_layers': DYN_LAYERS, 'dyn_width': DYN_WIDTH, 'rec_layers': REC_LAYERS, 'rec_width': REC_WIDTH}
     with open(_ck / 'config.json', 'w') as _fp: _json.dump(_cfg, _fp, indent=2)
     def _save_ckpt(it):
         NNdyn.save_weights(str(_ck / 'NNdyn_weights.weights.h5'))
@@ -363,6 +366,10 @@ def main():
             'normalization': normalization,
             'num_latent_states': num_latent_states,
             'lambda_damp': LAMBDA_DAMP,
+            'dyn_layers': DYN_LAYERS,
+            'dyn_width': DYN_WIDTH,
+            'rec_layers': REC_LAYERS,
+            'rec_width': REC_WIDTH,
         }
         with open(out_dir / 'config.json', 'w') as _fp:
             _json.dump(config, _fp, indent=2)
