@@ -1,0 +1,44 @@
+#!/bin/bash
+#PBS -N verifyIter10
+#PBS -q cpu
+#PBS -l select=1:ncpus=1
+#PBS -l walltime=00:30:00
+#PBS -j oe
+#PBS -o /work/u10677113/LDNet_GLA/light/dagger_fom/models/iter10_verify.log
+#
+# Clean open-loop before/after check for iter10 (no controller, no closed
+# loop): does the candidate's OWN open-loop prediction move closer to the
+# real FOM excursion on the 3 cells it never saw (Tg=0.40, all W0)?
+# Run AFTER retrain_iter10.pbs has produced light/dagger_fom/models/iter10/latent_10.
+
+set -e
+BASE=/work/u10677113/LDNet_GLA
+OUT="$BASE/light/dagger_fom/models/iter10_verify.log"
+exec > "$OUT" 2>&1
+
+FOM_EXO="10,0.30=0.335126 20,0.30=0.673275 30,0.30=1.184273 \
+10,0.40=0.303847 20,0.40=0.613731 30,0.40=0.866358 \
+10,0.70=0.244440 20,0.70=0.495459 30,0.70=0.705519 \
+10,1.20=0.198137 20,1.20=0.414316 30,1.20=0.660866"
+HELD_OUT="10,0.40 20,0.40 30,0.40"
+
+echo "=== BASELINE: modello di produzione ==="
+date
+apptainer exec --bind /work /work/u10677113/tensorflow_gpu.sif /bin/bash -c "
+  cd $BASE/light/dagger_fom && OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 \
+  python3 -u verify_openloop_model.py \
+    --model $BASE/clean/models_rollout/latent_10 \
+    --fom-exo $FOM_EXO --held-out $HELD_OUT
+"
+
+echo
+echo "=== CANDIDATO: iter10 ==="
+apptainer exec --bind /work /work/u10677113/tensorflow_gpu.sif /bin/bash -c "
+  cd $BASE/light/dagger_fom && OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 \
+  python3 -u verify_openloop_model.py \
+    --model $BASE/light/dagger_fom/models/iter10/latent_10 \
+    --fom-exo $FOM_EXO --held-out $HELD_OUT
+"
+
+echo
+echo "=== VERIFY_ITER10_DONE ==="

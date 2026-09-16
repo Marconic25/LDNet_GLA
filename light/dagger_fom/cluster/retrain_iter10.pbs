@@ -1,0 +1,18 @@
+#!/bin/bash
+#PBS -N daggerRetrain10
+#PBS -q cpu
+#PBS -l select=1:ncpus=8:mpiprocs=1
+#PBS -l walltime=12:00:00
+#PBS -j oe
+set -e
+exec > /work/u10677113/LDNet_GLA/light/dagger_fom/models/iter10_pbs_launch.log 2>&1
+export ITER=10
+# t_common=1.70s -> T=851 samples; ROLLOUT_LEN must be < T (sig[:,0:L+1,...]).
+export ROLLOUT_LEN=850
+# Same recipe that worked for iter5 (NBFGS=500, defaults for LAMBDA_DAMP/W_LOAD/NADAM) --
+# the only variable changed here is the DATASET (open-loop, split by Tg not W0),
+# not the hyperparameters. WARMSTART defaults to production (clean/models_rollout/
+# latent_10), deliberately NOT iter5 -- avoid propagating iter5's known W20/W30
+# amplitude specialization into a differently-designed experiment.
+bash /work/u10677113/LDNet_GLA/light/dagger_fom/retrain_launch.sh
+echo RETRAIN_DONE_MARKER

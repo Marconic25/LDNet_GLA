@@ -1,0 +1,432 @@
+#!/bin/bash
+#PBS -N v6run
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/dataset_v6/pbs_run.log
+#
+# run_sim.pbs — one v6 dataset simulation, driven entirely by its row in
+# final/design/run_matrix.csv (NOT sim_params.csv — that file belongs to the
+# OLD dataset_v5/recon campaign and does not exist for v6 sims).
+#
+# v6 numerics (NON-NEGOTIABLE, see final/cluster/controlDict.final):
+#   deltaT 3.16e-05 (was 7e-5), coupling window 63 steps = 1.991 ms.
+#
+#   The window is 63 steps = 1.991 ms, and the number that matters is the TIME,
+#   not the step count. light/dagger_fom/NOTES.md picks the window so that
+#   window_dt matches the controller's own _MPC_CTRL_DT = 0.002 s, because
+#   MPCPreviewController.compute() sizes each flap move as
+#       reach = delta_dot_max * 0.002 s = 0.6 deg
+#   and that move is then HELD for one coupling window. Make the window shorter
+#   than 2 ms and the flap covers 0.6 deg in less time than the actuator can:
+#   the rate limit is silently violated. NOTES calls window=15 (1.05 ms, 571 deg/s)
+#   "troppo permissivo" for exactly this reason.
+#
+#   At v5's dt=7e-5 that target time is 29 steps (2.030 ms, 296 deg/s -- correct).
+#   Carrying the NUMBER 29 over to dt=3.16e-5 gives 0.916 ms and an implied
+#   655 deg/s, 2.18x the 300 deg/s limit -- worse than the window=15 NOTES already
+#   rejected. 63 steps restores 1.991 ms and 301 deg/s.
+#
+#   Measured confirmation (job 31470, sim_Cc_041_train at window 63): the MPC moves
+#   the flap 0.525 deg per window -- the exact step dagger records as "mediana E
+#   massimo" -- which over 1.991 ms is 263.7 deg/s, against dagger's validated
+#   258.6 deg/s and under the 300 deg/s limit. That same 0.525 deg over window 29's
+#   0.916 ms would have been 572.9 deg/s.
+#
+#   Window 63 is not a multiple of 29 and runs fine, so the earlier window=50 crash
+#   ("cannot find processor*/<t>/p") is NOT an alignment rule about multiples of 29.
+#   Its cause is still unidentified; it simply does not constrain this choice.
+#
+#   The same change fixes a second, unrelated defect: below ~1 ms of coupling time
+#   the loads carry a spurious 109 Hz sinusoid (8.07 N in the 105-115 Hz band at
+#   0.916 ms, 0.0008 N at 1.833 ms, absent in v5). Both problems have the same cure
+#   because both come from coupling faster than the scheme and the controller expect.
+#
+#   field snapshots extracted for EVERY run via cosim_driver_final.py's
+#   incremental reconstruct+extract+purge (see that file's top-of-file
+#   comment block) — there is no separate end-of-job reconstruction step.
+#
+# The walltime header above (12:00:00) is the default for family A/B and
+# Cc/prop rows. Cc/mpc rows need 24h (~3274 mpc_call() round trips through a
+# TF-container subprocess add real wall time) — submit_campaign.sh passes
+# `qsub -l walltime=24:00:00 ...` for those rows, which OVERRIDES this header
+# directive at submit time (qsub -l always wins over the script's own #PBS -l).
+#
+# Submit (normally via submit_campaign.sh, not by hand):
+#   qsub -v SIM=sim_A_002_train run_sim.pbs
+#   qsub -l walltime=24:00:00 -v SIM=sim_Cc_014_train run_sim.pbs
+#
+# PBS-only rule: this script is the ONLY thing that may ever run compute on
+# this campaign. Nothing in final/cluster/ ssh's in and runs OpenFOAM/python
+# directly on login01 — a documented incident (login01 load average 107, jobs
+# administratively removed) makes this absolute.
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+: "${SIM:?must pass -v SIM=<sim_id from final/design/run_matrix.csv>}"
+
+MATRIX="$WORK_BASE/final/design/run_matrix.csv"
+[ -f "$MATRIX" ] || { echo "=== FAILED $SIM ===  run_matrix.csv not found: $MATRIX"; exit 1; }
+
+# ── Pull this sim's row out of run_matrix.csv ────────────────────────────────
+# Columns (final/design/run_matrix.csv contract, Agent B):
+#   sim_id,family,split,W0,Tg,r_g,controller,K_ff,t_d,delta_pk,rate_max,R_star,t_end
+# Matched by exact sim_id in $1 (also skips the header row for free, since no
+# real sim_id is literally "sim_id").
+col() { awk -F, -v sim="$SIM" -v c="$1" '$1==sim {print $c}' "$MATRIX"; }
+
+FAMILY=$(col 2)
+SPLIT=$(col 3)
+W0=$(col 4)
+TG=$(col 5)
+RG=$(col 6)
+CTRL=$(col 7)
+K_FF=$(col 8)
+T_D=$(col 9)
+DELTA_PK=$(col 10)
+RATE_MAX=$(col 11)
+R_STAR=$(col 12)
+T_END=$(col 13)
+# Smoke-test escape hatch: shorten the run without editing run_matrix.csv.
+#   qsub -v SIM=sim_A_001_train,T_END_OVERRIDE=0.05 run_sim.pbs
+# A run shortened this way produces far fewer than 100 snapshots, so
+# status_campaign.sh will correctly report it BAD — that is expected for a smoke
+# test, not a failure. Never use this for a production row.
+if [ -n "${T_END_OVERRIDE:-}" ]; then
+    echo "[smoke] T_END overridden: $T_END -> $T_END_OVERRIDE"
+    T_END="$T_END_OVERRIDE"
+fi
+
+[ -n "$FAMILY" ] || { echo "=== FAILED $SIM ===  no row for $SIM in $MATRIX"; exit 1; }
+[ -n "$T_END" ]  || { echo "=== FAILED $SIM ===  empty t_end for $SIM"; exit 1; }
+
+SCRATCH="/scratch_local/$USER/v6_${SIM}"
+# OUT_SUFFIX keeps a diagnostic OUT of the campaign's output slot. Without it a
+# diagnostic re-using a sim_id overwrites that row's real result, and if it happens
+# to write >= 100 snapshots status_campaign.sh reports it DONE — a completed run
+# silently replaced by one with different numerics. Always set it for anything that
+# overrides NWIN/DT/T_END.
+OUT_PERSIST="$WORK_BASE/dataset_v6/${SIM}${OUT_SUFFIX:-}"
+CONTAINER_ABS="/work/u10677113/of7.sif"
+TF_CONTAINER_ABS="/work/u10677113/tensorflow_gpu.sif"
+# PINNED to the frozen baseline (window_idx=0, trim @ t=3.0) — see recon/cluster/
+# field_run.pbs's root-cause comment: the LIVE cosim_main/checkpoint/ mutates
+# under other campaigns and silently truncates a replay to its last few windows.
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
+WRAPPER_DIR="$SCRATCH/bin_of7"
+# Field-write cadence. NOT a run_matrix column; derived from t_end so that every
+# run yields ~TARGET_SNAPS snapshots regardless of its length, and env-overridable.
+#
+# Why not 1 (= a snapshot every coupling window): at window=58 / deltaT=3.16e-5 a
+# 3 s run has 1637 windows, so K=1 would write ~1637 snapshots -> ~218 MB/run ->
+# ~32 GB over the campaign, and 3274 reconstructPar+extract round trips instead of
+# ~860. v5 produced ~860 snapshots per run and build_fields_h5_v6.py resamples
+# everything onto n_times=150 anyway, so anything past ~860 is paid for and thrown
+# away. Decoupling this cadence from the coupling window is one of the two levers
+# that keep scratch bounded (final/ESTIMATE.md §5).
+# v6 numerics. Overridable ONLY for diagnostics — a production row must use the
+# campaign values, and controlDict.final still carries deltaT 3.16e-05, so a DTCFD
+# override also needs the dict patched (done below) or OpenFOAM and the driver
+# disagree on the step.
+NWIN="${NWIN_OVERRIDE:-63}"
+DTCFD="${DT_OVERRIDE:-3.16e-05}"
+
+TARGET_SNAPS="${TARGET_SNAPS:-860}"
+COUPLING_DT=$(awk -v n="$NWIN" -v d="$DTCFD" 'BEGIN{printf "%.10g", n*d}')
+FIELD_EVERY="${FIELD_EVERY:-$(awk -v te="$T_END" -v cdt="$COUPLING_DT" -v tgt="$TARGET_SNAPS" \
+    'BEGIN{n=te/cdt; k=int(n/tgt+0.5); if(k<1)k=1; print k}')}"
+MPC_MODEL="${MPC_MODEL:-/work/u10677113/LDNet_GLA/clean/models_rollout/latent_10}"
+DAMULT="${DAMULT:-3.0}"           # same default as recon/cluster/mpc_fom_verify.pbs
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+echo "=== $SIM  family=$FAMILY split=$SPLIT W0=$W0 Tg=$TG r_g=$RG controller=$CTRL t_end=$T_END ==="
+echo "    K_ff=$K_FF t_d=$T_D delta_pk=$DELTA_PK rate_max=$RATE_MAX R_star=$R_STAR"
+echo "    SCRATCH=$SCRATCH  OUT_PERSIST=$OUT_PERSIST"
+# r_g is logged but not consumed below: this driver's gust model only takes
+# (W0, T_g) as a cosine gust; r_g is design-matrix metadata (kept for the
+# dataset record / possible future gust-shape variants), not a cosim_driver_
+# final.py CLI arg today.
+
+# ── Peak scratch usage (background sampler; we need this number to validate
+# the incremental-extraction disk model against the ~419 GB keep-everything
+# estimate). Bytes (`du -sb`) so we can numerically max() below; -sh was
+# rejected because "1.2G" vs "512M" don't sort/compare correctly as text. ──
+USAGE_LOG="$OUT_PERSIST/scratch_usage.log"
+: > "$USAGE_LOG"
+(
+    while true; do
+        du -sb "$SCRATCH" 2>/dev/null | awk -v ts="$(date +%s)" '{print ts, $1}' >> "$USAGE_LOG"
+        sleep 300
+    done
+) &
+DU_PID=$!
+cleanup_du() { kill "$DU_PID" 2>/dev/null || true; }
+trap cleanup_du EXIT
+
+# ── OpenFOAM wrappers (apptainer), PER-JOB dir under $SCRATCH ──
+# NEVER $HOME/bin_of7 (see recon/cluster/pilot_A025.pbs for the old pattern):
+# concurrent v6 jobs sharing one $HOME/bin_of7 race each other's mkdir/cat/
+# chmod sequence for the SAME wrapper filenames, corrupting whichever job
+# reads mid-write. recon/cluster/field_run.pbs fixed this by moving to a
+# per-job $SCRATCH/bin_of7 (see its "per-job: avoid concurrent-write races
+# across parallel jobs" comment) — same fix, applied here from the start.
+# NOTE: cosim_driver_final.py's own subprocess calls (run_pimple/run_decompose/
+# _run_reconstruct_one_time/...) invoke `apptainer exec ... of7.sif ...`
+# directly and do not need these wrappers on PATH; they exist here for any
+# bash-level OF invocation in this script and for house-style parity with the
+# recon/cluster/*.pbs scripts.
+mkdir -p "$WRAPPER_DIR"
+for cmd in decomposePar pimpleFoam reconstructPar mapFields topoSet; do
+    cat > "$WRAPPER_DIR/$cmd" <<WRAPPER
+#!/bin/bash
+apptainer exec --bind /work --bind /scratch_local "$CONTAINER_ABS" /bin/bash -c "source /opt/openfoam7/etc/bashrc && $cmd \$*"
+WRAPPER
+    chmod +x "$WRAPPER_DIR/$cmd"
+done
+export PATH="$WRAPPER_DIR:$PATH"
+
+# ── Copy case + checkpoint to scratch (own copy per job — enables parallel sims) ──
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+
+# cosim_main carries a structural_trajectory.csv from an OLD v5 run. If the driver
+# dies early, the results-copy step below would ship THAT file out as this run's
+# trajectory: 3.0 s long, v5 timestep, and completely plausible-looking. It cost a
+# whole analysis cycle once — the file was only caught because its t_end did not
+# match the requested one. Delete it now, so anything present later must be ours.
+rm -f "$SCRATCH/structural_trajectory.csv"
+
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename "$proc")"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+# ── Install the v6-owned controlDict + driver + extractor into scratch ──
+cp "$WORK_BASE/final/cluster/controlDict.final" "$SCRATCH/system/controlDict"
+cp "$WORK_BASE/final/cluster/cosim_driver_final.py" "$SCRATCH/cosim_driver.py"
+cp "$WORK_BASE/final/data/extract_fields_step.py" "$SCRATCH/extract_fields_step.py"
+
+# Self-checks (ASSERT, not just echo — a silently-wrong deploy here means the
+# whole multi-hour run used the wrong numerics or the wrong purge policy).
+# Keep the dict and the driver on the SAME step. controlDict.final ships the
+# campaign value; a DT_OVERRIDE diagnostic must patch it too, or pimpleFoam
+# integrates at one step while the driver schedules windows at another — which
+# would look like a physics result and be an accounting bug.
+if [ "$DTCFD" != "3.16e-05" ]; then
+    echo "[diag] patching controlDict deltaT -> $DTCFD"
+    sed -i -E "s/^deltaT[[:space:]]+[0-9.eE+-]+;/deltaT          $DTCFD;/" \
+        "$SCRATCH/system/controlDict"
+fi
+grep -qE "^deltaT[[:space:]]+${DTCFD}" "$SCRATCH/system/controlDict" \
+    || { echo "=== FAILED $SIM ===  controlDict deltaT is not $DTCFD"; exit 1; }
+grep -qE '^purgeWrite[[:space:]]+0;' "$SCRATCH/system/controlDict" \
+    || { echo "=== FAILED $SIM ===  controlDict purgeWrite is not 0"; exit 1; }
+echo "controlDict check OK: $(grep -E '^deltaT|^purgeWrite|^maxCo' "$SCRATCH/system/controlDict" | tr '\n' ' ')"
+grep -q 'numeric\[:-3\]' "$SCRATCH/cosim_driver.py" \
+    || { echo "=== FAILED $SIM ===  driver does not have the v6 numeric[:-3] purge (wrong file deployed?)"; exit 1; }
+echo "driver check OK: numeric[:-3] purge present"
+
+cd "$SCRATCH"
+source ~/cosim_env/bin/activate 2>/dev/null || \
+source "$WORK_BASE/my_venv/bin/activate" 2>/dev/null || true
+
+# ── Build the driver command line from the matrix row ──
+# Common to every family: the v6 numerics + this sim's gust + incremental
+# extraction target. Family-specific flags are appended below.
+COMMON_ARGS=(
+    --np 16 --window "$NWIN" --dt "$DTCFD" --t-end "$T_END"
+    --from-checkpoint
+    --gust-w0 "$W0" --gust-t-start 0.0 --gust-t-end "$TG"
+    --field-every "$FIELD_EVERY"
+    --out-dir "$SCRATCH" --sim-name "$SIM"
+)
+
+case "$FAMILY" in
+    A)
+        # Gust only, zero flap. DELTA_TIMES/DELTA_ANGLES stay at the driver's
+        # own [0,0]/[0,0] default -- nothing to pass.
+        FAMILY_ARGS=(--law 0)
+        ;;
+    B)
+        # Flap-only excitation (W0/Tg/r_g are 0 for family B rows per the
+        # run_matrix contract): the fast-stroke / slow-release schedule of
+        # chapter2.tex, fed as --law 0 tabulated knots.
+        #
+        #   t=0                        -> delta=0
+        #   t=t_up=|delta_pk|/rate_max -> delta=delta_pk   fast stroke at the rate limit
+        #   t=T_B_RELEASE=1.5          -> delta=0          slow release over the remainder
+        #   t=T_B_NOMINAL=1.8          -> delta=0          free decay
+        #
+        # These knots are NOT free to choose here: final/design/gen_matrix.py's
+        # flap_schedule_b() is the single source of truth and design/README.md
+        # documents them. Two earlier shapes are wrong and must not come back:
+        #   - ramp-then-HOLD to t_end: no release at all, so the family loses the
+        #     slow-release half of its excitation, which is the entire reason the
+        #     family exists (it is what puts low-frequency flap->loads content in
+        #     the training set).
+        #   - a release symmetric to the stroke at rate_max: collapses ~2/3 of the
+        #     family onto a ~0.2 s impulse.
+        # t_d is a family-Cc column and is EMPTY on every family-B row -- gating on
+        # it here would fail all 46 B jobs at startup.
+        T_B_RELEASE=1.5
+        [ -n "$DELTA_PK" ] && [ -n "$RATE_MAX" ] && [ "$RATE_MAX" != "0" ] \
+            || { echo "=== FAILED $SIM ===  family B needs nonzero delta_pk/rate_max (got delta_pk=$DELTA_PK rate_max=$RATE_MAX)"; exit 1; }
+        T_UP=$(awk -v pk="$DELTA_PK" -v rm="$RATE_MAX" 'BEGIN{printf "%.6f", (pk<0?-pk:pk)/rm}')
+        # t_up <= 15/20 = 0.75 s over the whole LHS box, so it always lands before
+        # the release knot; assert it rather than trust the box.
+        awk -v tu="$T_UP" -v tr="$T_B_RELEASE" 'BEGIN{exit !(tu < tr)}' \
+            || { echo "=== FAILED $SIM ===  family B stroke ends at t_up=$T_UP >= release knot $T_B_RELEASE"; exit 1; }
+        FAMILY_ARGS=(--law 0
+            --delta-times  0.0 "$T_UP"     "$T_B_RELEASE" "$T_END"
+            --delta-angles 0.0 "$DELTA_PK" 0.0            0.0
+        )
+        echo "  family B: 0 -> $T_UP (${DELTA_PK}deg, stroke at ${RATE_MAX}deg/s) -> $T_B_RELEASE (0deg, slow release) -> $T_END"
+        ;;
+    Cc)
+        case "$CTRL" in
+            mpc)
+                [ -n "$R_STAR" ] || { echo "=== FAILED $SIM ===  family Cc/mpc needs R_star"; exit 1; }
+                # mpc_fom_server.py is spawned by cosim_driver.py ITSELF (inside
+                # $TF_CONTAINER_ABS) -- this script does not invoke apptainer
+                # for it directly, see cosim_driver_final.py's start_mpc_server().
+                FAMILY_ARGS=(--controller mpc --mpc-model "$MPC_MODEL" --mpc-R "$R_STAR" --damult "$DAMULT")
+                echo "  Cc/mpc: model=$MPC_MODEL R*=$R_STAR damult=$DAMULT (TF container=$TF_CONTAINER_ABS)"
+                ;;
+            prop)
+                # In-process proportional controller, no TensorFlow server.
+                # run_matrix.csv's contract only sets R_star for controller=mpc;
+                # prop rows use cosim_driver_final.py's PropWRef-matched
+                # defaults (gain_CL=-60, gain_W=-0.5) rather than a matrix column.
+                FAMILY_ARGS=(--controller prop)
+                ;;
+            *)
+                echo "=== FAILED $SIM ===  family Cc with unknown controller '$CTRL' (expected mpc|prop)"; exit 1
+                ;;
+        esac
+        ;;
+    *)
+        echo "=== FAILED $SIM ===  unknown family '$FAMILY' (expected A|B|Cc)"; exit 1
+        ;;
+esac
+
+echo "=== cosim_driver ($SIM, family=$FAMILY) ... ==="
+set +e
+python3 -u cosim_driver.py "${COMMON_ARGS[@]}" "${FAMILY_ARGS[@]}" 2>&1 | tee log.cosim_driver
+DRIVER_RC=${PIPESTATUS[0]}
+set -e
+
+# ── Results out, whether or not the run fully succeeded (partial data is
+# still useful and cheaper than nothing) ──
+cp "$SCRATCH/structural_trajectory.csv"      "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+cp "$SCRATCH/fields_${SIM}.npy"              "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no fields_${SIM}.npy"
+cp "$SCRATCH/field_times.npy"                "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no field_times.npy"
+cp "$SCRATCH/mesh_points.npy"                "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no mesh_points.npy"
+cp "$SCRATCH/mesh_triangles.npy"             "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no mesh_triangles.npy"
+cp "$SCRATCH"/*.png                          "$OUT_PERSIST/" 2>/dev/null || true
+
+# Peak scratch usage (bytes -> human-readable) for the disk model.
+PEAK_BYTES=$(sort -k2 -n "$USAGE_LOG" 2>/dev/null | tail -1 | awk '{print $2}')
+cleanup_du
+PEAK_HUMAN=$( [ -n "$PEAK_BYTES" ] && numfmt --to=iec --suffix=B "$PEAK_BYTES" 2>/dev/null || echo "${PEAK_BYTES:-unknown}" )
+echo "PEAK_SCRATCH_BYTES $SIM ${PEAK_BYTES:-unknown} ($PEAK_HUMAN)"
+
+# Max Courant number actually reached. The whole point of v6 is Co <= 1 (v5 ran at
+# maxCo 2), and adjustTimeStep is off, so nothing enforces it at run time — it has
+# to be measured. pimpleFoam writes into $SCRATCH/log.pimpleFoam, which is deleted
+# with the scratch dir a few lines below, so scrape it here or lose it. `sort -g`
+# handles the scientific notation OpenFOAM emits for small values.
+MAX_CO=$(grep -h "Courant Number mean" "$SCRATCH"/log.pimpleFoam "$SCRATCH"/log.* 2>/dev/null \
+    | sed -n 's/.*max: \([0-9.eE+-]*\).*/\1/p' | sort -g | tail -1)
+MAX_CO="${MAX_CO:-unknown}"
+echo "MAX_COURANT $SIM $MAX_CO"
+
+# Point-ordering guard evidence. The driver calls the extractor with
+# capture_output=True and only echoes its stdout on FAILURE, so on a clean run the
+# guard leaves no trace in this log — which is the one case where we need proof it
+# ran at all. The extractor appends "<time> <displacement>" to _guard_log.txt for
+# every snapshot after the first; carry it out and summarise it here.
+GUARD_LOG="$SCRATCH/_guard_log.txt"
+if [ -f "$GUARD_LOG" ]; then
+    GUARD_N=$(wc -l < "$GUARD_LOG" | tr -d ' ')
+    GUARD_MAX=$(awk '{if ($2+0 > m) m = $2+0} END {printf "%.6g", m}' "$GUARD_LOG")
+    cp "$GUARD_LOG" "$OUT_PERSIST/" 2>/dev/null || true
+    echo "GUARD $SIM checked=$GUARD_N max_farfield_disp=$GUARD_MAX (tol 0.05)"
+else
+    GUARD_N=0; GUARD_MAX=unknown
+    echo "[warn] no _guard_log.txt -- the point-ordering guard left no evidence it ran"
+fi
+case "$MAX_CO" in
+    unknown) echo "[warn] could not read a Courant number from the pimpleFoam log" ;;
+    *) awk -v c="$MAX_CO" 'BEGIN{ if (c > 1.0) printf "[warn] max Courant %.3f EXCEEDS the v6 target of 1.0\n", c; else printf "[ok] max Courant %.3f <= 1.0\n", c }' ;;
+esac
+
+# Snapshot count, read straight out of the .npy header ("'shape': (N,)") — no
+# python needed. status_campaign.sh reads this from sim_info.txt instead of
+# parsing .npy itself, which is what keeps that script to pure grep/cat and
+# therefore safe to run on login01.
+N_SNAPS=$(head -c 256 "$OUT_PERSIST/field_times.npy" 2>/dev/null | tr -d '\0' \
+    | sed -n "s/.*'shape': (\([0-9]*\).*/\1/p")
+N_SNAPS="${N_SNAPS:-0}"
+# Same corruption criterion as recon/cluster/redo_broken_extractions.sh: a run
+# with fewer than 100 snapshots is a truncated extraction, not a short run.
+if [ "$DRIVER_RC" -eq 0 ] && [ -f "$OUT_PERSIST/fields_${SIM}.npy" ] && [ "$N_SNAPS" -ge 100 ]; then
+    RUN_STATUS=OK
+else
+    RUN_STATUS=BAD
+fi
+
+cat > "$OUT_PERSIST/sim_info.txt" <<INFO
+sim_id=$SIM
+status=$RUN_STATUS
+n_snapshots=$N_SNAPS
+max_courant=$MAX_CO
+guard_checked=$GUARD_N
+guard_max_farfield_disp=$GUARD_MAX
+family=$FAMILY
+split=$SPLIT
+W0=$W0
+Tg=$TG
+r_g=$RG
+controller=$CTRL
+K_ff=$K_FF
+t_d=$T_D
+delta_pk=$DELTA_PK
+rate_max=$RATE_MAX
+R_star=$R_STAR
+t_end=$T_END
+driver_exit_code=$DRIVER_RC
+peak_scratch_bytes=${PEAK_BYTES:-unknown}
+peak_scratch_human=$PEAK_HUMAN
+pbs_jobid=${PBS_JOBID:-unknown}
+node=$(hostname)
+finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+INFO
+
+# KEEP_SCRATCH=1 preserves the working dir for diagnostics. The solver log lives
+# only there, so a crashed run normally takes its own evidence with it — which is
+# exactly what happened to the first window-50 diagnostic. Also copy out the two
+# logs that matter, so the evidence survives even when scratch is later reaped.
+cp "$SCRATCH/log.pimpleFoam" "$OUT_PERSIST/" 2>/dev/null || true
+cp "$SCRATCH/log.cosim_driver" "$OUT_PERSIST/" 2>/dev/null || true
+if [ -n "${KEEP_SCRATCH:-}" ]; then
+    echo "[diag] KEEP_SCRATCH set — leaving $SCRATCH on $(hostname) for inspection"
+    echo "       (node-local and reaped after ~30 days; look at it from that node)"
+else
+    rm -rf "$SCRATCH"
+fi
+
+if [ "$DRIVER_RC" -ne 0 ]; then
+    echo "=== FAILED $SIM ===  cosim_driver exit code $DRIVER_RC"
+    exit "$DRIVER_RC"
+fi
+[ -f "$OUT_PERSIST/fields_${SIM}.npy" ] || echo "[warn] driver exited 0 but fields_${SIM}.npy is missing -- --finalize may have failed, see log.cosim_driver"
+echo "=== DONE $SIM -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

@@ -31,6 +31,18 @@ ROOT    = os.environ.get('SENS_ROOT', os.path.join(_THIS, '..', 'results', 'sens
 IMG_DIR = os.path.join(_THIS, 'latex', 'Images')
 os.makedirs(IMG_DIR, exist_ok=True)
 
+# Training history of the DEPLOYED control model, the one the MPC of chapter 3
+# loads (clean/models_rollout). Both stages come from that lineage: the damped
+# teacher-forced pretraining and the rollout fine-tuning warm-started from it.
+# The undamped selection sweep under ROOT is a parallel tree — it settles the
+# input set and d_s, but its weights are not the ones that run in the loop, so
+# its curves must not be mixed into this figure.
+_DEPLOYED = os.path.join(_THIS, '..', 'results', 'rollout_deployed')
+TF_HIST      = os.environ.get('TF_HIST',
+                              os.path.join(_DEPLOYED, 'teacher_forced.npz'))
+ROLLOUT_HIST = os.environ.get('ROLLOUT_HIST',
+                              os.path.join(_DEPLOYED, 'loss_history_dp45.npz'))
+
 DEF_DS = int(os.environ.get('DEF_DS', '10'))   # definitive latent dimension (6-input model)
 # Definitive/deployed model directory for the loads traces: the closed-loop
 # rollout control model, evaluated open-loop (leak-aware). Falls back to the
@@ -222,28 +234,54 @@ def fig_loads_traces():
 
 
 def fig_loss():
-    """Training/validation loss vs epochs for the definitive model (log-log)."""
-    ldir = _latent_dir('6', DEF_DS)
-    lpath = os.path.join(ldir, 'loss_history.npz') if ldir else None
-    if not lpath or not os.path.exists(lpath):
-        print(f'  SKIP fig_ch2_loss: no loss_history.npz for 6-input d_s={DEF_DS} '
-              f'(re-run sensitivity_latent.py to produce it)')
+    """Two-stage training history of the definitive model.
+
+    Left: teacher-forced pretraining (Adam warm-up then L-BFGS, log-log).
+    Right: closed-loop rollout fine-tuning, which warm-starts from the weights
+    of the left panel and optimises a different objective (rollout loss) with
+    pure BFGS. The two stages have different objectives, optimisers and
+    iteration units, so they are NEVER concatenated on one axis.
+    """
+    if not os.path.exists(TF_HIST):
+        print(f'  SKIP fig_ch2_loss: no teacher-forced history at {TF_HIST}')
         return
-    d = np.load(lpath)
+    d = np.load(TF_HIST)
     it, tr, va = d['iterations'], d['train'], d['valid']
 
-    fig, ax = plt.subplots(figsize=(4.4, 3.0))
+    dr = np.load(ROLLOUT_HIST) if os.path.exists(ROLLOUT_HIST) else None
+
+    if dr is None:
+        print(f'  fig_ch2_loss: no rollout history at {ROLLOUT_HIST} — '
+              f'teacher-forced panel only')
+        fig, axs = plt.subplots(1, 1, figsize=(4.4, 3.0), squeeze=False)
+    else:
+        fig, axs = plt.subplots(1, 2, figsize=(6.6, 3.0), squeeze=False)
+
+    ax = axs[0, 0]
     ax.loglog(it, tr, 'o-', color=C_FY, ms=3, lw=1.0, label='training')
     ax.loglog(it, va, 'o-', color=C_MZ, ms=3, lw=1.0, label='validation')
     ax.set_ylim(top=0.5)
-    if 'adam_epochs' in d.files:
+    if 'adam_epochs' in d.files and int(d['adam_epochs']) > 0:
         ax.axvline(int(d['adam_epochs']), color='k', ls='--', lw=0.8)
         ax.text(int(d['adam_epochs']), ax.get_ylim()[1],
                 r'Adam$\to$L-BFGS', fontsize=7, rotation=90, va='top', ha='right')
     ax.set_xlabel('epochs')
     ax.set_ylabel('loss')
+    ax.set_title('(a) teacher-forced pretraining', fontsize=9)
     ax.legend()
     ax.grid(True, which='both', ls=':')
+
+    if dr is not None:
+        itr, trr, var = dr['iterations'], dr['train'], dr['valid']
+        ax = axs[0, 1]
+        ax.semilogy(itr, trr, 'o-', color=C_FY, ms=3, lw=1.0, label='training')
+        ax.semilogy(itr, var, 'o-', color=C_MZ, ms=3, lw=1.0, label='validation')
+        ax.set_xlabel('BFGS iterations')
+        ax.set_ylabel('rollout loss')
+        ax.set_title('(b) closed-loop rollout fine-tuning', fontsize=9)
+        ax.legend()
+        ax.grid(True, which='both', ls=':')
+
     fig.tight_layout()
     _save(fig, 'fig_ch2_loss.png')
 

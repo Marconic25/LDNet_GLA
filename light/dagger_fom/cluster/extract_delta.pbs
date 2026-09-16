@@ -1,0 +1,45 @@
+#!/bin/bash
+#PBS -N exdelta
+#PBS -q cpu
+#PBS -l select=1:ncpus=1
+#PBS -l walltime=00:20:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_dagger/pbs_extract_delta.log
+#
+# Extract the ROM closed-loop flap history delta(t) for one cell and write it
+# as a --delta-times/--delta-angles table for the FOM(u_ROM) replay run.
+# Runs on a COMPUTE node (never on login01), inside the TF container which is
+# the environment known to carry numpy.
+#
+# Submit:
+#   qsub -l select=1:ncpus=1:host=cpu02 -v W0=20,TG=0.70,TCOVER=2.0 extract_delta.pbs
+
+set -e
+
+WORK_BASE="/work/u10677113"
+: "${W0:?pass -v W0=<gust W0>,TG=<gust duration>}"
+: "${TG:?pass -v W0=<gust W0>,TG=<gust duration>}"
+TCOVER="${TCOVER:-2.0}"
+
+OUT_DIR="$WORK_BASE/NACA2312/mpc_fom_dagger"
+OUT="$OUT_DIR/delta_table_W${W0}_Tg${TG}.txt"
+LOG="$OUT_DIR/extract_delta_W${W0}_Tg${TG}.log"
+
+mkdir -p "$OUT_DIR"
+exec > "$LOG" 2>&1
+
+echo "=== extract ROM delta(t)  W0=$W0  Tg=$TG  t_cover=$TCOVER ==="
+date
+
+apptainer exec --bind /work "$WORK_BASE/tensorflow_gpu.sif" /bin/bash -c \
+  "cd $WORK_BASE/LDNet_GLA/light/dagger_fom && \
+   OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 \
+   python3 -u extract_rom_delta.py \
+     --npz $WORK_BASE/LDNet_GLA/light/results_cs25_combo/traces_W${W0}.npz \
+     --w0 $W0 --tg $TG --t-cover $TCOVER \
+     --out $OUT"
+
+echo
+echo "=== first 12 knots of each row ==="
+head -c 400 "$OUT"; echo
+echo "=== EXTRACT_DONE ==="

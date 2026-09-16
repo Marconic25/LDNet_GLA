@@ -1,0 +1,15 @@
+#!/bin/bash
+#PBS -N daggerRetrain11
+#PBS -q cpu
+#PBS -l select=1:ncpus=8:mpiprocs=1
+#PBS -l walltime=12:00:00
+#PBS -j oe
+set -e
+exec > /work/u10677113/LDNet_GLA/light/dagger_fom/models/iter11_pbs_launch.log 2>&1
+export ITER=11
+export ROLLOUT_LEN=850
+# Single variable changed vs iter10: the dataset (13 train cells instead of 9,
+# adding delta-varying Cc trajectories). Same hyperparams, same warm-start
+# (production, not iter5/iter10).
+bash /work/u10677113/LDNet_GLA/light/dagger_fom/retrain_launch.sh
+echo RETRAIN_DONE_MARKER

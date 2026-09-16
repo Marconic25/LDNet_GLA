@@ -7,6 +7,14 @@ Reads results/A2_calib.npz (arm='bias') and results/B2_timing.npz
 (arm='shift'). Generates fig_ch3_bias_timing.png in results/ and
 light/latex/Images/.
 
+Cell override (env, defaults reproduce the home-cell figure):
+  CELL_TAG=_W10  -> reads A2_calib_W10.npz / B2_timing_W10.npz and writes
+                    fig_ch3_bias_timing_W10.png (matches the CELL_TAG used
+                    by noise_calib_combo.py / noise_timing_combo.py).
+  Y_MIN          -> lower y limit (default -15).
+The dotted reference line ("anchor") is the bias=0 clean point of the A2 file
+actually loaded, so it always belongs to the cell being plotted.
+
 Style follows light/latex/AGENTS.md ("Linee guida per i plot").
 Run locally after scp:  python3 -s -u plots_thesis_bias_timing.py
 """
@@ -20,6 +28,8 @@ _THIS   = os.path.dirname(os.path.abspath(__file__))
 DIR     = os.path.join(_THIS, 'results')
 IMG_DIR = os.path.join(_THIS, '..', 'latex', 'Images')
 os.makedirs(IMG_DIR, exist_ok=True)
+TAG  = os.environ.get('CELL_TAG', '')
+YMIN = float(os.environ.get('Y_MIN', -15.0))
 
 plt.rcParams.update({
     'font.family': 'serif',
@@ -68,11 +78,11 @@ def panel(ax, pts, arm, xscale, anchor):
     ax.axhline(anchor, color='k', ls=':', lw=0.8)
     ax.axhline(0, color='0.5', lw=0.7)
     ax.set_ylabel('CLred [%]')
-    ax.set_ylim(-15, 100)
+    ax.set_ylim(YMIN, 100)
 
 
-pts_a = load_pts('A2_calib.npz')
-pts_b = load_pts('B2_timing.npz')
+pts_a = load_pts(f'A2_calib{TAG}.npz')
+pts_b = load_pts(f'B2_timing{TAG}.npz')
 anchor = float([r for r in pts_a if r['arm'] == 'bias'
                 and abs(float(r['value'])) < 1e-12][0]['mean'])
 
@@ -87,7 +97,7 @@ ax[1].set_xlabel('preview shift [ms]  (> 0 = early)')
 ax[1].set_ylabel(None)
 
 fig.tight_layout(w_pad=1.0)
-fn = os.path.join(DIR, 'fig_ch3_bias_timing.png')
+fn = os.path.join(DIR, f'fig_ch3_bias_timing{TAG}.png')
 fig.savefig(fn, bbox_inches='tight'); plt.close(fig)
-shutil.copy(fn, os.path.join(IMG_DIR, 'fig_ch3_bias_timing.png'))
-print(f'saved {fn} (+ latex/Images)')
+shutil.copy(fn, os.path.join(IMG_DIR, f'fig_ch3_bias_timing{TAG}.png'))
+print(f'saved {fn} (+ latex/Images)  anchor={anchor:.2f}%')

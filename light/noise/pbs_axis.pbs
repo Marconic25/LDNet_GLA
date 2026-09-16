@@ -1,0 +1,40 @@
+#!/bin/bash
+#PBS -q cpu
+#PBS -j oe
+#PBS -o /work/u10677113/LDNet_GLA/light/noise/pbs_axis.pbsout
+#
+# qsub-safe equivalent of run_axis.sh: runs ONE study script inside the TF
+# container on a COMPUTE node (never on login01). Same container, same env
+# (DAMULT=3 is mandatory -- without it the physics is wrong), same pip install.
+#
+# Submit (walltime / ncpus / host / job name given on the command line):
+#   qsub -N A2w10 -l walltime=24:00:00 -l select=1:ncpus=4:host=cpu02 \
+#        -v SCRIPT="noise_calib_combo.py",LOGF="A2_W10.log",CELL_W0=10,CELL_TG=0.4,CELL_TAG=_W10 \
+#        pbs_axis.pbs
+#
+# CELL_TAG must be passed explicitly for any non-home cell: it is the suffix
+# that keeps the W30 thesis artifacts (A2_calib.npz / B2_timing.npz) untouched.
+set -u
+HERE=/work/u10677113/LDNet_GLA/light/noise
+cd "$HERE" || exit 1
+
+: "${SCRIPT:?SCRIPT not set}"
+LOGF="${LOGF:-pbs_axis.log}"
+CELL_W0="${CELL_W0:-30.0}"
+CELL_TG="${CELL_TG:-0.4}"
+CELL_TAG="${CELL_TAG:-}"
+
+echo "== $(date) host=$(hostname) SCRIPT=$SCRIPT W0=$CELL_W0 Tg=$CELL_TG TAG='$CELL_TAG'"
+
+apptainer exec --writable-tmpfs \
+  --env PYTHONNOUSERSITE=1 --env DAMULT=3 \
+  --env OMP_NUM_THREADS=3 --env TF_NUM_INTRAOP_THREADS=3 --env TF_NUM_INTEROP_THREADS=1 \
+  --env CELL_W0="$CELL_W0" --env CELL_TG="$CELL_TG" --env CELL_TAG="$CELL_TAG" \
+  --env Y_MIN="${Y_MIN:--15}" \
+  --bind /work/u10677113:/work/u10677113 \
+  /work/u10677113/tensorflow_gpu.sif \
+  bash -c "pip install -q scipy h5py matplotlib; cd '$HERE' && python3 -s -u $SCRIPT" \
+  > "$HERE/$LOGF" 2>&1
+rc=$?
+echo "== $(date) exit=$rc"
+exit $rc

@@ -1,0 +1,61 @@
+#!/bin/bash
+#PBS -N buildIter11
+#PBS -q cpu
+#PBS -l select=1:ncpus=1
+#PBS -l walltime=00:20:00
+#PBS -j oe
+#PBS -o /work/u10677113/LDNet_GLA/light/dagger_fom/models/iter11_build.log
+#
+# iter11: fixes iter10's collapse. Same 9 pure open-loop (delta=0) train cells
+# as iter10 (still the signal that teaches the diagnosed aero fix), PLUS 4
+# family-Cc trajectories from dataset_v5 (Law 5: deterministic feed-forward
+# gust->flap, rate-limited, NO controller/state-feedback in the loop --
+# see cosim_driver_extract.py's _build_law5_table/delta_schedule, LAW==5
+# branch: delta depends only on the exogenous gust signal, precomputed before
+# the run, continuous by construction). These restore gradient signal on the
+# delta channel, which iter10 had IDENTICALLY ZERO across all 12 training
+# trajectories -- the diagnosed cause of iter10's collapse (near-constant
+# 0.712 output regardless of input, consistent with the cubic output
+# nonlinearity in sensitivity_latent_rollout.py saturating when one input
+# dimension carries no training signal at all).
+#
+# The 4 Cc cells are chosen with T_g outside [0.35,0.45] specifically to NOT
+# leak information into the held-out Tg=0.40 test band (same discipline as
+# the open-loop train/valid split). Valid is UNCHANGED from iter10: the same
+# 3 open-loop Tg=0.40 cells, held out in every form (open-loop AND
+# gust+flap), still the harshest test of generalization to the worst
+# frequency band.
+
+set -e
+BASE=/work/u10677113/LDNet_GLA
+D=/work/u10677113/NACA2312/mpc_fom_dagger
+V5=/work/u10677113/NACA2312/dataset_v5
+OUT="$BASE/light/dagger_fom/models/iter11_build.log"
+exec > "$OUT" 2>&1
+
+echo "=== build iter11: open-loop (9) + Cc feed-forward gust+flap (4) ==="
+date
+
+apptainer exec --bind /work /work/u10677113/tensorflow_gpu.sif /bin/bash -c "
+  cd $BASE/light/dagger_fom && python3 -u build_dagger_h5.py --iter 11 --t-common 1.70 \
+    --cell 10 0.30 $D/OpenLoop_W10_Tg0.30/structural_trajectory.csv train \
+    --cell 20 0.30 $D/OpenLoop_W20_Tg0.30/structural_trajectory.csv train \
+    --cell 30 0.30 $D/OpenLoop_W30_Tg0.30/structural_trajectory.csv train \
+    --cell 10 0.70 $D/OpenLoop_W10_Tg0.70/structural_trajectory.csv train \
+    --cell 20 0.70 $D/OpenLoop_W20_Tg0.70/structural_trajectory.csv train \
+    --cell 30 0.70 $D/OpenLoop_W30_Tg0.70/structural_trajectory.csv train \
+    --cell 10 1.20 $D/OpenLoop_W10_Tg1.20/structural_trajectory.csv train \
+    --cell 20 1.20 $D/OpenLoop_W20_Tg1.20/structural_trajectory.csv train \
+    --cell 30 1.20 $D/OpenLoop_W30_Tg1.20/structural_trajectory.csv train \
+    --cell 12.63 0.789 $V5/sim_Cc_007_train/structural_trajectory.csv train \
+    --cell 26.23 0.538 $V5/sim_Cc_000_train/structural_trajectory.csv train \
+    --cell 12.08 1.024 $V5/sim_Cc_017_train/structural_trajectory.csv train \
+    --cell 38.88 1.067 $V5/sim_Cc_009_train/structural_trajectory.csv train \
+    --cell 10 0.40 $D/OpenLoop_W10_Tg0.40/structural_trajectory.csv valid \
+    --cell 20 0.40 $D/OpenLoop_W20_Tg0.40/structural_trajectory.csv valid \
+    --cell 30 0.40 $D/OpenLoop_W30_Tg0.40/structural_trajectory.csv valid
+"
+
+echo
+echo "=== BUILD_DONE ==="
+ls -la "$BASE/light/dagger_fom/data/iter11/"

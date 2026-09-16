@@ -1,0 +1,73 @@
+#!/bin/bash
+#PBS -N ldnet_v6_study
+#PBS -q cpu
+#PBS -l select=1:ncpus=4
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#
+# Generic PBS launcher for any final/studies/*.py script -- the v6, qsub-only
+# replacement for light/noise/run_axis.sh's bare `nohup` dispatch. run_axis.sh
+# is documented in this repo as running ON THE LOGIN NODE (its own comment:
+# "Launch one study axis inside the TF container (cluster only)" via
+# `nohup ... &`), which is exactly the pattern light/dagger_fom/NOTES.md's
+# postmortem warns against: "REGOLA OPERATIVA -- mai eseguire calcolo su
+# login01" (login01 hit load average 107 with 45 users; the user's jobs were
+# administratively removed). Every launcher under final/studies/ submits
+# through qsub instead, following the recon/cluster/*.pbs convention
+# (ablate.pbs, depth_ladder.pbs): apptainer exec on a compute node, no --nv
+# (LDNetAero forces CUDA_VISIBLE_DEVICES=-1, so these are CPU-only rollouts
+# even though the container is the TF/GPU image -- it is used here only for
+# its Python/TensorFlow environment).
+#
+# Submit examples (run from final/studies/, or pass STUDIES_DIR explicitly):
+#   qsub -v SCRIPT=cs25_combo_study.py,ENVS="W0=30" run_study.pbs
+#   qsub -v SCRIPT=noise_white_combo.py run_study.pbs
+#   qsub -v SCRIPT=noise_calib_combo.py run_study.pbs
+#   qsub -v SCRIPT=noise_timing_combo.py run_study.pbs
+#   qsub -v SCRIPT=e2_combo.py,ARGS=flat run_study.pbs
+#   qsub -v SCRIPT=e2_combo.py,ARGS=dlr run_study.pbs
+#   qsub -v SCRIPT=e2_combo_cells.py,ARGS=W10T07 run_study.pbs
+#   qsub -v SCRIPT=e2_combo_cells.py,ARGS=W30T07 run_study.pbs
+#
+# Variables (all via qsub -v, qsub splits on commas so never pass a comma
+# list in one -v token; chain multiple -v tokens with commas between
+# KEY=VAL pairs, not inside a value):
+#   SCRIPT         required -- filename under STUDIES_DIR
+#   ARGS           optional -- positional CLI args forwarded to the script
+#                  (e.g. "flat", "dlr", "W10T07", "--smoke")
+#   ENVS           optional -- space-separated KEY=VAL pairs exported before
+#                  running (e.g. "W0=30 TG=0.4"); quote the whole ENVS value
+#   DAMULT         optional -- default 3 (the study default throughout light/)
+#   STUDIES_DIR    optional -- default /work/u10677113/LDNet_GLA/final/studies;
+#                  override to match your cluster checkout path
+#   LDNET_V6_MODEL_DIR, LDNET_V6_RESULTS_ROOT, LDNET_V6_IMG_DIR
+#                  optional -- forwarded to paths.py if set (see paths.py
+#                  for defaults)
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+
+: "${SCRIPT:?must pass -v SCRIPT=<name>.py}"
+ARGS="${ARGS:-}"
+ENVS="${ENVS:-}"
+DAMULT="${DAMULT:-3}"
+STUDIES_DIR="${STUDIES_DIR:-/work/u10677113/LDNet_GLA/final/studies}"
+
+echo "=== run_study.pbs start @ $(date) : SCRIPT=$SCRIPT ARGS=$ARGS ENVS=$ENVS DAMULT=$DAMULT ==="
+hostname
+
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "
+        pip install -q scipy h5py matplotlib pandas 2>/dev/null
+        cd '$STUDIES_DIR'
+        export PYTHONNOUSERSITE=1 DAMULT=$DAMULT \
+               OMP_NUM_THREADS=4 TF_NUM_INTRAOP_THREADS=4 TF_NUM_INTEROP_THREADS=1 \
+               ${LDNET_V6_MODEL_DIR:+LDNET_V6_MODEL_DIR=$LDNET_V6_MODEL_DIR} \
+               ${LDNET_V6_RESULTS_ROOT:+LDNET_V6_RESULTS_ROOT=$LDNET_V6_RESULTS_ROOT} \
+               ${LDNET_V6_IMG_DIR:+LDNET_V6_IMG_DIR=$LDNET_V6_IMG_DIR} \
+               $ENVS
+        python3 -s -u '$SCRIPT' $ARGS
+    "
+
+echo "=== run_study.pbs done @ $(date) exit=$? ==="

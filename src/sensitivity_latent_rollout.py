@@ -224,6 +224,16 @@ def main():
     print("  BFGS...", flush=True)
     opt.optimize_BFGS(num_epochs_BFGS)
     # NOTE: best-validation weights are already saved by _ck; do NOT overwrite with final.
+
+    # Save loss history (data for the thesis rollout-loss figure), same layout
+    # as sensitivity_latent.py's teacher-forced loss_history.npz.
+    np.savez(out_dir / 'loss_history.npz',
+             iterations=np.asarray(opt.iterations_history),
+             train=np.asarray(opt.loss_train_history),
+             valid=np.asarray(opt.loss_valid_history),
+             adam_epochs=num_epochs_Adam)
+    print(f"  Saved loss_history.npz to {out_dir}", flush=True)
+
     print(f"Done. Best valid rollout loss = {best[0]:.4e}. Best-valid model in {out_dir}", flush=True)
 
 if __name__ == '__main__':

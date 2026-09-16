@@ -1,9 +1,12 @@
 """
 Thesis figure (chapter 3): CLred vs raw white-noise sigma for the MPC with
-inverse-variance sensor fusion (Jmax=50, N=8), home cell W30/Tg0.4, 6 seeds.
+inverse-variance sensor fusion (Jmax=50, N=8), 6 seeds.
 
-Reads results/W_combo.npz (arm='combo' records only). Generates
-fig_ch3_noise_white.png in results/ and light/latex/Images/.
+Cell defaults to the home cell W30/Tg0.4; override with CELL_W0 / CELL_TG to
+plot another cell (must match the cell noise_white_combo.py was run with).
+Reads results/W_combo[_W<W0>[T<10Tg>]].npz (arm='combo' records only) and
+generates the matching fig_ch3_noise_white[...].png in results/ and
+light/latex/Images/.
 
 Style follows light/latex/AGENTS.md ("Linee guida per i plot").
 Run locally after scp:  python3 -s -u plots_noise_white_combo.py
@@ -19,6 +22,24 @@ DIR     = os.path.join(_THIS, 'results')
 IMG_DIR = os.path.join(_THIS, '..', 'latex', 'Images')
 os.makedirs(IMG_DIR, exist_ok=True)
 
+W0 = float(os.environ.get('CELL_W0', 30.0))
+Tg = float(os.environ.get('CELL_TG', 0.4))
+
+
+def cell_tag(W0, Tg):
+    """Must stay identical to noise_white_combo.cell_tag()."""
+    if (W0, Tg) == (30.0, 0.4):
+        return ''
+    tag = f'_W{W0:g}'
+    if Tg != 0.4:
+        tag += f'T{round(Tg * 10):02d}'
+    return tag
+
+
+TAG  = cell_tag(W0, Tg)
+NPZ  = f'W_combo{TAG}.npz'
+PNG  = f'fig_ch3_noise_white{TAG}.png'
+
 plt.rcParams.update({
     'font.family': 'serif',
     'mathtext.fontset': 'cm',
@@ -33,7 +54,7 @@ plt.rcParams.update({
 })
 C_CLOSED = '#4477AA'
 
-recs  = list(np.load(os.path.join(DIR, 'W_combo.npz'), allow_pickle=True)['records'])
+recs  = list(np.load(os.path.join(DIR, NPZ), allow_pickle=True)['records'])
 combo = sorted((r for r in recs if r.get('kind') == 'point' and r.get('arm') == 'combo'),
                key=lambda r: float(r['frac']))
 
@@ -69,7 +90,7 @@ ax.set_ylim(0, 100)
 ax.legend(frameon=False, loc='lower left')
 fig.tight_layout()
 
-fn = os.path.join(DIR, 'fig_ch3_noise_white.png')
+fn = os.path.join(DIR, PNG)
 fig.savefig(fn, bbox_inches='tight'); plt.close(fig)
-shutil.copy(fn, os.path.join(IMG_DIR, 'fig_ch3_noise_white.png'))
+shutil.copy(fn, os.path.join(IMG_DIR, PNG))
 print(f'saved {fn} (+ latex/Images)')

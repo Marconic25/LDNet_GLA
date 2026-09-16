@@ -32,7 +32,7 @@ progetto Overleaf `Thesis_article_format`; i nuovi file vanno inclusi lì):
     Niente strategie implementative: quelle stanno nei Methods.
 - `chapter2.tex` — Sez. 3 Methods (`sec:methods`):
   - 3.1 Discretizzazione temporale del closed loop (`subsec:discretisation`):
-    stepper strutturale RK45 (`eq:rk45_update`), update latente
+    integratore strutturale RK45 (`subsubsec:integrator`, `eq:rk45_update`), update latente
     (`eq:latent_dyn`), rollout di inferenza, soluzione receding-horizon
     (`eq:mpc_recursion`, enumerazione su griglia), fusione del preview
     (`eq:invvar`, `eq:tikhonov`).
@@ -63,6 +63,74 @@ progetto Overleaf `Thesis_article_format`; i nuovi file vanno inclusi lì):
 
 Ogni macro-sezione (2, 3, 4) apre con un breve paragrafo che ne anticipa i
 contenuti; mantenerlo aggiornato se si spostano sottosezioni.
+
+## Leggibilità autonoma
+Il documento deve restare comprensibile a chi lo attraversa senza leggere il
+corpo del testo: introduzione, figure, conclusioni e titoli di sezione da soli
+devono bastare a ricostruire che cosa è stato fatto e che cosa ne è risultato.
+L'introduzione è già conforme; il vincolo pesa quindi sulle caption e sui titoli.
+
+- Caption autosufficienti. La caption dice che cosa è rappresentato, in quali
+  condizioni è stato ottenuto e qual è il risultato che la figura documenta,
+  senza che il lettore debba cercare nel corpo del testo le informazioni
+  necessarie a interpretarla: quantità sugli assi, condizione operativa, e la
+  conclusione che si legge nel grafico. Una caption che nomina solo il soggetto
+  ("Closed-loop traces") è un titolo, non una caption.
+- La caption non è un riassunto del paragrafo: restano validi il vincolo di
+  sobrietà e quello di non ripetizione. Si scrive ciò che serve a leggere la
+  figura, non ciò che il testo già argomenta.
+- Titoli di sezione e sottosezione informativi: dicono l'argomento specifico,
+  non una categoria generica.
+
+## Figure e tabelle legate a un caso numerico
+Ogni figura o tabella che mostra un caso di prova specifico --- una raffica
+($W_0$, $T_g$), una configurazione dello sweep ($d_s$, $L$), un livello di
+rumore --- deve dichiararlo nella caption con i valori espliciti e nella
+notazione del testo. Il lettore che arriva dalla figura deve poter individuare
+nel testo la discussione corrispondente, e viceversa.
+
+I due casi di raffica ricorrenti hanno un nome fisso, da usare in tutto il
+documento:
+
+- **Test 1** = $W_0 = 20$~m/s, $T_g = 0.7$~s --- il caso mostrato nella CFD
+  full-order dell'introduzione (`fig:cfd`) e primo pannello di
+  `fig:mpc_traces`.
+- **Test 2** = $W_0 = 10$~m/s, $T_g = 0.4$~s --- la raffica corta su cui
+  girano gli studi di robustezza (§4.3, §4.4). Ridefinito da $W_0=30$~m/s
+  quando `fig_ch3_trace_tests.png` è stata rigenerata su questa cella;
+  l'unico residuo del vecchio Test 2 è il confronto a tre celle di §4.3
+  (multi-case check "noise-free/white/lidar"), ancora sul dato $W_0=30$~m/s
+  finché non viene rigenerato anche il lidar model per la nuova cella, e lì
+  è quindi identificato dai soli valori, non dall'etichetta.
+
+Regola d'uso, asimmetrica fra caption e corpo del testo:
+
+- **Caption**: sempre etichetta *e* valori espliciti ("on Test~2 ($W_0 =
+  10$~m/s, $T_g = 0.4$~s)"). Le caption devono restare autosufficienti (vedi
+  "Leggibilità autonoma"): chi sfoglia solo le figure non deve risalire al
+  testo per sapere che cos'è Test~2.
+- **Corpo del testo**: i valori si scrivono una volta sola, alla definizione
+  in §4.2; da lì in avanti si usa solo l'etichetta ("run on Test~2"), senza
+  ripetere $W_0$ e $T_g$.
+- Le celle che non sono Test 1 o Test 2 restano identificate dai soli valori:
+  non si introducono altre etichette numerate.
+
+Anche il modello finale ha un nome fisso, con la stessa regola asimmetrica:
+
+- **retained LDNet** = $d_s=10$, input a sei segnali, $L=6$ --- l'LDNet che gira
+  dentro l'anello di controllo, sintesi degli Study 1--3, definito in §4.1
+  (`subsubsec:rollout_results`). Mai "the selected LDNet" né "the deployed
+  LDNet": erano tre nomi per lo stesso oggetto. In caption si apre con
+  l'etichetta *e* i valori espliciti ("Retained LDNet ($d_s=10$, six-signal
+  input, $L=6$)"), nel corpo i valori si scrivono una volta sola alla
+  definizione. Il verbo "retain" resta libero nel suo uso ordinario ("the run
+  with the lowest validation loss is retained").
+
+Gli studi numerati di §4.1 (Study 1 input, Study 2 latente, Study 3 profondità,
+Study 4 campo) portano il proprio numero in apertura di caption, "Study~N: ...".
+Il numero appartiene allo studio, non alla configurazione che ne esce: la
+sottosezione che sintetizza gli studi non è a sua volta uno studio e non riceve
+un numero.
 
 ## Modifiche manuali dell'utente
 - L'utente modifica il testo mentre lo rilegge. Un agente che riprende un file e
@@ -144,11 +212,46 @@ titoli di sezione, legende delle figure). Sono l'analogo lessicale della regola
   l'acronimo. Non ridefinirlo in un capitolo successivo e non tornare alla forma
   estesa, titoli di sezione compresi. Se un acronimo non viene riusato almeno una
   volta, non va introdotto: si scrive il termine per esteso e basta.
+- Nomenclatura introdotta nell'abstract: ogni acronimo o termine tecnico che
+  l'abstract definisce per esteso ("Gust Load Alleviation (GLA)") va reintrodotto
+  con la stessa definizione per esteso alla sua prima occorrenza nel corpo del
+  testo (Introduction compresa). L'abstract è un riassunto a sé stante e non conta
+  come prima occorrenza per il resto del documento: il lettore che salta
+  l'abstract deve comunque trovare la forma estesa la prima volta che il termine
+  compare nel testo.
 - Tono ingegneristico: frasi dichiarative, il nome dell'oggetto ripetuto invece
   del pronome quando c'è ambiguità. Niente formule retoriche ("fits in this
   picture", "moves the difficulty from ... to ...", "end to end"), niente verbi
   figurati per operazioni tecniche (un controllore non "reasons on" un modello:
   lo usa, o ci predice sopra).
+- Maiuscole dei nomi di metodo. I metodi e i framework che il documento tratta
+  come nomi propri si scrivono con l'iniziale maiuscola su ogni parola, ovunque
+  compaiano per esteso: corpo, caption, titoli di sezione, abstract. Lista
+  chiusa, da non ampliare senza motivo e da non ribaltare:
+
+  | forma estesa | acronimo |
+  |---|---|
+  | Gust Load Alleviation | `GLA` |
+  | Model Predictive Control, Model Predictive Controller | `MPC` |
+  | Latent Dynamics Network, Latent Dynamics Networks | `LDNet`, `LDNets` |
+  | Fluid-Structure Interaction | `FSI` |
+  | Computational Fluid Dynamics | `CFD` |
+  | Proper Orthogonal Decomposition | --- |
+  | Machine Learning, Reinforcement Learning | --- |
+
+  La maiuscola riguarda solo la forma estesa: dove l'acronimo è già stato
+  definito vale la regola generale sugli acronimi e la forma estesa non deve
+  ricomparire affatto. Le due cose si controllano insieme, perché una forma
+  estesa in minuscolo dopo la definizione viola entrambe le regole.
+- Restano in minuscolo tutti gli altri metodi, che il documento descrive invece
+  di nominarli: "linear quadratic regulator", "linear quadratic Gaussian",
+  "proportional--integral--derivative", "incremental nonlinear dynamic
+  inversion", "dynamic control allocation", "active disturbance rejection
+  control". Restano in minuscolo anche i nomi che questo lavoro dà ai propri
+  oggetti, che non sono metodi di letteratura: "full-order model", "reduced
+  model", "internal model", "structural integrator", "retained LDNet". Non
+  applicare la regola precedente per analogia: la lista è chiusa proprio perché
+  il confine è convenzionale e non deducibile.
 
 ## Forma
 - Evitare `\paragraph`, `\textbf`, `\emph` e corsivi se non strettamente
@@ -161,8 +264,10 @@ titoli di sezione, legende delle figure). Sono l'analogo lessicale della regola
   per valori numerici, unità, sigle e riferimenti.
 - Lessico vietato (scelta dell'autore): mai "plant" (usare "controlled system",
   "aeroelastic system", "reduced system" secondo il contesto), mai
-  "traction(s)" (usare "stresses" e formulazioni equivalenti), e mai
-  "baseline"/"baseline value(s)" per indicare una configurazione di partenza
+  "traction(s)" (usare "stresses" e formulazioni equivalenti), mai "stepper"
+  (l'integratore strutturale $\boldsymbol{\Phi}$ è sempre "structural
+  integrator", in ogni occorrenza: titoli di sottosezione, corpo, caption), e
+  mai "baseline"/"baseline value(s)" per indicare una configurazione di partenza
   di uno sweep (larghezza, profondità, iperparametro): nominare il valore
   esplicito ("$L=6$", "$7$ neurons") e, se serve dire che è il punto da cui
   parte lo sweep, scriverlo per esteso ("the sweep starts from $L=6$").
@@ -171,6 +276,16 @@ titoli di sezione, legende delle figure). Sono l'analogo lessicale della regola
   prosa serve a spiegare e collegare quando necessario, non a sostituire ciò che
   un'equazione o un algoritmo esprime in modo più compatto e preciso. A parità di
   chiarezza, la versione più breve è quella corretta.
+- Prima persona plurale ("we"), non forma impersonale/passiva, ma solo dove il
+  vero soggetto della frase è una scelta o un'azione dell'autore (proporre,
+  adottare, fissare, scegliere, confrontare, misurare, simulare, eseguire,
+  selezionare, verificare, derivare, descrivere, discretizzare, chiudere il
+  ciclo, ...): "we adopt the full six-signal set", "we set $d_s=10$", "we
+  simulate each level six times". Restare impersonali quando la frase descrive
+  una proprietà matematica o fisica del sistema (non una scelta), quando il
+  soggetto naturale è una Figura/Tabella ("Figure X shows..."), o quando si
+  descrive letteratura/lavoro altrui. Non convertire per allungare la frase né
+  per cambiarne il senso.
 
 ## Simboli e variabili
 Regole non negoziabili, valide su tutto il documento (corpo, appendici, caption,
@@ -227,9 +342,16 @@ label degli assi nelle figure).
   $(k)$, $k=1,\dots,N$, è riservato ai passi predetti nell'orizzonte MPC; gli
   indici di iterazione degli ottimizzatori usano $i$, mai $t$; $j$ nodi
   spaziali lidar, $m$ nodi fusi.
+- Notazione vettoriale: un vettore scritto come elenco in linea usa le
+  parentesi tonde, $(a,\,b,\,c)^\mathsf{T}$, mai le quadre. Vale per ogni
+  vettore del documento (stato strutturale, ingressi del surrogato, uscite,
+  stato aumentato del rollout), senza eccezioni legate al capitolo o alla
+  grandezza. Non riguarda le matrici in ambiente `bmatrix` (restano quadre) né
+  gli intervalli chiusi come $[-\delta_{\max},\,\delta_{\max}]$, che non sono
+  vettori.
 - Simboli riservati: lo stato latente è sempre $\mathbf{s}$ (mai $\mathbf{z}$,
   anche nell'MPC: $\mathbf{s}^{(k)}$); lo stato strutturale è
-  $\boldsymbol{\zeta} = [h,\dot h,\alpha,\dot\alpha]^T$ e mai $\mathbf{x}$, che
+  $\boldsymbol{\zeta} = (h,\dot h,\alpha,\dot\alpha)^\mathsf{T}$ e mai $\mathbf{x}$, che
   resta la coordinata spaziale ($\mathbf{x}_\mathrm{EA}$,
   $\mathbf{x}_\mathrm{hinge}$, $\mathbf{x}_\mathrm{query}$);
   $\boldsymbol{\xi}_n = (\mathbf{s}_n,
@@ -259,6 +381,23 @@ label degli assi nelle figure).
 - I riferimenti incrociati sono gestiti da `cleveref`: usare `\cref`/`\Cref`, che
   generano da soli il nome dell'oggetto ("Equation", "Figure", "Table", ...). Non
   scrivere il prefisso a mano né usare `\eqref`.
+- Le figure si richiamano sempre come "Figure N", mai "fig.N"/"fig. N": il
+  nome è "Figure" per esteso e maiuscolo in ogni occorrenza, indipendentemente
+  da `\cref` o `\Cref` e dalla posizione nella frase. La resa è fissata una
+  volta sola nel preambolo (`\crefname{figure}{Figure}{Figures}` e
+  `\Crefname{figure}{Figure}{Figures}` in `main.tex`, prima riga dopo
+  `\usepackage{cleveref}`): non serve e non si deve scrivere "Figure" a mano
+  nel corpo del testo, il richiamo resta `\cref{fig:...}`/`\Cref{fig:...}`.
+- Le sottosezioni (`\subsection`, `\subsubsection`) si richiamano sempre come
+  "paragraph", mai come "section": solo i cinque capitoli di primo livello
+  (`\section`, Introduction/Model/Methods/Results/Conclusion) restano
+  "section". La resa è fissata una volta sola nel preambolo di `main.tex`
+  (`\crefname`/`\Crefname` per `subsection` e `subsubsection`, subito dopo
+  quelle di `figure`): un `\cref{subsec:...}` o `\cref{subsubsec:...}` stampa
+  già "paragraph" da solo, non va scritto a mano. Dove il testo nomina una
+  sottosezione senza passare da `\cref` ("this section", "the previous
+  subsection", "every run of this section") va scritta comunque la parola
+  "paragraph", mai "section"/"subsection": vale lo stesso principio.
 - Sistemi di equazioni: `subequations` con label di gruppo e sub-label per i
   singoli righi; graffa a sinistra con `align` e `[left=\empheqlbrace]`, oppure
   `\left\{\dots\right.` intorno a un `aligned` quando serve una sola label.

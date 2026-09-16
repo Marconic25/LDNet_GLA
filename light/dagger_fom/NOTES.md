@@ -1193,3 +1193,582 @@ login.
 sottomessa con `qsub` su un nodo di calcolo, con `-l select=...:host=cpuNN`
 verificato libero via `pbsnodes -aSj`. Su login01 solo comandi di
 bookkeeping istantanei (`ls`, `qstat`, `cat` di file piccoli, `cp`).
+
+## Esperimento FOM(u_ROM): il controllore gira sul ROM, il FOM riceve solo δ(t)
+
+Su richiesta dell'utente, cella **W20/Tg0.70**. Tutti i confronti fatti finora
+mettono insieme **tre** differenze: impianto diverso, decisioni di controllo
+diverse, retroazione presente. Nessuna misura isolava la prima.
+
+Qui il controllore chiude l'anello interamente dentro il ROM (stato strutturale
+propagato dal ROM, raffica analitica) e il δ(t) risultante viene applicato al
+FOM come schedule prescritta. Il controllore è così **completamente scollegato
+dal FOM**: nessun suo ingresso viene dall'impianto, quindi δ(t) è determinabile
+offline e non serve una co-simulazione viva del controllore. L'architettura
+I/O del controllore resta identica — cambia solo da dove viene `state`.
+
+Completa la casella mancante della tabella impianto × comandi, da cui
+`gap_impianto = CLred_ROM − FOM(u_ROM)` (stessi comandi, due impianti, nessuna
+retroazione) e `gap_retroazione = FOM(u_ROM) − FOM(u_FOM)`.
+
+Cella scelta bene anche nel merito: il flap **non satura** (10.68° contro il
+limite di 14°), quindi la misura non è mascherata dal rate-limit come su
+W30/Tg0.30 o W30/Tg0.40.
+
+**Nessuna modifica al controllore**: `--delta-times`/`--delta-angles` esistono
+già nel driver (`cosim_driver_extract.py:986-989`, applicati alle 1032-1033) e
+`delta_schedule()` li interpola. Nuovi file: `extract_rom_delta.py`,
+`cluster/extract_delta.pbs`, `cluster/replay_urom.pbs`.
+
+**Verifica della sorgente di δ(t)** (job 31813): la traccia esportata da
+`traces_W20.npz` è confermata essere quella a R*, non un punto arbitrario dello
+sweep — `Tg0.70_clred = 91.92%` combacia con `summary.md` (+91.9), `jb=4` e
+`fmax[4] = 8.4` combaciano con la colonna "combo flap", e `|δ|max` della traccia
+esportata è esattamente 8.400. 1501 nodi a dt=0.002 s che coprono t=[0, 3.0]s,
+quindi nessuna estrapolazione dentro la run.
+
+### Difetto 1 — `--damult` ignorato in modalità `schedule` (CORRETTO)
+
+`cosim_driver_extract.py` applicava il moltiplicatore di smorzamento in
+beccheggio al modello strutturale del FOM **solo** dentro `if CONTROLLER ==
+"mpc"`. In modalità `schedule` il flag veniva accettato e silenziosamente
+ignorato: `D_ALPHA` restava 6.6 invece di 19.8.
+
+Conseguenza diretta su questo esperimento: senza correzione il replay avrebbe
+girato su un'ala con smorzamento 3× minore rispetto alla baseline closed-loop
+con cui va confrontato — due impianti diversi, confronto invalido.
+
+Correzione: `D_ALPHA = D_ALPHA * args.damult` spostato fuori dal blocco, quindi
+applicato in ogni modalità. Retrocompatibile: il default è 1.0, e nessuno script
+esistente passava `--damult` in modalità `schedule`. Aggiunto anche un print del
+`D_ALPHA` effettivo, così ogni run.log documenta da solo su quale struttura ha
+girato (verificato nella run: `D_ALPHA=19.8000 (base 6.6 x damult 3.0)
+controller=schedule`).
+
+### Difetto 2 — il riferimento `exo` è misurato su un impianto diverso da `exc`
+
+Più serio, e tocca **tutti** i CLred del FOM di questo studio. Verificato sui
+`run.log`:
+
+| | window | D_ALPHA |
+|---|---|---|
+| `exo` (open-loop, `OpenLoop_*`) | **50** (0.0035 s) | **6.6** (ζ=2%) |
+| `exc` (closed-loop, `Rsweep_*_win29`) | **29** (0.0020 s) | **19.8** (3×) |
+
+`mpc_fom_openloop.pbs` aveva `--window 50` hardcoded e non passava affatto
+`--damult` (e comunque sarebbe stato ignorato, per il Difetto 1). Sul ROM invece
+non c'è asimmetria: `light/run.py:22` applica `DAMULT` globalmente all'import,
+quindi open-loop e closed-loop condividono la stessa struttura.
+
+Quindi `CLred = (exo − exc)/exo` divide due impianti diversi. **Direzione
+dell'errore**: più smorzamento in beccheggio → risposta in α più piccola →
+escursione di C_L più piccola. L'`exo` è misurato con smorzamento *minore*,
+quindi è più grande del dovuto, quindi **i CLred del FOM sono sistematicamente
+ottimistici** — il gap ROM−FOM reale è più grande di quello tabulato, non più
+piccolo.
+
+La parte di window pesa presumibilmente poco su un run open-loop (flap fermo a
+zero, quindi il difetto della scala a gradini non si attiva; e `tab:appA_window`
+dà N_win=50 convergente sui casi passivi), mentre il fattore 3 sullo smorzamento
+è grande.
+
+`mpc_fom_openloop.pbs` reso parametrico su `WINDOW`/`DAMULT`, con default
+50/1.0 che riproducono le run originali e path di output taggato per non
+sovrascriverle. Lanciato l'`exo` coerente per W20/Tg0.70 (window=29,
+damult=3.0, TEND=1.55) per quantificare l'entità dell'errore.
+
+**MISURATO — l'effetto è nullo, la mia previsione era sbagliata** (job 31816):
+
+| `exo` per W20/Tg0.70 | valore |
+|---|---|
+| legacy (window=50, D_ALPHA=6.6) | 0.495459 |
+| coerente (window=29, D_ALPHA=19.8) | 0.495524 |
+
+Differenza **0.000065, cioè lo 0.013%** — i CLred cambiano di 0.0 punti. Avevo
+previsto che i CLred del FOM fossero "sistematicamente ottimistici" e che il gap
+reale fosse più grande: **falso**. L'escursione open-loop di C_L è dominata dal
+carico diretto della raffica, non dalla risposta in beccheggio, quindi triplicare
+lo smorzamento in α non la muove. E il passaggio window 50→29 non cambia nulla in
+anello aperto, come previsto da `tab:appA_window` (N_win=50 convergente sui casi
+passivi) e coerente col fatto che a flap fermo il difetto della scala a gradini
+non si attiva.
+
+L'incoerenza di codice resta reale e la correzione va tenuta (in un caso con
+risposta in beccheggio dominante morderebbe), ma **non invalida nessun numero
+già pubblicato in questo studio**. Lezione: era un'ipotesi plausibile dedotta dal
+codice, non un difetto misurato — e misurarla costava un job.
+
+### Esito — la retroazione è il motore, non il contorno
+
+| | comandi $u_{ROM}$ | comandi $u_{FOM}$ |
+|---|---|---|
+| **impianto ROM** | **+91.9%** | — |
+| **impianto FOM** | **+32.3%** | **+80.7%** |
+
+Escursioni assolute (`max|C_L − C_L,trim|`, `t ≤ 1.20 s`, `exo_FOM = 0.4955`):
+
+| Run | exc | flap_max | osc |
+|---|---|---|---|
+| FOM(u_FOM) closed loop | 0.0958 | 10.68° | 8 |
+| FOM(u_ROM) replay | 0.3355 | 8.40° | 3 |
+
+- `gap_impianto` = 91.9 − 32.3 = **+59.6 pt**
+- `gap_retroazione` = 32.3 − 80.7 = **−48.4 pt**
+- `gap_totale` = **+11.3 pt**
+
+**I comandi che il ROM ritiene ottimi, applicati all'impianto vero, rendono
++32.3% invece di +91.9%.** Un terzo del promesso. Ma appena il controllore può
+vedere lo stato strutturale vero e ripianificare ogni 2 ms, recupera **48.4 dei
+59.6 punti persi**, arrivando a +80.7%.
+
+Quindi, per questa cella, il gap NON è prevalentemente un artefatto numerico del
+FOM né "il controllore decide peggio dentro il FOM": il modello sbaglia davvero,
+e sbaglia molto, ma **la retroazione assorbe l'82% dell'errore**. Gli 11.3 punti
+residui sono ciò che la retroazione non riesce a recuperare.
+
+**Caveat onesto sul termine `gap_impianto`**: il replay è ad anello aperto, quindi
+i suoi errori si accumulano senza correzione. Una parte dei 59.6 punti è
+intrinseca al controllo in anello aperto (vale per qualunque modello con
+qualunque errore, non solo per questo), non "quanto è cattivo l'LDNet". Il numero
+va letto come limite superiore dell'errore di modello, non come sua misura.
+
+### La misura pulita dell'errore di modello: `exo_ROM` vs `exo_FOM`
+
+Il confronto che invece non ha caveat, perché non c'è controllo affatto:
+
+| escursione open-loop, δ=0, t ≤ 1.20 s | valore |
+|---|---|
+| ROM (`Tg0.70_cex0`, ricalcolato dalla traccia: identico) | 0.356072 |
+| FOM reale | 0.495459 |
+
+**Il surrogato sottostima il picco di carico da raffica del 28.1%** con flap
+fermo a zero: niente controllore, niente cadenza di accoppiamento, niente scala a
+gradini del flap, niente retroazione. È errore di modello puro, misurato nella
+configurazione più pulita possibile — e nella configurazione che `appendixA` ha
+già validato numericamente (GCI, convergenza temporale, Courant, tutti su casi
+passivi), quindi il termine di riferimento è quello affidabile.
+
+Stesso fenomeno già visto su W30/Tg0.40, dove la sottostima era del 74%
+(0.498 contro 0.866). Qui è più piccola ma della stessa natura e dello stesso
+segno.
+
+In termini assoluti la storia è ancora più netta: il ROM predice un'escursione
+residua closed-loop di 0.356 × (1 − 0.919) = **0.029**, mentre l'impianto vero
+ne produce **0.096** — **3.3× più grande**.
+
+### Verdetto per questa cella
+
+Il ROM batte il FOM su CLred per **errore di modello genuino**, non per un
+artefatto numerico del FOM. Due prove indipendenti:
+
+1. Il surrogato sbaglia del 28% il carico open-loop, dove nessuno dei difetti
+   R1/R2 del driver è attivo e dove la numerica del FOM è quella già validata.
+2. I suoi comandi ottimi resi in anello aperto sull'impianto vero rendono un
+   terzo del promesso.
+
+Questo **non** assolve i reperti R1/R2/R3 (scala a gradini del flap, splitting
+esplicito, asimmetria di filtraggio): restano difetti reali e restano da
+quantificare sul termine residuo di 11.3 punti. Ma la loro quota è al massimo
+quella, non i 59.6 punti di scarto d'impianto.
+
+Da notare anche che il fix di cadenza (window 50→29, +84 pt su W30/Tg0.40) resta
+l'intervento singolo più efficace mai trovato — il che è compatibile: agiva su
+una cella dove l'anello era rotto, non sulla qualità del modello.
+
+**Il che riapre, ma in modo mirato, la domanda del retraining**: sei tentativi
+hanno fallito puntando all'rmse di teacher-forcing closed-loop. Il bersaglio
+giusto potrebbe essere molto più semplice — **il picco di carico open-loop**, che
+qui è sbagliato del 28% ed è misurabile senza alcun controllore.
+
+### Seconda cella: W30/Tg0.40 (job 31876) — l'errore di modello è lo stesso, è la retroazione che cede
+
+Stesso protocollo sulla cella severa (δ(t) estratto dal ROM via job 31875,
+`Tg0.40_clred=80.51%` e `|δ|max=7.875` verificati contro `summary.md` prima di
+spendere CFD; replay `--controller schedule --law 0 --window 29 --damult 3.0`,
+`TEND=1.25`, stesso checkpoint della baseline).
+
+| | comandi $u_{ROM}$ | comandi $u_{FOM}$ |
+|---|---|---|
+| **impianto ROM** | **+80.5%** | — |
+| **impianto FOM** | **+23.7%** | **+50.3%** |
+
+Escursioni (`exo_FOM = 0.8664`, finestra `t ≤ 0.90`):
+
+| Run | exc | flap_max | osc |
+|---|---|---|---|
+| FOM(u_FOM) closed loop | 0.4305 | **14.00° (saturo)** | 15 |
+| FOM(u_ROM) replay | 0.6608 | 7.88° | 6 |
+
+**Confronto diretto delle due decomposizioni:**
+
+| | W20/Tg0.70 | W30/Tg0.40 |
+|---|---|---|
+| `gap_impianto` | +59.6 pt | **+56.8 pt** |
+| `gap_retroazione` | −48.4 pt | **−26.6 pt** |
+| `gap_totale` | +11.3 pt | +30.2 pt |
+| quota di errore recuperata dalla retroazione | **81%** | **47%** |
+
+**Il risultato è che `gap_impianto` è praticamente identico sulle due celle**
+(56.8 contro 59.6 punti): sotto gli stessi comandi e senza retroazione, il
+surrogato sbaglia nella stessa misura su una cella mite e su una severa. Non è
+vero, quindi, che "il modello è molto peggiore sulla cella severa" — l'errore
+di modello a comandi fissi è lo stesso.
+
+**Quello che cambia è quanto la retroazione riesce a recuperarne**: 81% su
+W20/Tg0.70, solo 47% su W30/Tg0.40. E il perché è nella colonna del flap: nella
+run closed-loop severa il flap **satura a 14°** con osc=15, mentre il replay
+degli stessi comandi ROM ne usa 7.88°. Il controllore, messo davanti
+all'impianto vero, chiede molta più autorità di quella che il ROM prevedeva, e
+la esaurisce.
+
+Quindi il divario più grande su W30/Tg0.40 **non è una peggiore qualità del
+modello, è l'attuatore che finisce il margine**. Coerente con la correlazione
+già misurata sulle 12 celle (`flap_max` r=0.62): la saturazione non è la causa
+prima del gap, ma è ciò che impedisce alla retroazione di assorbirlo.
+
+Nota metodologica: `gap_impianto` resta un limite superiore dell'errore di
+modello, non la sua misura — il replay è ad anello aperto e i suoi errori si
+accumulano senza correzione, e questo vale per qualunque modello con qualunque
+errore. Il fatto che il valore sia lo stesso su due celle molto diverse rende
+però il confronto TRA celle affidabile anche se il livello assoluto non lo è.
+
+## Estensione a tutta la griglia: l'errore scala con la durata della raffica, non con l'ampiezza
+
+Misura a costo zero (nessun nuovo CFD, tutte e 12 le run open-loop reali già a
+disco) via `compare_open_loop_grid.py`: `exo_ROM` (da `traces_W{W0}.npz`,
+campo `_cex0`) contro `exo_FOM` reale, sulle 12 celle.
+
+| per W0 | mean gap% |
+|---|---|
+| W0=10 | +31.5% |
+| W0=20 | +18.7% |
+| W0=30 | +30.5% |
+| **Pearson r(gap%, W0)** | **-0.020** |
+
+| per Tg | mean gap% |
+|---|---|
+| Tg=0.30 | +32.0% |
+| **Tg=0.40** | **+47.3% (peggiore)** |
+| Tg=0.70 | +20.4% |
+| Tg=1.20 | +7.7% (unica cella negativa: W20/Tg1.20) |
+
+**L'ampiezza non correla con l'errore** (r≈0) — cade l'ipotesi capacità/
+ampiezza, non serve allargare NNdyn per quello. L'errore scala con la
+**durata/frequenza** della raffica, peggiora verso raffiche corte e brusche,
+picca proprio a Tg=0.40 — la cella che ha fatto partire l'intero studio.
+Coerente con W30/Tg1.20 (unica cella dove il FOM batteva il ROM in
+closed-loop).
+
+**Due piste alternative controllate ed escluse**:
+- *Struttura di training diversa da quella di test*: `dataset_spec_v2.md`
+  dichiara K_H/D_H/K_ALPHA/D_ALPHA/EA_X completamente diversi da
+  `cosim_driver_extract.py` (Hodges-Pierce). Falsa pista come `FusedSensor`:
+  il log grezzo di `dataset_v5/sim_A_000_train` mostra lo stesso identico
+  checkpoint (`h=-6.492mm α=-0.0502°`) usato ovunque in questa sessione —
+  `dataset_spec_v2.md` è documentazione stale, non riflette cosa fu
+  effettivamente eseguito.
+- *Buco di copertura sulle raffiche corte*: `metadata_v5.csv` mostra 13
+  traiettorie di training con `T_g∈[0.30,0.50)` su 70 di raffica, ampiezze
+  9.5-46 m/s — copertura ragionevole, non un buco vistoso.
+
+Errore quindi verosimilmente di **dinamica** (costante di tempo della ODE
+latente troppo lenta per transitori veloci), non di copertura dati.
+
+## iter10 — fine-tuning su dati open-loop puri, split per Tg: FALLITO (nuova causa: collasso del modello)
+
+Tentativo mirato sulla scoperta sopra. Dataset: le 12 traiettorie open-loop
+reali (già a disco, nessun nuovo CFD), **split per Tg invece che per W0** (a
+differenza di ogni iterazione precedente): train = Tg∈{0.30,0.70,1.20} × tutte
+le W0 (9 celle), valid = **Tg=0.40 × tutte le W0, tenuta fuori per intero** (3
+celle) — il test più severo possibile, la cella peggiore mai vista in nessuna
+forma. `t_common=1.70s` (copre Tg=1.20+0.5 per intero), `ROLLOUT_LEN=850`,
+`NBFGS=500`, `LAMBDA_DAMP=0.003`, `W_LOAD=1.0` — stessa ricetta di iper
+parametri di iter5 (unica variabile cambiata: sorgente e composizione dei
+dati), warm-start dalla **produzione** (non iter5, stessa logica di iter8: non
+propagare la specializzazione W20/W30 di iter5).
+
+**Tempo di esecuzione**: 32 minuti (14:55-15:27), pinnato esplicitamente su
+`cpu03` verificato libero. Per confronto, iter8/iter9 (stessa ricetta di
+iperparametri, mai pinnati su un host specifico) impiegarono 2h e 3h — quasi
+certamente contesa di nodo condiviso, non differenza reale di calcolo. Lezione
+operativa aggiuntiva: pinnare sempre `:host=cpuNN` anche per i job di training,
+non solo per le run FOM.
+
+**Loss di validazione interna**: migliora modestamente rispetto al warm-start
+(1.29e-2 → 1.15e-2 a epoca 140, **-11%**), poi esplode (picco 5.1 tra epoca
+160-180, instabilità di un passo BFGS) e si assesta peggio del punto di
+partenza (~1.48e-2). Checkpoint salvato correttamente quello dell'epoca 140.
+
+### Verifica open-loop pulita: bug nello strumento trovato e corretto PRIMA di giudicare il modello
+
+Prima misura: il modello di **produzione** (non iter10) mostrava valori
+assurdi (W30/Tg0.30: exo=12.7 invece di 0.80) e uno scarto sistematico su
+tutte le celle rispetto agli `_cex0` di riferimento. Causa: `verify_openloop_
+model.py` non impostava `DAMULT`, quindi `light/run.py` girava con smorzamento
+in beccheggio di default (×1) invece di ×3 — lo stesso usato per generare
+`summary.md` (header: "DAMULT=3"). Corretto (default `--damult 3.0`); con il
+fix il baseline riproduce **esattamente** gli `_cex0` di riferimento
+(W20/Tg0.70=0.356072, W30/Tg0.30=0.799994, bit-a-bit). CLTRIM non è invece
+inquinato da questo bug (`aero.predict` è una chiamata statica, non integra la
+struttura) — la sua deriva su iter10 è un segnale reale indipendente.
+
+### Diagnosi: il modello è collassato su una risposta quasi indipendente dall'input
+
+Con lo strumento corretto:
+
+| Cella | exo iter10 | exo_FOM reale |
+|---|---|---|
+| W10, tutte e 4 Tg | 0.7120 – 0.7124 | 0.198 – 0.335 |
+| W20, tutte e 4 Tg | 0.7120 – 0.7129 | 0.414 – 0.673 |
+| W30/Tg0.30 | 1.0623 | 1.184 |
+| W30/Tg0.40 | 1.0166 | 0.866 |
+| W30/Tg0.70, Tg1.20 | 0.7121 – 0.7122 | 0.661 – 0.706 |
+
+**Il modello produce un'escursione quasi costante (~0.712) su 10 delle 12
+celle, indipendentemente da ampiezza e durata della raffica** — rompe lo
+schema solo sulle due celle a raffica più aggressiva (W30/Tg0.30, Tg0.40), e
+lì sale ma non in proporzione. `mean gap% held-out = -55.9%` (sistematicamente
+in sovrastima sulle celle miti, -259% su W10/Tg1.20).
+
+Coerente con il CLTRIM anomalo (1.35 vs 0.868): il modello non ha smesso di
+funzionare a caso, è collassato verso un punto di uscita quasi fisso.
+**Meccanismo plausibile**: `sensitivity_latent_rollout.py` applica una
+nonlinearità cubica in uscita (`(out**3+α·out)/(1+α)`, α=0.05) che satura per
+|out| vicino a 1 in spazio normalizzato. Il dataset di iter10 ha **δ
+identicamente zero su tutte le 9+3 traiettorie** — un intero canale di input
+a varianza zero per tutto il training. Senza gradiente su quel canale, la rete
+`NNrec`/`NNdyn` è libera di derivare, e sotto 500 iterazioni L-BFGS può essere
+scivolata in una regione dove l'uscita satura la cubica quasi indipendentemente
+dagli altri input.
+
+### Verdetto e lezione
+
+**iter10 fallisce, ma con una causa nuova e diversa dalle precedenti sei**:
+non overfitting alla distribuzione ristretta (iter2/6/7), non underfitting da
+budget insufficiente (iter8/9), ma **collasso della rete per un canale di
+input a varianza zero**. Nessun test FOM closed-loop lanciato — il segnale
+open-loop è già inequivocabile, sarebbe tempo di cluster sprecato (stesso
+criterio già applicato a iter2/3/4).
+
+**Lezione metodologica**: isolare l'errore aerodinamico puro allenando SOLO su
+δ≡0 è diagnosticamente corretto (ha confermato la causa del gap) ma
+**pericoloso come ricetta di fine-tuning** con questo schema di training
+(rollout + uscita cubica) — rimuove un canale di gradiente necessario a tenere
+la rete ben condizionata. Una versione corretta dovrebbe mescolare le
+traiettorie open-loop pulite con un minimo di variazione di δ (es. le
+traiettorie a schedule liscio Law1/2/3 già in `dataset_v5`, mai passate da un
+controllore quindi ancora libere dagli artefatti R1/R3/R4) invece di δ
+identicamente costante.
+
+**Stato**: nessun modello candidato pronto. Il modello di produzione
+(`clean/models_rollout/latent_10`) resta quello valido. Il fix di cadenza
+(`window=29`) resta l'unico intervento con beneficio netto confermato in tutta
+la sessione; la causa del gap residuo è ora meglio caratterizzata (errore di
+dinamica open-loop, non capacità, non copertura dati) ma non ancora risolta da
+nessun retraining tentato.
+
+## iter11 — iter10 + 4 traiettorie feed-forward (famiglia Cc): collasso risolto, ma regressione sulla cella chiave
+
+Applica la lezione di iter10: stesse 9 celle open-loop di train, stesso valid
+(Tg=0.40 × tutte le W0, held-out per intero), **+4 traiettorie della famiglia
+Cc di `dataset_v5`** (legge feed-forward deterministica raffica→flap, δ
+continuo e rate-limited, MAI un controllore/retroazione di stato in loop —
+`cosim_driver_extract.py::_build_law5_table`/`delta_schedule` ramo `LAW==5`:
+δ dipende solo dal segnale di raffica esogeno, precalcolato prima del run).
+Restituiscono varianza sul canale δ senza reintrodurre nessuno degli
+artefatti R1/R2/R3/R4 delle traiettorie MPC closed-loop. Scelte 4 celle
+(`sim_Cc_007/000/017/009`, T_g∈{0.54,0.79,1.02,1.07}, W_g0∈{12–39}) con T_g
+fuori da [0.35,0.45] per non contaminare il test held-out. Stessi
+iperparametri di iter10 (`NBFGS=500 LAMBDA_DAMP=0.003 W_LOAD=1.0
+ROLLOUT_LEN=850`), warm-start dalla produzione. Tempo: ~24 min (job 31827,
+cpu03 pinnato).
+
+**Curva di training qualitativamente diversa da iter10**: stessa instabilità
+di un passo BFGS (picco fino a 18.2 tra epoca 290-370), ma stavolta **recupera
+e continua a migliorare fino alla fine** — checkpoint migliore è l'ultimo
+(epoca 500, valid=9.17e-3, -29% dal warm-start 1.29e-2), non uno intermedio
+seguito da degrado come iter10. Segno qualitativo sano, ma non probante da
+solo (lezione già pagata due volte in questo studio).
+
+### Verifica open-loop pulita: il collasso è risolto
+
+```
+CLTRIM = 0.8229   (produzione: 0.8683, iter10 collassato: 1.3507)
+```
+
+Il modello torna a rispondere in modo distinto a ogni cella (range
+0.196–1.35), non più un output quasi costante. **mean gap% tutte le celle:
++26.9% (produzione) → -2.9% (iter11)** — il bias sistematico di
+sottostima si è quasi azzerato in aggregato.
+
+| Held-out (Tg=0.40) | produzione | **iter11** |
+|---|---|---|
+| W10/Tg0.40 | +44.1% | **-2.3%** |
+| W20/Tg0.40 | +50.9% | **+7.7%** |
+| **W30/Tg0.40** | +46.9% | **-55.9%** (peggio, segno ribaltato) |
+
+`mean gap% held-out: +47.3% → -16.9%` — migliora in aggregato, ma nasconde un
+quadro non uniforme: **2 celle held-out su 3 migliorano drasticamente** (quasi
+a zero), la terza — **W30/Tg0.40, la cella che ha aperto l'intero studio** —
+peggiora e cambia segno (da sottostima 47% a sovrastima 56%).
+
+Sulle 9 celle di training (viste in forma open-loop durante il training):
+6/9 migliorano (W30/Tg0.30: +32.4%→+0.9%, quasi perfetto), 3/9 peggiorano
+moderatamente (W10/Tg0.70, W20/Tg0.30, W20/Tg1.20 — nessuna oltre il 24%).
+
+### Verdetto: risultato reale ma non pulito, non pronto per un test FOM closed-loop indiscriminato
+
+A differenza di iter10 (fallimento inequivocabile, nessun dubbio), iter11 è
+il **primo tentativo di retraining di questa sessione con un miglioramento
+netto e ampio su più celle held-out contemporaneamente** — ma la regressione
+su W30/Tg0.40 è specifica, grande, e cade esattamente sulla cella più
+studiata di tutta la tesi. Non è un rumore di frangia.
+
+Deciso di fare entrambe le cose in parallelo, via due subagent indipendenti
+(vedi sotto per entrambi gli esiti).
+
+## Verifica FOM closed-loop di iter11 (agente 1): FALLIMENTO CATASTROFICO
+
+Lanciata la verifica mirata su W10/Tg0.40 e W20/Tg0.40 (le due celle dove
+iter11 sembrava quasi perfetto in anello aperto), stesso protocollo di
+sempre (`mpc_fom_verify_rtag.pbs`, `window=29`, `damult=3.0`, `TEND=1.25`,
+backup del contenuto precedente prima di sovrascrivere — W10 conteneva
+iter9, W20 conteneva iter5, verificato dal `run.log` non assunto).
+
+| Cella | ROM | OLD | iter5 | iter8 | **iter11** |
+|---|---|---|---|---|---|
+| W10/Tg0.40 | +89.1% | +74.6%, osc=6, flap=6.47° | +67.8%, osc=5, flap=7.00° | −20.1%, osc=20, flap=3.33° | **−92.8%, osc=85, flap=14.00° sat** |
+| W20/Tg0.40 | +87.8% | +55.6%, osc=8 | +65.3%, osc=10 | (non testato) | **+24.3%, osc=61, flap=14.00° sat** |
+
+**Il guadagno in anello aperto non solo non si traduce in guadagno di
+controllo — si traduce in un regresso severo, catastrofico su W10.**
+`flap_max=14.00°` in ENTRAMBE le celle coincide esattamente col limite fisico
+dell'attuatore (`delta_max` in `light/optimal.py::MPCPreviewController`,
+invariato) — il flap sbatte ripetutamente contro il fondo scala, non lo
+raggiunge una volta sola. `osc_count`=61-85, contro 5-20 di ogni iterazione
+precedente in questo intero studio — chattering ad alta frequenza, firma di
+un controllore destabilizzato, non di un modello "meno aggressivo". Su W10,
+CLred=−92.8% significa che il controllore con iter11 **quasi raddoppia**
+l'escursione di carico rispetto al non far nulla.
+
+**Ipotesi causale** (non verificata, di contesto): iter11 è stato allenato
+solo su traiettorie con δ esogeno predeterminato — open-loop (δ≡0) o
+feed-forward deterministico (famiglia Cc, legge 5) — **mai** su un δ che
+dipenda dalle predizioni del modello stesso, come accade in un vero loop MPC
+dove il controllore sceglie δ in base a cosa il modello predice per ciascun
+candidato. Il meccanismo di rollout training usato (`sensitivity_latent_
+rollout.py`) chiude l'anello sullo STATO strutturale (propagato dalle
+predizioni del modello) ma δ resta sempre esogeno dai dati — coerente con
+[[ldnet-rollout-solution]] (un LDNet mai esposto a un vero loop di controllo
+tende a essere instabile in free-running quando il controllore reale lo
+aziona con comandi correlati ai suoi stessi bias, mai visti in training).
+Nota aperta: nemmeno il training originale del modello di **produzione**
+sembra includere traiettorie con δ da vero MPC closed-loop (le famiglie
+A/B/Cc di `dataset_v5` sono tutte a δ esogeno) — perché la produzione resti
+comunque stabile e iter11 no, con lo stesso paradigma di training, resta un
+punto non chiarito.
+
+**Nota di processo — violazione minore della regola login01, autosegnalata**:
+l'agente ha inizialmente lanciato `compare_plant_commands.py` direttamente
+via SSH su login01 (fallito in pochi secondi per un mismatch di firma
+dell'argomento `--exo`, quindi nessun calcolo reale eseguito), poi si è
+autocorretto sottomettendo un PBS dedicato (`analyse_iter11.pbs`, ricalcato
+su `analyse_replay.pbs`, job 31842, cpu05). Segnalato per trasparenza.
+
+## Diagnosi della regressione su W30/Tg0.40 (agente 2, in parallelo)
+
+**Meccanismo, con evidenza diretta** (traccia C_L(t) completa, non solo il
+massimo, via nuovo script `diag_trace_w30tg040.py`): il FOM ha una risposta
+a doppio lobo — un dip transitorio precoce (t≈0.19, ΔCL≈−0.55) seguito dal
+vero picco dominante e tardivo (t≈0.36-0.39, l'escursione che conta,
+ΔCL≈0.866). iter11 riproduce correttamente la forma qualitativa ma
+**sovrastima il picco tardivo del ~56%**. Firma diagnostica: `exo_iter11(Tg)`
+a W=30 è **non monotona con un massimo spurio esattamente sulla cella
+held-out** (1.174→**1.351**→0.575→0.554 per Tg=0.30/0.40/0.70/1.20), mentre
+il FOM vero è monotono decrescente (1.184→0.866→0.706→0.661) — la firma
+classica di un buco di interpolazione: nessuna traiettoria di training
+combina ampiezza≈30 con durata≈0.40 e δ attivo insieme.
+
+**Confutata la mia ipotesi precedente** ("iter10 sembrava più vicino su
+questa cella"): dimostrato essere una coincidenza numerica fra due
+meccanismi entrambi sbagliati — il dip precoce di iter10 è esagerato
+(−1.02 contro il vero −0.55) e non ha alcun picco tardivo positivo (resta
+collassato lì). Vicinanza numerica per caso, non un secondo meccanismo
+valido.
+
+### iter12 — fix mirato (una traiettoria Cc vicina al buco): FALLITO, con un blow-up serio
+
+Aggiunta `sim_Cc_028_train` (Tg=0.32, W=33.08, il candidato δ-attivo più
+vicino disponibile al buco, fuori da [0.35,0.45]) alle 13 traiettorie di
+iter11. Stesso schema esatto (`build_iter12.pbs`/`retrain_iter12.pbs`/
+`verify_iter12.pbs`, stessi iperparametri, warm-start produzione). Training
+~24 min, loss finale 1.207e-2 (leggermente peggiore di iter11).
+
+| Cella | iter11 | **iter12** |
+|---|---|---|
+| W10/Tg0.40 (held-out) | −2.3% | +12.5% (peggiora) |
+| W20/Tg0.40 (held-out) | +7.7% | +25.8% (peggiora) |
+| W30/Tg0.40 (held-out, il bersaglio) | −55.9% | +35.2% (segno "giusto", errore ancora grande) |
+| **W30/Tg0.30 (punto di TRAINING, prima quasi perfetto)** | +0.9% | **−942.1%** (exo=12.34 vs vero 1.18) |
+
+Non un fix: erosione dei guadagni quasi ovunque (le 11 celle non-outlier
+mediano a +23.7%, quasi tornate al livello della produzione) più un
+blow-up catastrofico su un punto che iter11 fittava quasi perfettamente.
+
+**Meccanismo del blow-up, tracciato** (`diag_iter12_blowup.pbs`): a
+W30/Tg0.30, dopo che raffica e δ tornano a zero (t>0.30), la risposta libera
+del modello diverge bruscamente — CL passa da 2.84 (t=0.298) a 11.56
+(t=0.314) in 8 step, oscilla (11.68→10.10→8.28→5.84...), crolla, e si
+assesta su un **equilibrio spurio** (CL≈0.612, molto sotto il vero trim
+0.889) dopo un plateau intermedio a CL≈−0.147 — comportamento da
+biforcazione/rami multipli quasi-stabili nella ODE latente ritrainata, non
+rumore numerico. Causa: la nuova traiettoria δ-attiva (Cc_028) è troppo
+vicina nello spazio (W,Tg) all'anchor δ≡0 di W30/Tg0.30, costringendo la
+rete a rappresentare una transizione ripida "flap fermo↔attivo" su una
+distanza minuscola dell'input — e la loss di rollout offline (cinematica
+guidata dai dati FOM, non il vero loop chiuso struttura↔aerodinamica) non
+testa né penalizza la stabilità della risposta libera, quindi l'instabilità
+resta invisibile in training (loss finale ragionevole) ed emerge solo nel
+vero rollout.
+
+## Verdetto finale del filone iter10/11/12
+
+**Nessuno dei tre supera la produzione in closed-loop reale.** iter10
+collassa (catturato in anello aperto, zero CFD sprecato). iter11 risolve il
+collasso e sembra quasi perfetto in anello aperto su 2/3 celle held-out, ma
+**fallisce più severamente di ogni iterazione precedente in closed-loop
+reale** — lezione dura: nemmeno la misura open-loop pulita (l'unica di
+questo studio priva degli artefatti R1/R2/R3/R4) garantisce comportamento
+sano sotto un vero loop di controllo. iter12 (fix mirato del residuo di
+iter11) peggiora sia il bersaglio sia introduce un blow-up nuovo altrove.
+
+**`iter12/latent_10` scartato, `iter11/latent_10` scartato.** Il modello di
+produzione (`clean/models_rollout/latent_10`) resta l'unico valido. Il fix
+di cadenza (`window=29`) resta l'unico intervento con beneficio netto
+confermato in tutta la sessione — dopo dodici tentativi di retraining
+(iter2-iter12), nessuno lo ha battuto in un vero test closed-loop.
+
+**Lezione metodologica finale, la più importante di tutto questo filone**:
+in questo problema, la STABILITÀ in retroazione (nessun blow-up, nessuna
+saturazione ripetuta, nessun chattering) non è implicata né dalla loss di
+training, né dall'rmse di teacher-forcing, né — sorprendentemente — nemmeno
+da una misura pulita dell'errore di predizione in anello aperto. È una
+proprietà distinta, verificabile solo mettendo il modello nel vero loop.
+Qualunque futuro tentativo di retraining dovrebbe includere un gate di
+accettazione esplicito ("nessun blow-up su nessuna cella in-distribution,
+nessuna saturazione ripetuta del flap") prima ancora di guardare il CLred,
+non dopo.
+
+### Run in corso
+
+- job **31815** (cpu03): replay FOM(u_ROM), W20/Tg0.70, window=29, damult=3.0,
+  TEND=1.55 → `Replay_W20_Tg0.70_uROM_win29`
+- job **31816** (cpu04): exo coerente → `OpenLoop_W20_Tg0.70_win29_dam3.0`
+
+`TEND=1.55` scelto per combaciare esattamente con la baseline (`t_end=4.54978`
+con `t_offset=2.99978`). Un primo tentativo con `TEND=1.2` è stato cancellato
+(job 31814): le metriche guardano solo `t ≤ Tg+0.5 = 1.20`, ma il CSV passa per
+un `gaussian_filter1d(σ=15)` e chiudendo la traiettoria esattamente sul bordo
+della finestra di misura il filtro avrebbe lavorato su dati riflessi, mentre la
+baseline ha supporto pieno — proprio il tipo di asimmetria che questo studio sta
+cercando di eliminare.

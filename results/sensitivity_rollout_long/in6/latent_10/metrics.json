@@ -1,0 +1,29 @@
+{
+  "num_latent_states": 10,
+  "input_set": "6",
+  "input_signals": [
+    "h",
+    "hd",
+    "a",
+    "ad",
+    "delta",
+    "W_gust"
+  ],
+  "closed_NRMSE_F_y": 0.04213551352177701,
+  "closed_rho_F_y": 0.9496254293688444,
+  "closed_NRMSE_M_z": 0.014632434749331829,
+  "closed_rho_M_z": 0.9843921646495517,
+  "closed_NRMSE": 0.021769295833163435,
+  "closed_rho": 0.996554341172645,
+  "closed_NRMSE_h": 0.04118055424412201,
+  "closed_NRMSE_hd": 0.026943030650030914,
+  "closed_NRMSE_a": 0.008952771128742331,
+  "closed_NRMSE_ad": 0.0070725730470455155,
+  "closed_any_nan": false,
+  "teacher_NRMSE_F_y": 0.0348548287854595,
+  "teacher_rho_F_y": 0.9654880666510052,
+  "teacher_NRMSE_M_z": 0.010959658548265689,
+  "teacher_rho_M_z": 0.9914521443122142,
+  "teacher_NRMSE": 0.017995638213360202,
+  "teacher_rho": 0.9976307575362164
+}

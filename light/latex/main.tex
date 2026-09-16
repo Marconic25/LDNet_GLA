@@ -51,11 +51,13 @@
 \usepackage{amsthm}
 \usepackage{bm}
 \usepackage[overload]{empheq}  % For braced-style systems of equations
+\usepackage{siunitx} % Uniform typesetting of physical units, \si and \SI
 
 % PACKAGES FOR TABLES
 \usepackage{tabularx}
 \usepackage{longtable} % tables that can span several pages
 \usepackage{colortbl}
+\usepackage{hhline} % \hhline, used for double rules in results tables
 
 % PACKAGES FOR ALGORITHMS (PSEUDO-CODE)
 \usepackage{algorithm}
@@ -64,6 +66,18 @@
 % PACKAGES FOR REFERENCES & BIBLIOGRAPHY
 \usepackage[colorlinks=true,linkcolor=black,anchorcolor=black,citecolor=black,filecolor=black,menucolor=black,runcolor=black,urlcolor=black]{hyperref} % Adds clickable links at references
 \usepackage{cleveref}
+% Figure cross-references always print the full capitalised word "Figure",
+% never the abbreviation "fig.", regardless of \cref vs \Cref or sentence position.
+\crefname{figure}{Figure}{Figures}
+\Crefname{figure}{Figure}{Figures}
+% Cross-references to a subsection or subsubsection print "paragraph", never
+% "section": only the top-level \section (Introduction, Model, Methods,
+% Results, Conclusion) keeps the word "section". This distinguishes the five
+% chapters from their internal subdivisions in the running text.
+\crefname{subsection}{paragraph}{paragraphs}
+\Crefname{subsection}{Paragraph}{Paragraphs}
+\crefname{subsubsection}{paragraph}{paragraphs}
+\Crefname{subsubsection}{Paragraph}{Paragraphs}
 \usepackage[square, numbers, sort&compress]{natbib} % Square brackets, citing references with numbers, citations sorted by appearance in the text and compressed
 \bibliographystyle{naturemag} % Nature style: surname first, initials, journal abbreviated
 
@@ -129,6 +143,11 @@
 % This file ends the configuration procedures (e.g. customizing commands, definition of new commands)
 \input{Configuration_files/config}
 
+% config.tex sets \parindent to 0pt (no first-line indent); restore the
+% standard indented-paragraph style for the whole document.
+\setlength{\parindent}{15pt}
+\setlength{\parskip}{0pt}
+
 % Insert here the info that will be displayed into your Title page
 % -> title of your work
 \renewcommand{\title}{Data-Driven Surrogate Modeling of Airfoil Aeroelasticity Using Latent Dynamics Networks for Gust Load Alleviation and Control}
@@ -146,27 +165,27 @@
 % -> academic year
 \newcommand{\YEAR}{2025-2026}
 % -> abstract (only in English)
-\renewcommand{\abstract}{Here goes the Abstract in English of your thesis (in article format)
-followed by a list of keywords.
-The Abstract is a concise summary of the content of the thesis (single page of text)
-and a guide to the most important contributions included in your thesis.
-The Abstract is the very last thing you write.
-It should be a self-contained text and should be clear
-to someone who hasn't (yet) read the whole manuscript.
-The Abstract should contain the answers to the main research questions
-that have been addressed in your thesis.
-It needs to summarize the motivations and the adopted approach as well as
-the findings of your work and their relevance and impact.
-The Abstract is the part appearing in the record of your thesis inside POLITesi,
-the Digital Archive of PhD and Master Theses (Laurea Magistrale) of Politecnico di Milano.
-The Abstract will be followed by a list of four to six keywords.
-Keywords are a tool to help indexers and search engines to find relevant documents.
-To be relevant and effective, keywords must be chosen carefully.
-They should represent the content of your work and be specific to your field or sub-field.
-Keywords may be a single word or two to four words. }
+\renewcommand{\abstract}{Wind gusts drive a significant part of the structural
+sizing of a wing, and Gust Load Alleviation (GLA) systems reduce the resulting load peaks by
+deflecting a control surface while the gust is encountered. Every model-based alleviation
+law rests on an internal model of the aeroelastic response, that must be accurate enough to predict the
+effect of the control surface and cheap enough to be evaluated thousands of times inside a
+receding-horizon optimisation, a pair of
+requirements that neither a full-order fluid-structure interaction model nor a linear
+unsteady aerodynamic theory satisfies.
+\par\vspace{4pt}
+In this work we build a data-based model of the aeroelastic response, relying on
+a variant of the Latent Dynamics Networks (LDNets), embedded in a closed-loop control scheme.
+The LDNet supplies the aerodynamic loads to the controller, driven
+by a fused lidar gust preview.
+\par\vspace{4pt}
+The retained LDNet reconstructs the sectional loads with a combined normalised
+root-mean-square error of $1.3\cdot10^{-3}$ and the controller reduces the peak lift excursion by
+$39$--$95\%$ over the eighteen cases of the CS-25.341 discrete-gust envelope, without
+actuator saturation and with mild sensing requirements.}
 
 % -> key-words (only in English)
-\newcommand{\keywords}{here, the keywords, of your thesis}
+\newcommand{\keywords}{Gust Load Alleviation, Latent Dynamics Networks, Machine Learning, Model Predictive Control, Fluid-Structure Interaction}
 
 %-------------------------------------------------------------------------
 %	BEGIN OF YOUR DOCUMENT
@@ -178,7 +197,10 @@ Keywords may be a single word or two to four words. }
 %-----------------------------------------------------------------------------
 % Do not change Configuration_files/TitlePage.tex (Modify it IF AND ONLY IF you need to add or delete the Co-advisors)
 % This file creates the Title Page of the document
+\begingroup
+\setlength{\parindent}{0pt}
 \input{Configuration_files/title_page}
+\endgroup
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%     THESIS MAIN TEXT     %%
@@ -209,6 +231,7 @@ Keywords may be a single word or two to four words. }
 %-----------------------------------------------------------------------------
 % Da qui in poi le sezioni vengono numerate come A, B, C... invece che 1, 2, 3...
 % e viene stampata automaticamente la scritta "Appendix" prima della lettera.
+\newpage
 \startappendices
 \input{Thesis_article_format/Chapters/appendixA}
 
@@ -221,10 +244,26 @@ Keywords may be a single word or two to four words. }
 % SOMMARIO
 %-----------------------------------------------------------------------------
 \section*{Abstract in lingua italiana}
-Qui va l'Abstract in lingua italiana della tesi seguito dalla lista di parole chiave.
+Le raffiche di vento determinano una parte significativa del dimensionamento
+strutturale di un'ala, e i sistemi di Gust Load Alleviation (GLA) riducono i picchi
+di carico aerodinamico che ne derivano deflettendo una superficie di controllo quando la raffica incontra l'ala. Ogni legge di controllo basata su un modello si appoggia a un modello interno della
+risposta aeroelastica, che deve essere abbastanza accurato da predire l'effetto della
+superficie di controllo e abbastanza economico da essere valutato migliaia di volte
+all'interno di un'ottimizzazione a orizzonte mobile, requisiti
+che né un modello full-order di interazione fluido-struttura né una teoria aerodinamica
+lineare non stazionaria soddisfano insieme.
+
+In questo lavoro costruiamo un modello basato sui dati della risposta aeroelastica,
+appoggiandoci a una variante delle Latent Dynamics Networks (LDNets), inserita
+in uno schema di controllo a ciclo chiuso. La LDNet fornisce i carichi aerodinamici al controllore, alimentato da una fused preview del sensore lidar sensibile alla raffica.
+
+La LDNet finale ricostruisce i carichi della sezione con un errore quadratico medio normalizzato
+combinato di $1.3\cdot10^{-3}$ e il controllore riduce il picco di escursione di portanza del
+$39$--$95\%$ sui diciotto casi dell'inviluppo di raffica discreta CS-25.341, senza
+saturazione dell'attuatore e con requisiti modesti sulla sensoristica.
 \vspace{15pt}
 \begin{tcolorbox}[arc=0pt, boxrule=0pt, colback=bluePoli!60, width=\textwidth, colupper=white]
-    \textbf{Parole chiave:} qui, le parole chiave, della tesi, in italiano
+    \textbf{Parole chiave:} Gust Load Alleviation, Latent Dynamics Networks, Machine Learning, Controllo Predittivo, Interazione Fluido-Struttura
 \end{tcolorbox}
 
 %-----------------------------------------------------------------------------

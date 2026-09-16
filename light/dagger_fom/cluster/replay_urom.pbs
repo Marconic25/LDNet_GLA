@@ -1,0 +1,107 @@
+#!/bin/bash
+#PBS -N replayROM
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_dagger/pbs_replay_urom.log
+#
+# FOM(u_ROM): run the full-order model with the flap history the ROM's own MPC
+# decided for itself, applied as a prescribed schedule. The controller is fully
+# decoupled from the FOM here -- its inputs were the ROM-propagated structural
+# state and the analytic gust -- so delta(t) is determined offline and no MPC
+# server runs at all.
+#
+# This fills the missing cell of the plant x commands table:
+#
+#                   u_ROM              u_FOM
+#   plant ROM       CLred_ROM          --
+#   plant FOM       THIS RUN           CLred_FOM
+#
+# giving gap_plant = CLred_ROM - FOM(u_ROM), the same commands on two plants
+# with no feedback and no difference in control decisions.
+#
+# Same case, checkpoint, window and damping as mpc_fom_verify_rtag.pbs so the
+# comparison against the closed-loop baseline is like-for-like. --damult now
+# reaches D_ALPHA in 'schedule' mode too (driver fix): without it this run
+# would use the undamped plant while the baseline used 3x pitch damping.
+#
+# Requires the delta table produced by extract_delta.pbs.
+#
+# Submit:
+#   qsub -l select=1:ncpus=16:mpiprocs=16:host=cpu03 \
+#        -v W0=20,TG=0.70,TEND=1.2,WINDOW=29 replay_urom.pbs
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+: "${W0:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>}"
+: "${TG:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>}"
+DAMULT="${DAMULT:-3.0}"
+TEND="${TEND:-1.2}"
+WINDOW="${WINDOW:-29}"
+
+DELTA_FILE="$WORK_BASE/mpc_fom_dagger/delta_table_W${W0}_Tg${TG}.txt"
+SCRATCH="/scratch_local/$USER/replayROM_W${W0}_Tg${TG}_win${WINDOW}"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
+OUT_PERSIST="$WORK_BASE/mpc_fom_dagger/Replay_W${W0}_Tg${TG}_uROM_win${WINDOW}"
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+echo "=== FOM(u_ROM) replay  W0=$W0  Tg=$TG  WINDOW=$WINDOW  DAMULT=$DAMULT ==="
+echo "    prescribed delta(t) from the ROM closed-loop MPC, no controller in the loop"
+echo "    scratch=$SCRATCH"
+
+if [ ! -s "$DELTA_FILE" ]; then
+    echo "ERROR: delta table not found or empty: $DELTA_FILE"
+    echo "       run extract_delta.pbs first."
+    exit 1
+fi
+
+T_KNOTS=$(sed -n '1p' "$DELTA_FILE")
+A_KNOTS=$(sed -n '2p' "$DELTA_FILE")
+N_T=$(echo "$T_KNOTS" | wc -w)
+N_A=$(echo "$A_KNOTS" | wc -w)
+echo "    delta table: $DELTA_FILE  ($N_T time knots, $N_A angle knots)"
+if [ "$N_T" -ne "$N_A" ] || [ "$N_T" -lt 2 ]; then
+    echo "ERROR: malformed delta table ($N_T times vs $N_A angles)"
+    exit 1
+fi
+
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename "$proc")"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+cp "$WORK_BASE/recon/cluster/controlDict.extract" "$SCRATCH/system/controlDict"
+cp "$WORK_BASE/recon/cluster/cosim_driver_extract.py" "$SCRATCH/cosim_driver.py"
+cp "$DELTA_FILE" "$OUT_PERSIST/delta_table_used.txt"
+
+cd "$SCRATCH"
+
+# Word splitting on $T_KNOTS / $A_KNOTS is intentional: nargs="+" needs the
+# knots as separate argv entries.
+python3 -u cosim_driver.py \
+    --np 16 --window "$WINDOW" --dt 7e-05 --t-end "$TEND" \
+    --from-checkpoint \
+    --gust-w0 "$W0" \
+    --gust-t-start 0.0 \
+    --gust-t-end "$TG" \
+    --controller schedule \
+    --law 0 \
+    --damult "$DAMULT" \
+    --delta-times $T_KNOTS \
+    --delta-angles $A_KNOTS \
+    2>&1 | tee log.cosim_driver_replay
+
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+cp "$SCRATCH"/*.png "$OUT_PERSIST/" 2>/dev/null || true
+echo "=== DONE W0=$W0 Tg=$TG FOM(u_ROM) -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

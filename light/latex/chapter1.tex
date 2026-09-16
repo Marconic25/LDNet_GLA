@@ -2,21 +2,31 @@
 \label{sec:model}
 \label{sec:aeroelastic model}
 
-This section assembles the three components of the closed-loop system studied in this work. \Cref{subsec:aeroelastic_airfoil} presents the aeroelastic model of the airfoil, gathering the fluid equations, the structural equations and the coupling conditions in a single system. \Cref{subsec:ldnet_arch} introduces the Latent Dynamics Network that replaces the fluid subproblem with a surrogate of the aerodynamic loads. \Cref{subsec:controller} defines the gust load alleviation controller built on this surrogate, its architecture and the cost function it optimises. The numerical treatment of every component is deferred to \cref{sec:methods}.
+This section brings together the three components of the closed-loop system studied in this work. In \cref{subsec:aeroelastic_airfoil} we present the aeroelastic model of the airfoil, gathering the fluid equations, the structural equations and the coupling conditions in a single system. In \cref{subsec:ldnet_arch} we introduce the LDNet that replaces the fluid subproblem with a surrogate of the aerodynamic loads. In \cref{subsec:controller} we define the GLA controller built on this LDNet, its architecture and the cost function it optimises. We defer the numerical treatment of every component to \cref{sec:methods}.
 
 \subsection{Airfoil aeroelastic model}
 \label{subsec:aeroelastic_airfoil}
 \label{subsec:structmodel}
 \label{subsec:fluid_eqs}
 
+The geometry considered is a 2D airfoil with a flap attached as shown in \cref{fig:airfoil_scheme}: the structural model has two dynamic degrees of freedom, the plunge $h$ and the pitch $\alpha$. The plunge measures the vertical translation of the elastic axis, whose reference position is $\mathbf{x}_{\mathrm{EA}}$, taken positive downward, while the pitch is the rotation about that axis, positive nose-up. The trailing-edge flap is rigidly hinged to the airfoil, but its rotation $\delta$ is imposed in time as the deflection chosen by the control law. From the point of view of the structural model the flap is therefore a kinematic input, not a degree of freedom, and its dynamics is reduced to the schedule $\delta(t)$. The vector of generalised coordinates is $\mathbf{q} = (h(t),\,\alpha(t))^{T}$: $\delta(t)$ enters the equations as an external excitation.
+
 \begin{figure}[t]
     \centering
     \input{Thesis_article_format/Chapters/Chapter1/airfoil_scheme}
-    \caption{Sketch of the aeroelastic model}
+    \caption{Sketch of the aeroelastic model. The two-dimensional NACA~2312
+    airfoil carries a rigidly hinged trailing-edge flap and is subject to the
+    freestream $U_\infty$ and the vertical gust $W(t)$. The structural model has
+    two dynamic degrees of freedom, the plunge $h$ of the elastic axis (EA),
+    positive downward, and the pitch $\alpha$ about that axis, positive nose-up,
+    collected in $\mathbf{q} = (h,\,\alpha)^{T}$; each is restrained by its own
+    stiffness and structural damping, $k_h,\,d_h$ for the plunge and
+    $k_\alpha,\,d_\alpha$ for the pitch. The flap deflection $\delta$ is not a
+    degree of freedom: it is prescribed in time by the control law about the
+    hinge, offset by $d_x$ from the elastic axis, and enters the structural
+    equations as an external excitation.}
     \label{fig:airfoil_scheme}
 \end{figure}
-
-The problem considered is a 2D airfoil with a flap attached as shown in \cref{fig:airfoil_scheme}: the structural model has two dynamic degrees of freedom, the plunge $h$ and the pitch $\alpha$. The plunge measures the vertical translation of the elastic axis, whose reference position is $\mathbf{x}_{\mathrm{EA}}$, taken positive downward, while the pitch is the rotation about that axis, positive nose-up. The trailing-edge flap is rigidly hinged to the airfoil, but its rotation $\delta$ is not treated as a structural unknown: it is imposed in time as a prescribed schedule and represents the action of the controller on the system. From the point of view of the structural model the flap is therefore a kinematic input, not a degree of freedom, and its dynamics is reduced to the time history $\delta(t)$ chosen by the control law. The vector of generalised coordinates is $\mathbf{q} = [h(t),\,\alpha(t)]^{T}$: $\delta(t)$ enters the equations as an external excitation.
 
 The aerodynamic model describes the incompressible turbulent flow surrounding the airfoil. The flow is governed by the URANS equations~\cite{wilcox2006turbulence} closed with the $k$--$\omega$ SST turbulence model~\cite{menter1994sst}, posed on a fluid subdomain $\Omega_f(t)$ that surrounds the airfoil and moves in time to follow it~\cite{Donea2004ALE}. The gust enters the model through the inlet boundary, where the vertical velocity $W(t)$ is superimposed on the freestream, and the flow responds by altering the pressure and viscous shear stress it exerts on the airfoil surface: these phenomena are the aerodynamic loads that force the structure.
 
@@ -72,7 +82,7 @@ The structural and aerodynamic subproblems are two-way coupled~\cite{bazilevs201
 \end{empheq}
 \end{subequations}
 
-Rows \labelcref{eq:urans,eq:continuity} are the fluid equations: the effective kinematic viscosity $\nu_{\mathrm{eff}}=\nu+\nu_t$ adds to the molecular viscosity $\nu$ the eddy viscosity $\nu_t$ supplied by the SST model~\cite{menter1994sst}, $p$ is the kinematic pressure and $U_\infty$ the freestream velocity. Rows \labelcref{eq:bc} to \labelcref{eq:ic} are the boundary and initial conditions, ordered from the outer boundaries to the solid surfaces, with $\hat{\mathbf e}_y$ and $\hat{\mathbf e}_z$ the vertical and spanwise unit vectors, $(\cdot)^\perp=\hat{\mathbf e}_z\times(\cdot)$ a counter-clockwise $90^\circ$ in-plane rotation, and $\mathbf n$, $\mathbf t$ the outward normal and tangential unit vectors: the inlet $\Gamma_{\mathrm{in}}$ carries the freestream plus the gust $W(t)$, the outlet $\Gamma_{\mathrm{out}}$ fixes the kinematic pressure to its freestream value $p_\infty$, the far-field $\Gamma_{\mathrm{far}}$ is a slip boundary, the wing surface $\Gamma_{\mathrm{wall}}$ and the flap surface $\Gamma_{\mathrm{flap}}$ enforce no-slip with their local rigid-body velocity, and $\mathbf{u}_0$ is the initial velocity field. These five subsets partition the boundary of $\Omega_f(t)$; the conditions imposed on each of them in the fluid case are collected in \cref{tab:bcs}. Rows \labelcref{eq:fsi_kinematic,eq:fsi_flap} are the kinematic coupling conditions: they transfer the structural motion to the fluid, since $\Gamma_I(t) = \Gamma_{\mathrm{wall}} \cup \Gamma_{\mathrm{flap}}$, the wing rotating about the elastic axis $\mathbf x_{\mathrm{EA}}$ and the flap about its hinge, whose position $\mathbf{x}_{\mathrm{hinge}}(t)$ and velocity $\dot{\mathbf{x}}_{\mathrm{hinge}}(t)$ are given in \labelcref{eq:hinge}, with total angular rate $\dot\alpha(t)+\dot\delta(t)$. Row \labelcref{eq:eom} is the structural equation of motion, and rows \labelcref{eq:interface-loads,eq:interface-moment} are the dynamic coupling conditions in resultant form: integrating the fluid stresses over the wetted surface, with $\rho$ the constant air density, $\mathbf{I}$ the identity tensor and $\boldsymbol{\tau}=\rho\,\nu_{\mathrm{eff}}(\nabla\mathbf u+\nabla\mathbf u^{T})$ the viscous stress tensor, so that $-p\,\mathbf{I}+\boldsymbol{\tau}$ is the fluid stress tensor $\boldsymbol{\sigma}_{f}$ of the dynamic coupling condition, and with the moment taken about the elastic axis, yields the vertical force $F_{y}(t)$ and the pitching moment $M_{z}(t)$ that force the structure; in return, the structural displacement prescribes the motion of the fluid boundary.
+Rows \labelcref{eq:urans,eq:continuity} are the fluid equations: the effective kinematic viscosity $\nu_{\mathrm{eff}}=\nu+\nu_t$ adds to the molecular viscosity $\nu$ the eddy viscosity $\nu_t$ supplied by the SST model~\cite{menter1994sst}, $p$ is the kinematic pressure and $U_\infty$ the freestream velocity. Rows \labelcref{eq:bc} to \labelcref{eq:ic} are the boundary and initial conditions, ordered from the outer boundaries to the solid surfaces, with $\hat{\mathbf e}_y$ and $\hat{\mathbf e}_z$ the vertical and spanwise unit vectors, $(\cdot)^\perp=\hat{\mathbf e}_z\times(\cdot)$ a counter-clockwise \SI{90}{\degree} in-plane rotation, and $\mathbf n$, $\mathbf t$ the outward normal and tangential unit vectors: the inlet $\Gamma_{\mathrm{in}}$ carries the freestream plus the gust $W(t)$, the outlet $\Gamma_{\mathrm{out}}$ fixes the kinematic pressure to its freestream value $p_\infty$, the far-field $\Gamma_{\mathrm{far}}$ is a slip boundary, the wing surface $\Gamma_{\mathrm{wall}}$ and the flap surface $\Gamma_{\mathrm{flap}}$ enforce no-slip with their local rigid-body velocity, and $\mathbf{u}_0$ is the initial velocity field. These five subsets partition the boundary of $\Omega_f(t)$; the conditions imposed on each of them in the fluid case are collected in \cref{tab:bcs}. Rows \labelcref{eq:fsi_kinematic,eq:fsi_flap} are the kinematic coupling conditions: they transfer the structural motion to the fluid, since $\Gamma_I(t) = \Gamma_{\mathrm{wall}} \cup \Gamma_{\mathrm{flap}}$, the wing rotating about the elastic axis $\mathbf x_{\mathrm{EA}}$ and the flap about its hinge, whose position $\mathbf{x}_{\mathrm{hinge}}(t)$ and velocity $\dot{\mathbf{x}}_{\mathrm{hinge}}(t)$ are given in \labelcref{eq:hinge}, with total angular rate $\dot\alpha(t)+\dot\delta(t)$. Row \labelcref{eq:eom} is the structural equation of motion, and rows \labelcref{eq:interface-loads,eq:interface-moment} are the dynamic coupling conditions in resultant form: integrating the fluid stresses over the wetted surface, with $\rho$ the constant air density, $\mathbf{I}$ the identity tensor and $\boldsymbol{\tau}=\rho\,\nu_{\mathrm{eff}}(\nabla\mathbf u+\nabla\mathbf u^{T})$ the viscous stress tensor, so that $-p\,\mathbf{I}+\boldsymbol{\tau}$ is the fluid stress tensor $\boldsymbol{\sigma}_{f}$ of the dynamic coupling condition, and with the moment taken about the elastic axis, yields the vertical force $F_{y}(t)$ and the pitching moment $M_{z}(t)$ that force the structure; in return, the structural displacement prescribes the motion of the fluid boundary.
 
 The structural operators in \labelcref{eq:eom} are the mass, damping and stiffness matrices
 \begin{equation}
@@ -162,14 +172,14 @@ W(t)=
 
 of peak velocity $W_0$, duration $T_g$ and onset time $t_0$. The gust is convected from the inlet at $U_\infty$ as a frozen disturbance, a certification simplification that neglects its distortion before it reaches the airfoil.
 
-Scaling velocities with $U_\infty$, lengths with the chord $c_{\mathrm{ref}}$ and time with $c_{\mathrm{ref}}/U_\infty$, the fluid subproblem of \labelcref{eq:coupled_system} depends on the single Reynolds number $\mathrm{Re} = \frac{U_\infty\,c_{\mathrm{ref}}}{\nu}$ which for $U_\infty=80$~m/s, $c_{\mathrm{ref}}\simeq1$~m and $\nu=10^{-5}$~m\(^2\)/s gives $\mathrm{Re}\simeq8\times10^{6}$, a fully turbulent regime. The Mach number $M_\infty=U_\infty/a_\infty\approx0.23$, with $a_\infty$ the freestream speed of sound, stays below the $M \lesssim 0.3$ threshold, which justifies the incompressible hypothesis.
+Scaling velocities with $U_\infty$, lengths with the chord $c_{\mathrm{ref}}$ and time with $c_{\mathrm{ref}}/U_\infty$, the fluid subproblem of \labelcref{eq:coupled_system} depends on the single Reynolds number $\mathrm{Re} = \frac{U_\infty\,c_{\mathrm{ref}}}{\nu}$ which for $U_\infty=\SI{80}{\meter\per\second}$, $c_{\mathrm{ref}}\simeq\SI{1}{\meter}$ and $\nu=\SI{1e-5}{\meter\squared\per\second}$ gives $\mathrm{Re}\simeq8\times10^{6}$, a fully turbulent regime. The Mach number $M_\infty=U_\infty/a_\infty\approx0.23$, with $a_\infty$ the freestream speed of sound, stays below the $M \lesssim 0.3$ threshold, which justifies the incompressible hypothesis.
 
-\subsection{Aerodynamic loads modelled by a Latent Dynamics Network}
+\subsection{Aerodynamic loads modelled by the LDNet}
 \label{subsec:ldnet_arch}
 
-Resolving the aeroelastic response by the coupled system \labelcref{eq:coupled_system} is too expensive for a gust-load-alleviation loop that must evaluate the aerodynamic response repeatedly and in real time: this real-time setting is the classical motivation for replacing the full-order model with a reduced or surrogate model~\cite{BennerGugercinWillcox2015,QuarteroniManzoniNegri2016}. A data-driven surrogate of the fluid subproblem is adopted: the map from the time-dependent inputs $\boldsymbol{\eta}: [0,T] \to \mathbb{R}^{d_{\boldsymbol{\eta}}}$ (structural state, flap deflection, gust, freestream) to the output field $\mathbf{y}: \Omega \times [0,T] \to \mathbb{R}^{d_{\mathbf{y}}}$ is learned from data generated by the full-order model, as detailed in \cref{subsec:dataset}.
+Resolving the aeroelastic response by the coupled system \labelcref{eq:coupled_system} is too expensive for a GLA loop that must evaluate the aerodynamic response repeatedly: this many-query setting is the classical motivation for replacing the full-order model with a reduced or surrogate model~\cite{BennerGugercinWillcox2015,QuarteroniManzoniNegri2016}. An LDNet replaces the fluid subproblem: the map from the time-dependent inputs $\boldsymbol{\eta}: [0,T] \to \mathbb{R}^{d_{\boldsymbol{\eta}}}$ (structural state, flap deflection, gust, freestream) to the output field $\mathbf{y}: \Omega \times [0,T] \to \mathbb{R}^{d_{\mathbf{y}}}$ is learned from data generated by the full-order model, as detailed in \cref{subsec:dataset}.
 
-The surrogate is a Latent Dynamics Network (LDNet)~\cite{Regazzoni}, which encodes the system history in a low-dimensional latent state $\mathbf{s}(t) \in \mathbb{R}^{d_s}$ discovered during training. Two fully-connected networks define the model: a dynamics network $\mathcal{NN}_{\mathrm{dyn}}$ advances $\mathbf{s}(t)$ through a latent ODE, and a meshless reconstruction network $\mathcal{NN}_{\mathrm{rec}}$ maps $(\mathbf{s}(t),\boldsymbol{\eta}(t), \mathbf{x})$ to the output at any query point $\mathbf{x} \in \Omega$,
+The internal model is an LDNet~\cite{Regazzoni}, which encodes the system history in a low-dimensional latent state $\mathbf{s}(t) \in \mathbb{R}^{d_s}$ discovered during training. Two fully-connected networks define the LDNet: a dynamics network $\mathcal{NN}_{\mathrm{dyn}}$ advances $\mathbf{s}(t)$ through a latent ODE, and a meshless reconstruction network $\mathcal{NN}_{\mathrm{rec}}$ maps $(\mathbf{s}(t),\boldsymbol{\eta}(t), \mathbf{x})$ to the output at any query point $\mathbf{x} \in \Omega$,
 \begin{equation}
 \dot{\mathbf{s}}(t) = \mathcal{NN}_{\mathrm{dyn}}\big(\mathbf{s}(t), \boldsymbol{\eta}(t);
     \mathbf{w}_{\mathrm{dyn}}\big), \qquad \mathbf{s}(0) = \mathbf{0}, \qquad
@@ -229,20 +239,20 @@ with trainable parameters $\mathbf{w}_{\mathrm{dyn}}$, $\mathbf{w}_{\mathrm{rec}
     \label{tab:ldnet_outputs}
 \end{table}
 
-The two sub-networks are sketched in \cref{fig:ldnet_arch}. The dynamics network $\widetilde{\mathcal{NN}}_{\mathrm{dyn}}$ is a FCNN with $\tanh$ activations that advances the latent state through the damped forward-Euler update~\eqref{eq:latent_dyn} of \cref{subsec:discretisation}, scaled by the reference time constant $\Delta t_{\mathrm{ref}}$. The reconstruction network $\widetilde{\mathcal{NN}}_{\mathrm{rec}}$ is a FCNN with $\tanh$ activations whose output is affinely denormalised,
+The two sub-networks are sketched in \cref{fig:ldnet_arch}. The dynamics network $\widetilde{\mathcal{NN}}_{\mathrm{dyn}}$ is a FCNN with $\tanh$ activations that advances the latent state through the damped forward-Euler update~\eqref{eq:latent_dyn} of \cref{subsec:discretisation}: its raw output approximates the latent rate $\dot{\mathbf{s}}(t)$ of \eqref{eq:LDNet_system} scaled by $\Delta t_{\mathrm{ref}}$, so that \eqref{eq:latent_dyn} recovers a forward-Euler step of length $\Delta t$ in physical time. The reconstruction network $\widetilde{\mathcal{NN}}_{\mathrm{rec}}$ is a FCNN with $\tanh$ activations whose output is affinely denormalised,
 \[
 \widetilde{\mathbf{y}}(\mathbf{x},t) = \mathbf{y}_0 + \mathbf{y}_w \odot
     \widetilde{\mathcal{NN}}_{\mathrm{rec}}\big(\mathbf{s}(t), \boldsymbol{\eta}(t), \mathbf{x};
     \mathbf{w}_{\mathrm{rec}}\big),
 \]
-with $\odot$ the Hadamard product and $\mathbf{y}_0$, $\mathbf{y}_w$ the offset and the scale of the affine denormalisation, both fixed from the bounds of the training data and given in \cref{subsubsec:rollout}. The output field here reduces to the two sectional loads $(F_y,M_z)$ evaluated at a single fixed query point $\mathbf{x}_\mathrm{query}$, so the spatial reconstruction collapses to one query per step. The loads are used by the controller in coefficient form, with the standard normalisation by the freestream dynamic pressure~\cite{anderson2017fundamentals},
+with $\odot$ the Hadamard product and $\mathbf{y}_0$, $\mathbf{y}_w$ the offset and the scale of the affine denormalisation, both fixed from the bounds of the training data and given in \cref{subsubsec:rollout}. The quantities returned by the two sub-networks are listed in \cref{tab:ldnet_outputs}. The output field here reduces to the two sectional loads $(F_y,M_z)$ evaluated at a single fixed query point $\mathbf{x}_\mathrm{query}$, so the spatial reconstruction collapses to one query per step. The loads are used by the controller in coefficient form, with the standard normalisation by the freestream dynamic pressure~\cite{anderson2017fundamentals},
 \begin{equation}
 C_L = \frac{F_y}{q_\infty}, \qquad
 C_M = \frac{M_z}{q_\infty\,c_{\mathrm{ref}}}, \qquad
 q_\infty = \tfrac{1}{2}\,\rho\,U_\infty^2\,S_{\mathrm{ref}},
 \label{eq:coefficients}
 \end{equation}
-with $c_{\mathrm{ref}}$ the chord and $S_{\mathrm{ref}}$ the reference surface: the LDNet is therefore the model of the aerodynamic coefficients $C_L$ and $C_M$ of the airfoil, as functions of the structural state, the flap deflection and the gust; queried at a set of points instead of one, the same reconstruction network returns the distributed flow field~\cite{Regazzoni}.
+with $c_{\mathrm{ref}}$ the chord and $S_{\mathrm{ref}}$ the reference surface: the LDNet is therefore the model of the aerodynamic coefficients $C_L$ and $C_M$ of the airfoil, as functions of the structural state, the flap deflection and the gust, and it is queried at this single point throughout the present work, since $(F_y,M_z)$ is all the control loop requires. The same reconstruction network, queried instead at a set of points, returns the distributed flow field~\cite{Regazzoni}; this capability is not used by the controller and is examined separately, as a further probe of the model's capabilities, in \cref{subsubsec:field_recon}.
 
 \begin{figure}[t]
     \centering % Centra l'immagine nella pagina
@@ -252,7 +262,9 @@ with $c_{\mathrm{ref}}$ the chord and $S_{\mathrm{ref}}$ the reference surface: 
     freestream velocity $U_\infty$ and the
     latent state $\mathbf{s}(t)$ and returns the latent-state derivative $\dot{\mathbf{s}}(t)$,
     thereby defining the latent dynamics; the latent state $\mathbf{s}(t)$ is recovered by time
-    integration of $\dot{\mathbf{s}}$. The reconstruction network $\mathcal{NN}_{\mathrm{rec}}$,
+    integration of $\dot{\mathbf{s}}$. The sketch omits the constant scaling by
+    $1/\Delta t_{\mathrm{ref}}$ of~\eqref{eq:reduced_system}, which turns the increment the
+    network returns into a rate. The reconstruction network $\mathcal{NN}_{\mathrm{rec}}$,
     instead, is evaluated only when an estimate of the output is sought: it maps the latent state
     $\mathbf{s}(t)$, the input signals $\boldsymbol{\eta}(t)$ and the query coordinate
     $\mathbf{x}\in\Omega$ to the reconstructed field
@@ -265,7 +277,8 @@ Substituting the LDNet for the fluid subproblem of \labelcref{eq:coupled_system}
 \begin{equation}
 \left\{
 \begin{aligned}
-&\dot{\mathbf{s}}(t) = \mathcal{NN}_{\mathrm{dyn}}\big(\mathbf{s}(t), \boldsymbol{\eta}(t);
+&\dot{\mathbf{s}}(t) = \frac{1}{\Delta t_{\mathrm{ref}}}\,
+    \mathcal{NN}_{\mathrm{dyn}}\big(\mathbf{s}(t), \boldsymbol{\eta}(t);
     \mathbf{w}_{\mathrm{dyn}}\big), \qquad \mathbf{s}(0) = \mathbf{0},\\
 &\bigl(F_y(t),\,M_z(t)\bigr) = \mathcal{NN}_{\mathrm{rec}}\big(\mathbf{s}(t), \boldsymbol{\eta}(t),
     \mathbf{x}_{\mathrm{query}}; \mathbf{w}_{\mathrm{rec}}\big),\\
@@ -275,14 +288,14 @@ Substituting the LDNet for the fluid subproblem of \labelcref{eq:coupled_system}
 \right.
 \label{eq:reduced_system}
 \end{equation}
-where $\boldsymbol{\eta}(t) = [h(t),\,\dot h(t),\,\alpha(t),\,\dot\alpha(t),\,\delta(t),\,W(t)]^{T}$ collects the input signals of \cref{tab:ldnet_inputs}. The system \labelcref{eq:reduced_system} evolves the structural state from the loads predicted by the network and feeds the resulting state back to the network at the next instant: it serves both as the controlled system on which the closed loop is evaluated and as the internal prediction model of the controller.
+where $\boldsymbol{\eta}(t) = (h(t),\,\dot h(t),\,\alpha(t),\,\dot\alpha(t),\,\delta(t),\,W(t))^{T}$ collects the input signals of \cref{tab:ldnet_inputs}, and $\Delta t_{\mathrm{ref}}$ is the reference time constant that sets the time scale of the latent dynamics, with the value reported in \cref{subsubsec:campaign}. The dynamics network returns the latent increment accumulated over one interval $\Delta t_{\mathrm{ref}}$, a dimensionless quantity in the units of $\mathbf{s}$, so the division by $\Delta t_{\mathrm{ref}}$ is what converts it into the latent rate $\dot{\mathbf{s}}$. The system \labelcref{eq:reduced_system} evolves the structural state from the loads predicted by the reconstruction network and feeds the resulting state back to both sub-networks at the next instant: it serves both as the controlled system on which the closed loop is evaluated and as the internal model of the controller.
 
-\subsection{Gust load alleviation controller}
+\subsection{GLA controller}
 \label{subsec:controller}
 \label{sec:controller}
 \label{subsec:mpc_arch}
 
-The control objective is to ensure compliance with the structural requirements of the Certification Specifications CS-25~\cite{EASA_CS25}, mitigating the loads induced by discrete gusts and continuous atmospheric turbulence such that wing and fuselage stresses remain within the limits of strength, elastic deformation, and structural integrity prescribed by \mbox{CS~25.341} and \mbox{CS~25.305}, while preserving flight safety margins without compromising the airframe fatigue endurance. Since the vertical gust induces a pronounced peak in the lift coefficient resulting in increased bending moment at the root, in order to simplify the analysis the objective function was defined to penalize exclusively the lift deviation $\Delta C_L = C_L - C_{L,\text{trim}}$, where $C_{L,\text{trim}}$ is the steady lift coefficient of the trimmed airfoil before the gust arrives, and the control effort $\delta$, thereby avoiding the excitation of undesirable pitch oscillations with the flap deployment. The control law is a model predictive controller (MPC)~\cite{rawlings2017mpc,giesseler2012mpc} that uses the reduced model \labelcref{eq:reduced_system} as its internal prediction model: at each sampling instant $t$ it solves the receding-horizon problem
+The control objective is to reduce the peak lift excursion that the airfoil experiences under the discrete ``$1-\cos$'' gusts of \labelcref{eq:gust}, over the gust amplitudes and gradient lengths of the envelope that \mbox{CS~25.341} prescribes for the design of the airframe~\cite{EASA_CS25}, which is the test bench on which the controller is assessed in \cref{subsec:mpc_results}. Since the vertical gust induces a pronounced peak in the lift coefficient resulting in increased bending moment at the root, in order to simplify the analysis the objective function was defined to penalize exclusively the lift deviation $\Delta C_L = C_L - C_{L,\text{trim}}$, where $C_{L,\text{trim}}$ is the steady lift coefficient of the trimmed airfoil before the gust arrives, and the control effort $\delta$, thereby avoiding the excitation of undesirable pitch oscillations with the flap deployment. The control law is a Model Predictive Controller (MPC)~\cite{rawlings2017mpc,giesseler2012mpc} that uses the reduced model \labelcref{eq:reduced_system} as its internal model: at each sampling instant $t$ it solves the receding-horizon problem
 
 \begin{equation}
 \min_{\delta \in \Delta_G} \; J(\delta) = \sum_{k=1}^{N} \Bigl(C_L\bigl(t+k\Delta t;\,\delta\bigr) - C_{L,\text{trim}}\Bigr)^2
@@ -298,11 +311,11 @@ subject to
 \label{eq:mpc_constraints}
 \end{equation}
 
-where $\Delta t$ is the step of the uniform grid on which the loop runs, shared by the internal model, the controller and the sensing chain below, $C_L(t+k\Delta t;\delta)$ is the lift coefficient predicted by the internal model over the $k$-th step of the horizon when the deflection $\delta$ is applied, driven by the previewed gust sequence $\widehat{W}_k \approx W(t+k\Delta t)$, $k=1,\dots,N$, delivered by the sensing chain described below, and $R>0$ is the effort weight, the price the cost puts on flap deflection relative to lift excursion: as $R$ decreases the controller buys alleviation with ever larger deflections, while a large $R$ holds the flap near zero and leaves the gust unattenuated. Since $\delta$ is measured in degrees and $\Delta C_L$ is dimensionless, $R$ carries units of $\mathrm{deg}^{-2}$, which is what makes the two terms of the cost commensurate; its value is not fixed a priori but tuned in \cref{subsec:mpc_results}. Only the first move is applied and the problem is re-solved at the next step. The deflection is a single decision variable held constant over the prediction horizon, and it is sought in the candidate grid $\Delta_G$, a finite uniform discretisation of the admissible actuator range $[-\delta_{\max},\,\delta_{\max}]$: since the internal model is a neural surrogate, the cost~\eqref{eq:mpc_cost} is in general nonconvex in $\delta$, and restricting the search to $\Delta_G$ turns the receding-horizon problem into an enumeration whose minimiser is the global one up to the grid resolution. The horizon is $N = 8$ steps of $\Delta t = 2$~ms, i.e.\ a 16~ms look-ahead; the sizing of the grid and the batched solution strategy are detailed in \cref{subsec:discretisation}.
+where $\Delta t$ is the step of the uniform grid on which the loop runs, shared by the internal model, the controller and the sensing chain below, $C_L(t+k\Delta t;\delta)$ is the lift coefficient predicted by the internal model over the $k$-th step of the horizon when the deflection $\delta$ is applied, driven by the previewed gust sequence $\widehat{W}_k \approx W(t+k\Delta t)$, $k=1,\dots,N$, delivered by the sensing chain described below, and $R>0$ is the effort weight, the price the cost puts on flap deflection relative to lift excursion: as $R$ decreases the controller buys alleviation with ever larger deflections, while a large $R$ holds the flap near zero and leaves the gust unattenuated. Since $\delta$ is measured in degrees and $\Delta C_L$ is dimensionless, $R$ carries units of \si{\per\degree\squared}, which is what makes the two terms of the cost commensurate; its value is not fixed a priori but tuned in \cref{subsec:mpc_results}. Only the first move is applied and the problem is re-solved at the next step. The deflection is a single decision variable held constant over the prediction horizon, and it is sought in the candidate grid $\Delta_G$, a finite uniform discretisation of the admissible actuator range $[-\delta_{\max},\,\delta_{\max}]$: since the internal model is a neural network, the cost~\eqref{eq:mpc_cost} is in general nonconvex in $\delta$, and restricting the search to $\Delta_G$ turns the receding-horizon problem into an enumeration whose minimiser is the global one up to the grid resolution. The horizon is $N = 8$ steps of $\Delta t = \SI{2}{\milli\second}$, i.e.\ a \SI{16}{\milli\second} look-ahead; the sizing of the grid and the batched solution strategy are detailed in \cref{subsec:discretisation}.
 
 The horizon is preferred to a single-step prediction for two reasons, both quantified in \cref{subsec:mpc_results}: the integrated cost exploits the model over the whole predicted gust evolution instead of at one instant, and it averages uncorrelated per-sample preview noise down through the sum in~\eqref{eq:mpc_cost}---a tolerance documented for lidar-based preview control of wind turbines and multi-rotor aircraft~\cite{mendez2023mpclidar,sinner2023timing} and unavailable to a decision rule based on a single previewed sample.
 
-To keep the treatment as focused as possible on the role of the data-driven model in the control loop, it was decided to assume direct access to the current structural state $\boldsymbol{\zeta}(t) = [\,h(t),\ \alpha(t),\ \dot h(t),\ \dot\alpha(t)\,]^{T}$, which stacks the generalised coordinates $\mathbf{q}$ and their rates $\dot{\mathbf{q}}$ in this order, without the need for a state observer: the state vector can be reconstructed through integration of accelerometer measurements---a well-established procedure that adds no value to the present discussion. The gust, instead, is measured ahead of the wing by forward-looking Doppler lidar, whose raw line-of-sight measurements are too noisy to be consumed directly (of the order of 1--3~m/s per shot on flight hardware~\cite{rabadan2010lidar}): as in lidar-based alleviation pipelines~\cite{fezans2017lidar,cavaliere2022estimator}, a sensor-fusion layer is interposed between sensor and controller, exploiting the fact that the advecting gust profile is re-measured at every step as it approaches the wing.
+To keep the treatment as focused as possible on the role of the data-driven model in the control loop, it was decided to assume direct access to the current structural state $\boldsymbol{\zeta}(t) = (h(t),\ \alpha(t),\ \dot h(t),\ \dot\alpha(t))^{T}$, which stacks the generalised coordinates $\mathbf{q}$ and their rates $\dot{\mathbf{q}}$ in this order, without the need for a state observer: the state vector can be reconstructed through integration of accelerometer measurements---a well-established procedure that adds no value to the present discussion. The gust, instead, is measured ahead of the wing by forward-looking Doppler lidar, whose raw line-of-sight measurements are too noisy to be consumed directly (of the order of \SIrange{1}{3}{\meter\per\second} per shot on flight hardware~\cite{rabadan2010lidar}): as in lidar-based alleviation pipelines~\cite{fezans2017lidar,cavaliere2022estimator}, a sensor-fusion layer is interposed between sensor and controller, exploiting the fact that the advecting gust profile is re-measured at every step as it approaches the wing.
 
 At each control instant $t_n$ the sensor returns one noisy sample $y_j$ of the vertical gust velocity at each of the $J_{\max} = 50$ spatial nodes ahead of the wing,
 \begin{equation}
@@ -310,7 +323,12 @@ y_j(t_n) = W\bigl(t_n + j\,\Delta t\bigr) + \varepsilon_j, \qquad
 \varepsilon_j \sim \mathcal{N}\bigl(0,\,\sigma_j^2\bigr), \qquad j = 1,\dots,J_{\max},
 \label{eq:meas_model}
 \end{equation}
-where $t_n = n\,\Delta t$ is the $n$-th control instant, the $j$-th node samples the portion of the gust profile that will reach the wing $j$ steps later, and $\varepsilon_j$ is the measurement error, drawn from the normal distribution $\mathcal{N}\bigl(0,\,\sigma_j^2\bigr)$ with zero mean and variance $\sigma_j^2$; the standard deviation $\sigma_j$ is set by the noise models below. The node spacing $U_\infty \Delta t = 0.16$~m follows from the frozen-gust convection of \cref{subsec:aeroelastic_airfoil}, so the look-ahead window spans 8~m (100~ms) and each gust sample is measured $J_{\max}$ times, with independent errors, before reaching the wing. Tying the node spacing to $\Delta t$ assumes that the sensor refreshes the profile once per control step and that its range gates fall on the grid the controller predicts on. Two noise models are considered for $\sigma_j$: a constant level $\sigma_j = \sigma$ for the white-noise robustness sweep, and a range-proportional level $\sigma_j = 1 + 2\,(j-1)/(J_{\max}-1)$~m/s, growing from 1~m/s at the nearest node to 3~m/s at the farthest as representative of airborne Doppler hardware~\cite{rabadan2010lidar,cavaliere2022estimator}. The fusion layer combines the repeated measurements of each gust value into the preview vector $\widehat{W}_1,\dots,\widehat{W}_N$ consumed by the cost~\eqref{eq:mpc_cost}; the estimator is specified in \cref{subsec:discretisation}. The sensing geometry is sketched in \cref{fig:lidar_nodes}: since the gust enters uniformly over the inlet in \labelcref{eq:bc} and is convected rigidly, it carries no transverse variation, and the nodes are streamwise stations sampling a one-dimensional profile.
+where $t_n = n\,\Delta t$ is the $n$-th control instant, the $j$-th node samples the portion of the gust profile that will reach the wing $j$ steps later, and $\varepsilon_j$ is the measurement error, drawn from the normal distribution $\mathcal{N}\bigl(0,\,\sigma_j^2\bigr)$ with zero mean and variance $\sigma_j^2$; the standard deviation $\sigma_j$ is set by the noise models below. The node spacing $U_\infty \Delta t = \SI{0.16}{\meter}$ follows from the frozen-gust convection of \cref{subsec:aeroelastic_airfoil}, so the look-ahead window spans \SI{8}{\meter} (\SI{100}{\milli\second}) and each gust sample is measured $J_{\max}$ times, with independent errors, before reaching the wing. Tying the node spacing to $\Delta t$ assumes that the sensor refreshes the profile once per control step and that its range gates fall on the grid the controller predicts on. Two noise models are considered for $\sigma_j$: a constant level $\sigma_j = \sigma$ for the white-noise robustness sweep, and a range-proportional level
+\begin{equation}
+\sigma_j = 1 + 2\,\frac{j-1}{J_{\max}-1}~\si{\meter\per\second}, \qquad j = 1,\dots,J_{\max},
+\label{eq:range_prop_noise}
+\end{equation}
+growing from \SI{1}{\meter\per\second} at the nearest node to \SI{3}{\meter\per\second} at the farthest as representative of airborne Doppler hardware~\cite{rabadan2010lidar,cavaliere2022estimator}. The fusion layer combines the repeated measurements of each gust value into the preview vector $\widehat{W}_1,\dots,\widehat{W}_N$ consumed by the cost~\eqref{eq:mpc_cost}; the estimator is specified in \cref{subsec:discretisation}. The sensing geometry is sketched in \cref{fig:lidar_nodes}: since the gust enters uniformly over the inlet in \labelcref{eq:bc} and is convected rigidly, it carries no transverse variation, and the nodes are streamwise stations sampling a one-dimensional profile.
 
 \begin{figure}[t]
 \centering
@@ -387,86 +405,113 @@ where $t_n = n\,\Delta t$ is the $n$-th control instant, the $j$-th node samples
 \node[anchor=north, black] at (8.25,-1.15) {$U_\infty\Delta t$};
 
 \end{tikzpicture}
-\caption{Sensing geometry of the gust preview. The lidar samples the vertical gust
-velocity at $J_{\max}$ nodes ahead of the airfoil, spaced by the distance
-$U_\infty\Delta t$ covered in one control step, so node $j$ measures the value that
-reaches the airfoil $j$ steps later and every value is re-measured $J_{\max}$ times as
-it approaches. The gust is uniform over the inlet and convects rigidly, so the nodes
-sample the one-dimensional profile drawn above them and the transverse position of the
-chain is immaterial. The drawing is schematic: the chain has $J_{\max} = 50$ nodes.}
+\caption{Sensing geometry of the gust preview. The forward-looking Doppler
+lidar~\cite{rabadan2010lidar,cavaliere2022estimator} samples the vertical gust
+velocity at $J_{\max}$ nodes ahead of the airfoil, returning at each control instant
+the noisy measurements $y_j$ of~\eqref{eq:meas_model}. The nodes are spaced by the
+distance $U_\infty\Delta t$ covered in one control step, so node $j$ measures the value
+that reaches the airfoil $j$ steps later and every value is re-measured $J_{\max}$
+times as it approaches: this redundancy is what the fusion layer of
+\cref{subsubsec:fusion} exploits to suppress the per-shot noise. The gust is uniform
+over the inlet and convects rigidly.}
 \label{fig:lidar_nodes}
 \end{figure}
 
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}[
-    scale=0.9, transform shape,
-    font=\small,
-    block/.style={draw, very thick, fill=white, minimum height=1.3cm,
-                  minimum width=2.4cm, align=center, rounded corners=3pt},
-    box/.style={draw, very thick, rounded corners=3pt},
-    sub/.style={draw, thick, fill=white, align=center, rounded corners=2pt,
-                font=\footnotesize, inner sep=3pt, minimum height=0.85cm},
-    arrow/.style={->, very thick, >=Stealth}
+    scale=0.86, transform shape,
+    font=\small, >=Stealth,
+    % colour groups: sensing cyan, controller blue, networks orange, structure grey
+    meas/.style ={draw, thick, rounded corners=2pt, fill=cyan!14, align=center,
+                  inner sep=4pt, minimum height=1.0cm, minimum width=3.2cm},
+    ctrl/.style ={draw, thick, rounded corners=2pt, fill=bluePoli!18, align=center,
+                  inner sep=4pt, minimum height=0.95cm, minimum width=3.6cm,
+                  font=\footnotesize},
+    net/.style  ={draw, thick, rounded corners=2pt, fill=orange!18, align=center,
+                  inner sep=4pt, minimum height=0.95cm, minimum width=3.6cm,
+                  font=\footnotesize},
+    struc/.style={draw, thick, rounded corners=2pt, fill=black!10, align=center,
+                  inner sep=4pt, minimum height=0.95cm, minimum width=3.6cm,
+                  font=\footnotesize},
+    cont/.style ={draw, very thick, rounded corners=4pt},
+    arrow/.style={->, very thick},
+    sig/.style  ={font=\footnotesize, inner sep=2pt}
 ]
 
-% ---- gust sensing (top left) ----
-\node [block] (fuse) at (-0.4,3.7) {Gust profile fusion\\ (\cref{subsec:discretisation})};
-\node (ymeas) at (-0.4,5.35) {$y_1,\dots,y_{J_{\max}}$};
-\draw [arrow] (ymeas) -- (fuse);
+% ---------------- sensing chain (top) ----------------
+\node[meas] (lidar) at (-1.6,4.3) {Lidar\\ gust preview\\ $y_j$~\eqref{eq:meas_model}\\ $j=1,\dots,J_{\max}$};
+\node[meas] (fuse)  at (4.3,4.3) {Preview fusion\\ (\cref{subsubsec:fusion})};
+\draw[arrow] (lidar) -- (fuse);
 
-% ---- MPC container (left) ----
-\node [box, minimum width=3.8cm, minimum height=4.8cm] (mpcbox) at (0,-0.5) {};
-\node [anchor=south west, inner sep=4pt] at (mpcbox.south west) {Preview MPC ($N = 8$)};
-\node [sub] (grid) at (0,1.1) {candidate grid $\Delta_G$};
-\node [sub] (pred) at (0,-0.15) {horizon prediction\\ $k = 1,\dots,N$};
-\node [sub] (amin) at (0,-1.4) {cost~\eqref{eq:mpc_cost}, $\arg\min$\\ limits~\eqref{eq:mpc_constraints}};
-\draw [arrow] (grid) -- (pred);
-\draw [arrow] (pred) -- (amin);
+% ---------------- controller ----------------
+\node[cont, fill=green!10, minimum width=5.2cm, minimum height=6.6cm]
+     (mpcbox) at (4.3,-0.5) {};
+\node[anchor=north, font=\footnotesize\bfseries] at ([yshift=-4pt]mpcbox.north)
+     {Preview MPC};
+\node[ctrl, fill=green!25, minimum width=4.4cm] (grid) at (4.3,1.75) {candidates $\delta_g\in\Delta_G$};
+\node[ctrl, fill=green!25, minimum width=4.4cm] (pred) at (4.3,0.10) {horizon prediction};
+\node[ctrl, fill=green!25, text width=4.2cm, minimum width=4.6cm, minimum height=1.5cm]
+     (amin) at (4.3,-2.05)
+     {$\displaystyle\min_{\delta\in\Delta_G}\ \sum_{k=1}^{N}\bigl(C_L(t{+}k\Delta t;\delta)-C_{L,\mathrm{trim}}\bigr)^2 + R\,\delta^2$~\eqref{eq:mpc_cost}\\[2pt]
+      s.t.~\eqref{eq:mpc_constraints}};
+\draw[arrow] (grid) -- (pred);
+\draw[arrow] (pred) -- (amin);
+\draw[arrow] (fuse) -- node[right, xshift=4pt, sig] {$\widehat{W}_1,\dots,\widehat{W}_N$} (mpcbox.north);
+\node[sig] (cltrim) at (0.7,2.55) {$C_{L,\mathrm{trim}}$};
+\draw[arrow] (cltrim) -- (cltrim -| mpcbox.west);
 
-% ---- LDNet container (centre) ----
-\node [box, minimum width=3.9cm, minimum height=3.2cm] (nnbox) at (5.9,-0.35) {};
-\node [anchor=north west, inner sep=4pt] at (nnbox.north west) {$\mathcal{N}\mathcal{N}$ (LDNet)};
-\node [sub] (dynb) at (5.9,0.3) {$\mathcal{N}\mathcal{N}_{\text{dyn}}$\\ latent dynamics~\eqref{eq:reduced_system}};
-\node [sub] (recb) at (5.9,-1.25) {$\mathcal{N}\mathcal{N}_{\text{rec}}$\\ $C_L$, $C_M$};
-\draw [arrow] (dynb) -- node[right, font=\footnotesize] {$\mathbf{s}(t)$} (recb);
+% ---------------- internal model used for prediction (left of the MPC box) ----------------
+\node[net, dashed, fill=orange!10, minimum width=3.0cm]
+     (predmodel) at (-0.7,0.10) {Aeroelastic system~\eqref{eq:mpc_recursion}\\ $\times N$ per candidate $\delta_g$};
+\draw[arrow, dashed] (predmodel) -- (pred);
 
-% ---- structural dynamics (right) ----
-\node [block] (struct) at (11.3,-1.25) {Structural\\ dynamics};
-\node [right=0.6cm of struct] (outx) {$\boldsymbol{\zeta}(t)$};
+% ---------------- controlled system ----------------
+\node[cont, fill=orange!8, minimum width=4.7cm, minimum height=5.6cm]
+     (sysbox) at (11.4,-0.50) {};
+\node[anchor=north, font=\footnotesize\bfseries] at ([yshift=-4pt]sysbox.north)
+     {Aeroelastic system~\eqref{eq:reduced_system}};
+\node[net]   (dyn) at (11.4,1.25)  {$\mathcal{NN}_\mathrm{dyn}$~\eqref{eq:latent_dyn}};
+\node[net]   (rec) at (11.4,-0.50)  {$\mathcal{NN}_\mathrm{rec}$: $C_L$, $C_M$};
+\node[struc] (str) at (11.4,-2.25) {structural integrator\\ $\boldsymbol{\Phi}$~\eqref{eq:rk45_update}};
+\draw[arrow] (dyn) -- node[right, xshift=4pt, sig] {$\mathbf{s}_n$} (rec);
+\draw[arrow] (rec) -- node[right, sig] {$F_{y,n},\,M_{z,n}$} (str);
+\draw[thick] (str.east) -- (13.6,-2.25);
+\draw[arrow] (13.6,-2.25) -- (13.6,1.25) -- (dyn.east);
 
-% ---- external inputs ----
-\node (cltrim) at (1.5,2.75) {$C_{L,\text{trim}}$};
-\node (wt) at (6.5,2.0) {$W(t)$};
-\draw [arrow] (fuse.south) -- (fuse.south |- mpcbox.north);
-\node [left] at (-0.5,2.5) {$\widehat{W}_{1},\dots,\widehat{W}_{N}$};
-\draw [arrow] (cltrim) -- (cltrim |- mpcbox.north);
-\draw [arrow] (wt) -- (wt |- nnbox.north);
+% ---------------- true gust and applied command ----------------
+\node[sig] (wt) at (11.4,4.3) {$W_n$ \ (true gust)};
+\draw[arrow] (wt) -- (sysbox.north);
+\draw[arrow] (amin.east) -- node[above, sig] {$\delta^\star_n$} (sysbox.west |- amin);
 
-% ---- forward path ----
-\draw [arrow] (amin.east) -- node[below] {$\delta^*(t)$} (nnbox.west |- amin);
-\draw [arrow] (nnbox.east |- recb) -- node[above] {$F_y(t),\,M_z(t)$} (struct.west);
-\draw [arrow] (struct) -- (outx);
-
-% ---- state feedback x(t) ----
-\coordinate (Sx) at ($(struct.east)!0.5!(outx.west)$);
-\draw [arrow] (Sx) -- (Sx |- 0,-2.6) -- (6.5,-2.6) -- (6.5,-1.95);
-\node [below] at (8.8,-2.6) {$\boldsymbol{\zeta}(t)$};
-\draw [arrow] (Sx) -- (Sx |- 0,-3.3) -- (1.2,-3.3) -- (1.2,-2.9);
-\node [below] at (4.0,-3.3) {$\boldsymbol{\zeta}(t)$};
+% ---------------- measured output and feedback ----------------
+\node[sig] (out) at (15.9,-2.25) {$\boldsymbol{\zeta}_n$};
+\draw[arrow] (13.6,-2.25) -- (out);
+\draw[very thick] (15.1,-2.25) -- (15.1,-4.2);
+\draw[arrow] (15.1,-4.2) -- (4.3,-4.2) -- (mpcbox.south);
+\node[sig, above] at (9.7,-4.2) {$\boldsymbol{\zeta}_n$ \ (measured structural state)};
 
 \end{tikzpicture}
-\caption{Block diagram of the fused-preview MPC loop. The raw lidar samples
-$y_j$~\eqref{eq:meas_model} are fused into the preview vector
-$\widehat{W}_1,\dots,\widehat{W}_N$; inside the controller each candidate
-deflection $\delta_g \in \Delta_G$ is propagated over the horizon by the
-prediction recursion of \cref{subsec:discretisation}, and the minimiser of the
-cost~\eqref{eq:mpc_cost} subject to the limits~\eqref{eq:mpc_constraints}
-is applied as $\delta^*(t)$. In the aeroelastic system, $\mathcal{N}\mathcal{N}_{\text{dyn}}$
-advances the latent state $\mathbf{s}(t)$ and $\mathcal{N}\mathcal{N}_{\text{rec}}$
-reconstructs the loads that drive the structural dynamics. The aeroelastic system always
-advances with the true gust $W(t)$: the previewed estimates enter only the
-horizon cost~\eqref{eq:mpc_cost}.}
+\caption{Block diagram of the fused-preview MPC loop, with the four functional
+groups distinguished by colour: gust sensing in cyan, the controller in green, the
+two LDNet sub-networks in orange and the structural integration in grey. At each
+control instant the lidar returns $J_{\max}$ noisy samples $y_j$~\eqref{eq:meas_model}
+of the gust ahead of the airfoil, which the fusion layer of \cref{subsubsec:fusion}
+combines into the preview $\widehat{W}_1,\dots,\widehat{W}_N$. The controller
+propagates every candidate deflection $\delta_g\in\Delta_G$ over the $N$-step horizon
+with the recursion~\eqref{eq:mpc_recursion}, which embeds a copy of the aeroelastic
+system~\eqref{eq:reduced_system} to evaluate $C_L$ and $C_M$ at each future step of
+the receding horizon, and applies the minimiser $\delta^\star_n$
+of the cost~\eqref{eq:mpc_cost} subject to the actuator limits~\eqref{eq:mpc_constraints};
+only the first move is applied, and the problem is re-solved at the next step. In the
+aeroelastic system~\eqref{eq:reduced_system}, $\mathcal{NN}_\mathrm{dyn}$ advances the
+latent state through the damped update~\eqref{eq:latent_dyn}, $\mathcal{NN}_\mathrm{rec}$
+reconstructs the loads $F_{y,n}$, $M_{z,n}$ from it, and the structural
+integrator~\eqref{eq:rk45_update} advances the structural state, which feeds back both
+into the networks at the next step and into the controller. The distinction the diagram
+makes is between previewed and true gust: the estimates $\widehat{W}_k$ enter only the
+horizon cost, whereas the aeroelastic system always advances with the true gust $W_n$,
+so any preview error acts on the command and never on the simulated response.}
 \label{fig:control_loop}
 \end{figure}
 

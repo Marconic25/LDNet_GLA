@@ -1,0 +1,60 @@
+#!/bin/bash
+#PBS -N anreplay
+#PBS -q cpu
+#PBS -l select=1:ncpus=1
+#PBS -l walltime=00:20:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_dagger/pbs_analyse_replay.log
+#
+# Fill in the plant x commands table for W20/Tg0.70 and report the gap split.
+# Runs on a COMPUTE node (never login01). numpy only -- no model load.
+#
+# Reports CLred against BOTH exo references, because the study's legacy exo was
+# measured on a different plant than its exc (window=50/D_ALPHA=6.6 vs
+# window=29/D_ALPHA=19.8) -- see NOTES.md "Difetto 2".
+#
+# Submit:
+#   qsub -l select=1:ncpus=1:host=cpu02 analyse_replay.pbs
+
+set -e
+
+D="/work/u10677113/NACA2312/mpc_fom_dagger"
+OUT="$D/analyse_replay_W20_Tg0.70.log"
+exec > "$OUT" 2>&1
+
+echo "=== plant x commands, W20/Tg0.70 ==="
+date
+echo
+
+# The ROM's own open-loop excursion (the denominator behind CLred_ROM). It is a
+# DIFFERENT reference from the FOM's exo, so CLred_ROM and CLred_FOM are ratios
+# over different baselines -- on W30/Tg0.40 the ROM underestimated the real
+# open-loop excursion by 74%. Print it so the absolute excursions can be
+# compared directly, not only the percentages.
+echo "=== riferimento open-loop del ROM (denominatore di CLred_ROM) ==="
+apptainer exec --bind /work /work/u10677113/tensorflow_gpu.sif /bin/bash -c \
+  "cd /work/u10677113/LDNet_GLA/light/results_cs25_combo && \
+   OMP_NUM_THREADS=1 python3 -c \"
+import numpy as np
+d = np.load('traces_W20.npz')
+for k in ['Tg0.70_cex0','Tg0.70_clred','Tg0.70_Rstar','Tg0.70_jb','CLTRIM']:
+    if k in d.files:
+        print('  %-16s = %s' % (k, d[k]))
+cl = d['Tg0.70_open_CL']; t = d['Tg0.70_t']; trim = float(d['CLTRIM'])
+m = t <= 0.70 + 0.5
+print('  exo_ROM ricalcolato (max|CL_open-CLTRIM|, t<=1.20) = %.6f' % np.max(np.abs(cl[m]-trim)))
+\""
+echo
+
+apptainer exec --bind /work /work/u10677113/tensorflow_gpu.sif /bin/bash -c \
+  "cd /work/u10677113/LDNet_GLA/light/dagger_fom && \
+   OMP_NUM_THREADS=1 python3 -u compare_plant_commands.py \
+     --tg 0.70 \
+     --rom-clred 91.92156192742665 \
+     --run 'FOM(u_FOM) closed loop=$D/Rsweep_W20_Tg0.70_R0.0001_win29_OLDMODEL_backup/structural_trajectory.csv' \
+     --run 'FOM(u_ROM) replay=$D/Replay_W20_Tg0.70_uROM_win29/structural_trajectory.csv' \
+     --exo 'legacy  win50 dam1.0=$D/OpenLoop_W20_Tg0.70/structural_trajectory.csv' \
+     --exo 'coerente win29 dam3.0=$D/OpenLoop_W20_Tg0.70_win29_dam3.0/structural_trajectory.csv'"
+
+echo
+echo "=== ANALYSE_DONE ==="

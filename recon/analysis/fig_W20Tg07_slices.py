@@ -154,6 +154,10 @@ def load_case(name):
     tri = np.load(d / "mesh_triangles.npy")
     times = np.load(d / "field_times.npy")
     fields = np.load(d / f"fields_{name}.npy")  # [T, N, 3] = Ux, Uy, p
+    n_filled = fill_nodata(fields, tri, len(pts))
+    if n_filled:
+        print(f"    filled {n_filled} no-data node-samples "
+              f"(flap-swept points, see fill_nodata)")
     traj_t, traj_h, traj_a, traj_d, traj_w = [], [], [], [], []
     with open(d / "structural_trajectory.csv") as f:
         for row in csv.DictReader(f):
@@ -163,6 +167,65 @@ def load_case(name):
     traj = dict(t=np.array(traj_t), h=np.array(traj_h),
                a=np.array(traj_a), d=np.array(traj_d), w=np.array(traj_w))
     return pts, tri, times, fields, traj
+
+
+def _adjacency(tri, n):
+    """Neighbour lists (CSR-style) from the triangulation, built once."""
+    e = np.vstack([tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]])
+    e = np.vstack([e, e[:, ::-1]])
+    order = np.lexsort((e[:, 1], e[:, 0]))
+    e = e[order]
+    keep = np.ones(len(e), bool)
+    keep[1:] = (e[1:] != e[:-1]).any(1)
+    e = e[keep]
+    counts = np.bincount(e[:, 0], minlength=n)
+    indptr = np.concatenate([[0], np.cumsum(counts)])
+    return indptr, e[:, 1].copy()
+
+
+def fill_nodata(fields, tri, n_pts, max_passes=4):
+    """Replace 'no-data' nodes by the mean of their valid neighbours.
+
+    The extractor indexes point_data with the crop/ordering of the FIRST
+    snapshot, but the mesh moves: where the flap has swept across a point that
+    was fluid in the reference configuration, the sample carries no fluid data
+    and comes back as exactly (Ux, Uy, p) = (0, 0, 0). Rendered raw, these show
+    up as isolated dark specks in the wake.
+
+    Detection is the exact triple zero, which cannot collide with a physical
+    wall node: no-slip forces U = 0 there, but p is never exactly 0 (verified:
+    0 nodes with U == 0 and p != 0 across both runs). Confined to the
+    closed-loop run -- the open-loop flap never moves and has 0 such nodes in
+    all 293 frames.
+
+    Interpolating is right here rather than smoothing: only the missing values
+    are touched, so real gradients elsewhere are left exactly as computed.
+    """
+    indptr, indices = _adjacency(tri, n_pts)
+    used = np.zeros(n_pts, bool)
+    used[np.unique(tri)] = True
+    n_filled = 0
+    for k in range(len(fields)):
+        f = fields[k]
+        bad = (f[:, 0] == 0) & (f[:, 1] == 0) & (f[:, 2] == 0) & used
+        if not bad.any():
+            continue
+        n_filled += int(bad.sum())
+        for _ in range(max_passes):
+            todo = np.where(bad)[0]
+            if todo.size == 0:
+                break
+            progressed = False
+            for q in todo:
+                nb = indices[indptr[q]:indptr[q + 1]]
+                good = nb[~bad[nb]]
+                if good.size:
+                    f[q] = f[good].mean(axis=0)
+                    bad[q] = False
+                    progressed = True
+            if not progressed:
+                break
+    return n_filled
 
 
 def nearest_snapshots(times, targets, t0=CHECKPOINT_T0):

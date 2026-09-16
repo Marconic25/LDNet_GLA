@@ -1,0 +1,62 @@
+#!/bin/bash
+#PBS -N ldnet_axis
+#PBS -q cpu
+#PBS -l select=1:ncpus=4
+#PBS -l walltime=08:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/LDNet_GLA/light/noise/pbs_stage.log
+#
+# PBS equivalent of run_axis.sh: same container, same env vars, same pip
+# install -- but it runs on a COMPUTE node instead of nohup'ing on login01.
+# run_axis.sh must never be used: it puts the load on the login node.
+#
+# Submit (override -N/-l on the command line):
+#   qsub -N Wco_W10_smoke -l select=1:ncpus=4:host=cpu04 -l walltime=02:00:00 \
+#        -v SCRIPT=noise_white_combo.py,SMOKE=1,CELL_W0=10.0,CELL_TG=0.4,LOGTAG=Wco_W10.smoke \
+#        /work/u10677113/LDNet_GLA/light/noise/qsub_axis.pbs
+#
+# Variables (all passed with -v, none may contain spaces):
+#   SCRIPT   python script to run, relative to light/noise/ or absolute
+#   LOGTAG   log basename -> light/noise/<LOGTAG>.log     (default: axis)
+#   SMOKE    1 -> append --smoke                          (default: unset)
+#   CELL_W0  gust amplitude   [m/s]                       (default: 30.0)
+#   CELL_TG  gust duration    [s]                         (default: 0.4)
+#   SARGS    extra argv passed to SCRIPT, no spaces       (default: unset)
+#            for scripts that select their case from argv rather than from
+#            CELL_W0/CELL_TG, e.g. e2_combo_cells.py W10T04
+#   POST     optional second script run after SCRIPT      (default: unset)
+#
+# The job redirects its own stdout/stderr to <LOGTAG>.log on the shared /work
+# filesystem instead of relying on PBS output staging: the log then exists
+# while the job runs (tail-able) and survives a staging failure.
+set -u
+HERE=/work/u10677113/LDNet_GLA/light/noise
+SCRIPT="${SCRIPT:?SCRIPT not set (-v SCRIPT=...)}"
+CELL_W0="${CELL_W0:-30.0}"
+CELL_TG="${CELL_TG:-0.4}"
+LOG="$HERE/${LOGTAG:-axis}.log"
+ARGS="${SARGS:-}"
+[ "${SMOKE:-0}" = "1" ] && ARGS="$ARGS --smoke"
+
+exec > "$LOG" 2>&1
+
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+mkdir -p "$APPTAINER_TMPDIR"
+
+echo "### host=$(hostname) date=$(date -Is)"
+echo "### SCRIPT=$SCRIPT $ARGS  CELL_W0=$CELL_W0 CELL_TG=$CELL_TG  DAMULT=3"
+
+CMD="cd '$HERE' && python3 -s -u $SCRIPT $ARGS"
+[ -n "${POST:-}" ] && CMD="$CMD && python3 -s -u ${POST}"
+
+apptainer exec --writable-tmpfs \
+  --env PYTHONNOUSERSITE=1 --env DAMULT=3 \
+  --env CELL_W0="$CELL_W0" --env CELL_TG="$CELL_TG" \
+  --env OMP_NUM_THREADS=3 --env TF_NUM_INTRAOP_THREADS=3 --env TF_NUM_INTEROP_THREADS=1 \
+  --bind /work/u10677113:/work/u10677113 \
+  /work/u10677113/tensorflow_gpu.sif \
+  bash -c "pip install -q scipy h5py matplotlib; $CMD"
+rc=$?
+echo "### exit=$rc date=$(date -Is)"
+exit $rc

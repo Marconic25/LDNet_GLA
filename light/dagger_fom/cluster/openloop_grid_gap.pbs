@@ -1,0 +1,33 @@
+#!/bin/bash
+#PBS -N olgap
+#PBS -q cpu
+#PBS -l select=1:ncpus=1
+#PBS -l walltime=00:20:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_dagger/pbs_openloop_grid_gap.log
+#
+# Pure open-loop (delta=0) ROM-vs-FOM prediction gap across the full 3x4 grid.
+# Read-only post-processing on data already on disk (all 12 OpenLoop_* runs
+# exist). Runs on a COMPUTE node per standing rule, even though it is cheap.
+#
+# Submit:
+#   qsub -l select=1:ncpus=1:host=cpu02 openloop_grid_gap.pbs
+
+set -e
+
+D="/work/u10677113/NACA2312/mpc_fom_dagger"
+OUT="$D/openloop_grid_gap.log"
+exec > "$OUT" 2>&1
+
+echo "=== open-loop ROM vs FOM gap, full 3x4 grid ==="
+date
+echo
+
+apptainer exec --bind /work /work/u10677113/tensorflow_gpu.sif /bin/bash -c \
+  "cd /work/u10677113/LDNet_GLA/light/dagger_fom && \
+   OMP_NUM_THREADS=1 python3 -u compare_open_loop_grid.py \
+     --npz-dir /work/u10677113/LDNet_GLA/light/results_cs25_combo \
+     --openloop-dir $D"
+
+echo
+echo "=== OPENLOOP_GRID_DONE ==="

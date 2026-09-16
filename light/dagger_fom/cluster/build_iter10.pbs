@@ -1,0 +1,51 @@
+#!/bin/bash
+#PBS -N buildIter10
+#PBS -q cpu
+#PBS -l select=1:ncpus=1
+#PBS -l walltime=00:20:00
+#PBS -j oe
+#PBS -o /work/u10677113/LDNet_GLA/light/dagger_fom/models/iter10_build.log
+#
+# iter10: fine-tune on the 12 REAL open-loop (delta=0) FOM trajectories,
+# split by Tg instead of by W0 (unlike every previous iteration). Motivation:
+# the plant x commands experiment on W20/Tg0.70 showed the surrogate's error
+# is real and comes from the aero model itself (28-74% underestimate of the
+# pure gust-response peak, delta=0, no controller, no closed-loop confounds --
+# see NOTES.md "Esperimento FOM(u_ROM)"), and the grid-wide open-loop gap
+# correlates with gust DURATION (Tg), not amplitude (W0): r(gap%,W0)=-0.02,
+# peak error at Tg=0.40. Train deliberately EXCLUDES Tg=0.40 entirely, valid
+# is ONLY Tg=0.40 across all three amplitudes -- the harshest possible test of
+# whether training on clean open-loop data (no R1/R2/R3/R4 artifacts, unlike
+# every prior closed-loop DAgger attempt) generalizes to the exact frequency
+# band the model is worst at, rather than just memorizing it.
+#
+# t_common=1.70s covers the longest included cell (Tg=1.20+0.5) in full.
+
+set -e
+BASE=/work/u10677113/LDNet_GLA
+D=/work/u10677113/NACA2312/mpc_fom_dagger
+OUT="$BASE/light/dagger_fom/models/iter10_build.log"
+exec > "$OUT" 2>&1
+
+echo "=== build iter10: open-loop dataset, split by Tg ==="
+date
+
+apptainer exec --bind /work /work/u10677113/tensorflow_gpu.sif /bin/bash -c "
+  cd $BASE/light/dagger_fom && python3 -u build_dagger_h5.py --iter 10 --t-common 1.70 \
+    --cell 10 0.30 $D/OpenLoop_W10_Tg0.30/structural_trajectory.csv train \
+    --cell 20 0.30 $D/OpenLoop_W20_Tg0.30/structural_trajectory.csv train \
+    --cell 30 0.30 $D/OpenLoop_W30_Tg0.30/structural_trajectory.csv train \
+    --cell 10 0.70 $D/OpenLoop_W10_Tg0.70/structural_trajectory.csv train \
+    --cell 20 0.70 $D/OpenLoop_W20_Tg0.70/structural_trajectory.csv train \
+    --cell 30 0.70 $D/OpenLoop_W30_Tg0.70/structural_trajectory.csv train \
+    --cell 10 1.20 $D/OpenLoop_W10_Tg1.20/structural_trajectory.csv train \
+    --cell 20 1.20 $D/OpenLoop_W20_Tg1.20/structural_trajectory.csv train \
+    --cell 30 1.20 $D/OpenLoop_W30_Tg1.20/structural_trajectory.csv train \
+    --cell 10 0.40 $D/OpenLoop_W10_Tg0.40/structural_trajectory.csv valid \
+    --cell 20 0.40 $D/OpenLoop_W20_Tg0.40/structural_trajectory.csv valid \
+    --cell 30 0.40 $D/OpenLoop_W30_Tg0.40/structural_trajectory.csv valid
+"
+
+echo
+echo "=== BUILD_DONE ==="
+ls -la "$BASE/light/dagger_fom/data/iter10/"

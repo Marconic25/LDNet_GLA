@@ -15,6 +15,13 @@ Noisy spot-checks (sigma=2%*W0 flat, 6 seeds rng 100+seed):
 Config: Jmax=50, lam=0, N=8, R=3e-4, R_du=0, home cell W30/Tg0.4, DAMULT=3.
 Output: results/A2_calib.npz
 --smoke: clean {bias 0, bias +0.05} + noisy {bias +0.05} 2 seeds.
+
+Cell override (env, defaults reproduce the home cell byte-for-byte):
+  CELL_W0=10 CELL_TG=0.4  -> results/A2_calib_W10.npz
+  CELL_TAG overrides the output suffix explicitly.
+R=3e-4 is R* for BOTH W30/Tg0.4 and W10/Tg0.4 (light/results_cs25_combo/
+summary.md), so the cell override needs no R change; check summary.md before
+using it on any other cell.
 """
 import os, sys
 import numpy as np
@@ -24,14 +31,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 import harness_noise as H
 from optimal import FusedPreviewSensor, MPCPreviewController
 
-W0, Tg   = 30.0, 0.4
+W0       = float(os.environ.get('CELL_W0', 30.0))
+Tg       = float(os.environ.get('CELL_TG', 0.4))
 JMAX, N  = 50, 8
 R        = 3e-4
 R_DU     = 0.0
 LAM      = 0.0
 SMOKE    = '--smoke' in sys.argv
 NSEED    = 2 if SMOKE else 6
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', 'A2_calib.npz')
+# '' at the home cell -> results/A2_calib.npz, exactly as before. An EMPTY
+# CELL_TAG is treated as unset on purpose: a blank env var must never make a
+# non-home cell overwrite the home-cell thesis artifact.
+TAG = os.environ.get('CELL_TAG') or ('' if (W0, Tg) == (30.0, 0.4)
+                                     else f'_W{W0:g}')
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results',
+                   f'A2_calib{TAG}.npz')
 
 if SMOKE:
     CLEAN_PTS = [('bias', 0.0), ('bias', 0.05)]
@@ -90,7 +104,7 @@ OL   = H.rollout(None, W0, Tg)
 cex0 = H.metrics(OL, OL, Tg)['exo']
 print(f"# A2_calib | W{W0:g}/Tg{Tg:g} DAMULT={os.environ.get('DAMULT','1')} "
       f"N={N} Jmax={JMAX} R={R:g} R_du={R_DU:g} | open cex0={cex0:.4f}"
-      f"{' | SMOKE' if SMOKE else ''}", flush=True)
+      f"{' | SMOKE' if SMOKE else ''} | out={os.path.basename(OUT)}", flush=True)
 
 recs = [dict(kind='open', axis='A2', W0=W0, Tg=Tg, cex0=cex0,
              t=OL['_t'], W=OL['_Wt'], CL=OL['CL'])]

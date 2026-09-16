@@ -1,0 +1,25 @@
+{
+  "model": "models/meansplit_study/coral_o10_s0/latent_1",
+  "data": "data/FIELDS_A025.h5",
+  "sim": "sim_A_025",
+  "n_points_full_grid": 11075,
+  "n_times": 150,
+  "n_params_total": 5266,
+  "build_and_load_s": 0.7600941276177764,
+  "first_call_s_incl_tracing": 20.30033139511943,
+  "steady_state_reps_s": [
+    20.398385600186884,
+    18.995157660916448,
+    18.829653439112008,
+    17.681517461314797,
+    17.626422030851245,
+    18.224831235595047,
+    17.685242735780776,
+    20.300012559629977,
+    18.73418796621263,
+    19.842814232222736
+  ],
+  "steady_state_mean_s": 18.831822492182255,
+  "steady_state_std_s": 1.0063447414440192,
+  "per_point_per_time_us": 11.335935284985556
+}

@@ -1036,12 +1036,18 @@ def main():
     if args.law5_tau     is not None: LAW5_TAU       = args.law5_tau
     if args.law5_rate_max is not None: LAW5_RATE_MAX = args.law5_rate_max
     CONTROLLER = args.controller
+    # Pitch damping applies to the FOM structural model in EVERY controller
+    # mode, not only 'mpc'. A prescribed-delta replay of a command history
+    # computed elsewhere must run on the SAME plant as the closed-loop run it
+    # is compared against, otherwise the two differ by the damping as well as
+    # by the commands. Default --damult 1.0 leaves existing behaviour unchanged.
+    D_ALPHA = D_ALPHA * args.damult   # match the real wing to the controller's assumption
+    print(f"  Structural pitch damping: D_ALPHA={D_ALPHA:.4f} "
+          f"(base 6.6 x damult {args.damult})  controller={CONTROLLER}")
     _mpc_server_needed = (CONTROLLER == "mpc") or args.also_spawn_mpc_idle
     if _mpc_server_needed:
         if args.mpc_model is None or args.mpc_R is None:
             raise ValueError("--controller mpc (or --also-spawn-mpc-idle) requires --mpc-model and --mpc-R")
-        if CONTROLLER == "mpc":
-            D_ALPHA = D_ALPHA * args.damult   # match the real wing to the controller's assumption
         start_mpc_server(args.mpc_model, args.mpc_R, args.mpc_N, args.damult, _MPC_CTRL_DT)
         mpc_reset()
 

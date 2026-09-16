@@ -1,0 +1,39 @@
+#!/bin/bash
+#PBS -N verifyIter11
+#PBS -q cpu
+#PBS -l select=1:ncpus=1
+#PBS -l walltime=00:30:00
+#PBS -j oe
+#PBS -o /work/u10677113/LDNet_GLA/light/dagger_fom/models/iter11_verify.log
+#
+# Clean open-loop check for iter11 (verify_openloop_model.py already validated
+# against the DAMULT=3 baseline in iter10's corrected run -- exact match with
+# traces_W*.npz's _cex0, no need to re-run the production baseline here).
+# Two things to check: (1) has the delta-channel diversity fix cured the
+# collapse (CLTRIM back near 0.8683, output actually varies with input,
+# unlike iter10's near-constant 0.712)? (2) does the held-out Tg=0.40 gap
+# actually shrink vs production's +47.3% mean?
+# Run AFTER retrain_iter11.pbs has produced light/dagger_fom/models/iter11/latent_10.
+
+set -e
+BASE=/work/u10677113/LDNet_GLA
+OUT="$BASE/light/dagger_fom/models/iter11_verify.log"
+exec > "$OUT" 2>&1
+
+FOM_EXO="10,0.30=0.335126 20,0.30=0.673275 30,0.30=1.184273 \
+10,0.40=0.303847 20,0.40=0.613731 30,0.40=0.866358 \
+10,0.70=0.244440 20,0.70=0.495459 30,0.70=0.705519 \
+10,1.20=0.198137 20,1.20=0.414316 30,1.20=0.660866"
+HELD_OUT="10,0.40 20,0.40 30,0.40"
+
+echo "=== CANDIDATO: iter11 ==="
+date
+apptainer exec --bind /work /work/u10677113/tensorflow_gpu.sif /bin/bash -c "
+  cd $BASE/light/dagger_fom && OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 \
+  python3 -u verify_openloop_model.py \
+    --model $BASE/light/dagger_fom/models/iter11/latent_10 \
+    --fom-exo $FOM_EXO --held-out $HELD_OUT
+"
+
+echo
+echo "=== VERIFY_ITER11_DONE ==="

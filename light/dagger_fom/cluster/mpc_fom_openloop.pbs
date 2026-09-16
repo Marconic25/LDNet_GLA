@@ -14,6 +14,13 @@
 #
 # Submit:
 #   qsub -v W0=30,TG=0.40,TEND=1.25 mpc_fom_openloop.pbs
+#
+# WINDOW/DAMULT are parametric (defaults 50 / 1.0 reproduce the original runs
+# byte-for-byte). Pass them explicitly to obtain an exo measured on the SAME
+# plant as the closed-loop runs it is divided by: those use window=29 and
+# --damult 3.0, so a default-launched exo differs from its own exc in both the
+# coupling cadence and the pitch damping (D_ALPHA 6.6 vs 19.8). Tagged output
+# path keeps the two variants side by side instead of clobbering.
 
 set -e
 
@@ -21,10 +28,18 @@ WORK_BASE="/work/u10677113/NACA2312"
 : "${W0:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>}"
 : "${TG:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>}"
 TEND="${TEND:-1.25}"
+WINDOW="${WINDOW:-50}"
+DAMULT="${DAMULT:-1.0}"
 
-SCRATCH="/scratch_local/$USER/mpcfomOL_W${W0}_Tg${TG}"
+if [ "$WINDOW" = "50" ] && [ "$DAMULT" = "1.0" ]; then
+    TAG=""                                   # original, untagged path
+else
+    TAG="_win${WINDOW}_dam${DAMULT}"
+fi
+
+SCRATCH="/scratch_local/$USER/mpcfomOL_W${W0}_Tg${TG}${TAG}"
 CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
-OUT_PERSIST="$WORK_BASE/mpc_fom_dagger/OpenLoop_W${W0}_Tg${TG}"
+OUT_PERSIST="$WORK_BASE/mpc_fom_dagger/OpenLoop_W${W0}_Tg${TG}${TAG}"
 
 mkdir -p "$OUT_PERSIST" "$SCRATCH"
 exec > >(tee "$OUT_PERSIST/run.log") 2>&1
@@ -49,12 +64,13 @@ cp "$WORK_BASE/recon/cluster/cosim_driver_extract.py" "$SCRATCH/cosim_driver.py"
 cd "$SCRATCH"
 
 python3 -u cosim_driver.py \
-    --np 16 --window 50 --dt 7e-05 --t-end "$TEND" \
+    --np 16 --window "$WINDOW" --dt 7e-05 --t-end "$TEND" \
     --from-checkpoint \
     --gust-w0 "$W0" \
     --gust-t-start 0.0 \
     --gust-t-end "$TG" \
     --controller schedule \
+    --damult "$DAMULT" \
     --delta-times 0.0 2.0 \
     --delta-angles 0.0 0.0 \
     2>&1 | tee log.cosim_driver_openloop

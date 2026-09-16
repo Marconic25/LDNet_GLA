@@ -11,8 +11,25 @@ R_du=0 — no sweeps) at the two other study cells:
 
     python3 e2_combo_cells.py W10T07     W0=10, Tg=0.7  (gentle)
     python3 e2_combo_cells.py W30T07     W0=30, Tg=0.7  (strong but slower)
+    python3 e2_combo_cells.py W10T04     W0=10, Tg=0.4  (thesis Test 2)
 
 Default cell (no recognized arg): W30T07.
+
+W10T04 was added when Test 2 became W10/Tg0.4: it is the cell shown in
+fig:noise_white, and by the absolute-LOS argument below it is also the
+harshest relative lidar case in the whole study (1-3 m/s on a 10 m/s gust).
+
+!! NOT CODE-PATH COMPARABLE WITH W10T07 / W30T07 !!
+Those two npz were produced 2026-07-08/09 by a controllers_ref.py that used
+the RK4 structural step and an MPCConstRef sharing the aero object's latent
+(aero._z). That file was superseded on 2026-07-11 by the present one, which
+uses DP45 and gives the controller its OWN latent (_z_ctrl); the shared-latent
+MPCPrevRdu no longer exists in any recoverable copy (neither tree tracked
+these two files in git). W10T04 therefore runs on DP45 + own-latent.
+The difference was accepted deliberately (user decision, 2026-09-09) rather
+than re-running all four cells. Anyone quoting the four numbers in one
+sentence -- chapter3.tex:509-512 -- must either say so or re-run W10T07 and
+W30T07 on this code path first.
 
 Honesty note: the dlr LOS noise is ABSOLUTE (1-3 m/s), so at W0=10 it is
 10-30% of the gust amplitude — a much harsher relative test than at W30
@@ -45,7 +62,8 @@ except ImportError:                                  # local tree: dp45_batch
 # W0/Tg are MODULE GLOBALS read by sig_flat / delivered_sigma below
 # (same convention as e2_combo.py), so they are set from argv before those
 # definitions and the copied code works unchanged.
-CELLS = {'W10T07': (10.0, 0.7), 'W30T07': (30.0, 0.7)}
+CELLS = {'W10T07': (10.0, 0.7), 'W30T07': (30.0, 0.7),
+         'W10T04': (10.0, 0.4)}
 cellname = next((a for a in sys.argv[1:] if a in CELLS), 'W30T07')
 W0, Tg = CELLS[cellname]
 SMOKE = '--smoke' in sys.argv

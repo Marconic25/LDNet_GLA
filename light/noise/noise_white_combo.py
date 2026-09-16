@@ -6,12 +6,15 @@ individual sensor measurement BEFORE fusion (i.e. the raw-shot sigma, not the
 delivered sigma). With Jmax=50 the fusion already reduces the effective preview
 noise dramatically; sigma_del = std(Wc - W_true_next) is printed and logged.
 
-Config: Jmax=50, lam=0, N=8, R=3e-4, R_du=0, 6 seeds (rng 100+seed), home cell
-W30/Tg0.4, DAMULT=3.
+Config: Jmax=50, lam=0, N=8, R=3e-4, R_du=0, 6 seeds (rng 100+seed), DAMULT=3.
+Cell defaults to the home cell W30/Tg0.4; override with CELL_W0 / CELL_TG
+(R=3e-4 is R* for both W30/Tg0.4 and W10/Tg0.4 -- check summary.md before
+running a cell with a different R*).
 Metrics and t<=Tg+0.5 window identical to harness_noise axes.
 
-Output: results/W_combo.npz
---smoke: sigma in {0, 0.02}, 2 seeds, same OUT schema.
+Output: results/W_combo.npz (home cell) / results/W_combo_W<W0>[T<10Tg>].npz.
+--smoke: sigma in {0, 0.02}, 2 seeds, same OUT schema, '_smoke' suffix on the
+filename so a smoke run can never clobber a production .npz.
 """
 import os, sys
 import numpy as np
@@ -21,7 +24,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 import harness_noise as H
 from optimal import FusedPreviewSensor, MPCPreviewController
 
-W0, Tg   = 30.0, 0.4
+# Gust cell: defaults to the home cell W30/Tg0.4 so that running this script
+# with no environment override reproduces the published thesis artifact
+# (results/W_combo.npz) exactly. Override with CELL_W0 / CELL_TG.
+W0       = float(os.environ.get('CELL_W0', 30.0))
+Tg       = float(os.environ.get('CELL_TG', 0.4))
 JMAX, N  = 50, 8
 R        = 3e-4
 R_DU     = 0.0
@@ -29,7 +36,26 @@ LAM      = 0.0
 SMOKE    = '--smoke' in sys.argv
 NSEED    = 2 if SMOKE else 6
 FRACS    = [0.0, 0.02] if SMOKE else [0.0, 0.01, 0.02, 0.05, 0.10, 0.20]
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', 'W_combo.npz')
+
+
+def cell_tag(W0, Tg):
+    """'' for the home cell (W30/Tg0.4), else '_W<W0>[T<10*Tg>]'.
+
+    Empty for the home cell so the default run keeps writing W_combo.npz;
+    non-home cells get their own file (naming precedent: E2_combo_cells_W10T07).
+    """
+    if (W0, Tg) == (30.0, 0.4):
+        return ''
+    tag = f'_W{W0:g}'
+    if Tg != 0.4:
+        tag += f'T{round(Tg * 10):02d}'
+    return tag
+
+
+TAG = cell_tag(W0, Tg)
+# smoke output never collides with a production .npz
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results',
+                   f"W_combo{TAG}{'_smoke' if SMOKE else ''}.npz")
 
 
 def _delivered_sigma(r):

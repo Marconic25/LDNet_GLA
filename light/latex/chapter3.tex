@@ -1,54 +1,81 @@
 \section{Results}
 \label{sec:results}
 
-This section reports the results of the study. \Cref{subsec:training_results} assesses the accuracy of the trained LDNet on the held-out test set and documents the hyperparameter selection. \Cref{subsec:mpc_results} evaluates the closed-loop controller over the CS-25 discrete-gust envelope in nominal conditions, and \cref{subsec:noise_results,subsec:systematic_results} probe its robustness to stochastic measurement noise and to systematic sensing and model errors.
+This section reports the results of the study. In \cref{subsec:training_results} we assess the accuracy of the trained LDNet on the held-out test set and document the hyperparameter selection. In \cref{subsec:mpc_results} we evaluate the closed-loop controller over the CS-25 discrete-gust envelope in nominal conditions, and in \cref{subsec:noise_results,subsec:systematic_results} we probe its robustness to stochastic measurement noise and to systematic sensing and model errors.
 
-\subsection{Surrogate accuracy and hyperparameter tuning}
+\subsection{LDNet accuracy and hyperparameter tuning}
 \label{subsec:training_results}
 
-The analysis of this subsection is deliberately performed in open loop: the networks are driven by the reference structural signals of each trajectory, in the teacher-forcing regime of \cref{subsec:training}, and the reconstruction error of the loads on the held-out test set is measured by the metrics~\eqref{eq:acc_metrics}. Decoupled from the error propagation of an autonomous rollout, this error isolates how accurately the model has learned the load mapping, and it is on this learning accuracy that the selection of the inputs and of $d_s$ is based. All models below are trained with Tikhonov regularization of the network weights~\cite{Regazzoni}: a penalty term, the mean of the squared kernels of $\mathcal{NN}_\mathrm{dyn}$ and $\mathcal{NN}_\mathrm{rec}$ weighted by $\alpha_\mathrm{reg}=3\cdot10^{-4}$, is added to the training loss. Training stops once the validation loss, computed without that term, has not improved for $500$ iterations, and the weights retained are those that attained its minimum. The closed-loop rollout is instead the mode in which the model is used: trained on the rollout loss~\eqref{eq:rollout_loss} with the damped latent update~\eqref{eq:latent_dyn}, the model runs in rollout inside the control loop of the gust-load-alleviation study of \cref{subsec:mpc_results}.
+We swept the degrees of freedom that dominate the validation loss --- the latent dimension $d_s$, the depth of $\mathcal{NN}_\mathrm{dyn}$ and $\mathcal{NN}_\mathrm{rec}$, and the composition of the input vector $\boldsymbol{\eta}$ --- while we hold the remaining hyperparameters fixed. Along each swept axis the candidate configurations are trained in multiple independent runs that differ only in the random initialisation of the weights, every run is scored by the loss on the validation set, and the run with the lowest validation loss is retained, so that the comparison is guarded against the sensitivity of the full-batch optimisation to its trajectory.
 
-\subsubsection{Input selection}
+Following~\cite{Regazzoni}, accuracy is measured by the normalised root-mean-square error and by the Pearson dissimilarity $1-\rho$. For a scalar load $y \in \{F_y, M_z\}$, a component of the output $\mathbf{y}$, with prediction $\tilde{y}$ over the $N$ test samples and time steps,
+\begin{equation}
+\mathrm{NRMSE}(y) =
+\frac{
+\sqrt{\frac{1}{N}\sum_k \left(\tilde{y}_k - y_k\right)^2}
+}{
+\max_k y_k - \min_k y_k
+},
+\qquad
+\rho(y) =
+\frac{
+\mathrm{cov}(\tilde{y}, y)
+}{
+\sigma_{\tilde{y}}\, \sigma_y
+},
+\label{eq:acc_metrics}
+\end{equation}
+so that both $\mathrm{NRMSE}$ and $1-\rho$ vanish for a perfect reconstruction. The two loads are also reported jointly as a combined value, obtained by stacking $F_y$ and $M_z$ and normalising by a single global range; since the loads carry different units (N and N\,m), this combined value is dominated by the wider-ranged $F_y$ and is quoted only as a compact summary, the per-load values remaining the primary metric.
 
-The first study fixes the outputs $(F_y,M_z)$ and varies the signals fed to the networks, to
+We deliberately perform the analysis of this subsection in open loop: the networks are driven by the reference structural signals of each trajectory, in the teacher-forcing regime of \cref{subsec:training}, and we measure the reconstruction error of the loads on the held-out test set by the metrics~\eqref{eq:acc_metrics}. Decoupled from the error propagation of an autonomous rollout, this error isolates how accurately the LDNet has learned the load mapping, and it is on this learning accuracy that the selection of the inputs and of $d_s$ is based. The regularisation weights $\alpha_\mathrm{dyn}=\alpha_\mathrm{rec}=\alpha_\mathrm{reg}=3\cdot10^{-4}$ are held equal and fixed at this value throughout the sweeps below, and Tikhonov regularization of the network weights~\cite{Regazzoni} adds to the training loss a penalty term, the mean of the squared kernels of $\mathcal{NN}_\mathrm{dyn}$ and $\mathcal{NN}_\mathrm{rec}$ weighted by $\alpha_\mathrm{reg}$. Training stops once the validation loss, computed without that term, has not improved for $200$ iterations, and the weights retained are those that attained its minimum. The closed-loop rollout is instead the mode in which the LDNet is used: trained on the rollout loss~\eqref{eq:rollout_loss} with the damped latent update~\eqref{eq:latent_dyn}, the LDNet runs in rollout inside the control loop of the GLA study of \cref{subsec:mpc_results}.
+
+\subsubsection{Input selection (Study 1)}
+\label{subsubsec:input_selection}
+
+Study~1 fixes the outputs $(F_y,M_z)$ and varies the signals fed to the networks, to
 establish how much of the structural state the load reconstruction requires. Three
 configurations are compared: gust and flap only $\{W,\delta\}$; the same augmented with the
 plunge and pitch $\{W,\delta,h,\alpha\}$; and the full structural state
 $\{W,\delta,h,\dot h,\alpha,\dot\alpha\}$, which adds the plunge and pitch rates.
-Figure~\ref{fig:input_study} reports NRMSE and $1-\rho$ against the latent dimension $d_s$ for
-the three sets. The gust-and-flap pair alone is inadequate: without the structural state the
+\Cref{fig:input_study} reports NRMSE and $1-\rho$ against the latent dimension $d_s$ for
+the three sets, aggregated over the held-out test trajectories of the three dataset families
+of \cref{tab:dataset_families}, which span gust-only, flap-only and combined gust\,+\,flap
+excitation. The gust-and-flap pair alone is inadequate: without the structural state the
 latent dynamics must reproduce the aeroelastic response unaided, and the combined NRMSE is the
 largest of the three sets.
 Adding the plunge and pitch positions stabilises the reconstruction, but the four-signal set
 does not improve beyond $4.0\cdot10^{-3}$ at any latent dimension. The velocity rates
 $\dot h,\dot\alpha$ are what admit the accurate regime: only the full six-signal set reaches a
-combined NRMSE of $1.3$--$1.4\cdot10^{-3}$. The full
-six-signal set is adopted for the remainder of this work.
+combined NRMSE of $1.3$--$1.4\cdot10^{-3}$. We
+adopt the full six-signal set for the remainder of this work.
 % TODO: PCA on the inputs (deferred).
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.55\textwidth]{Thesis_article_format/Chapters/Chapter2/Images/fig_ch2_input_study.png}
-\caption{Open-loop test-set accuracy of the load reconstruction (NRMSE, top; Pearson
-dissimilarity $1-\rho$, bottom; combined value) versus latent dimension $d_s$, for the three
-input configurations $\{W,\delta\}$, $\{W,\delta,h,\alpha\}$ and the full structural state
-$\{W,\delta,h,\dot h,\alpha,\dot\alpha\}$.}
+\includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter2/Images/fig_ch2_input_study.png}
+\caption{Study~1: open-loop test-set accuracy of the load reconstruction (NRMSE, left; Pearson
+dissimilarity $1-\rho$, right; combined value) versus latent dimension
+$d_s\in\{1,3,5,10\}$, for the three input configurations $\{W,\delta\}$,
+$\{W,\delta,h,\alpha\}$ and the full structural state
+$\{W,\delta,h,\dot h,\alpha,\dot\alpha\}$. Each point aggregates the held-out test
+trajectories of the three dataset families of \cref{tab:dataset_families}. Only the full
+six-signal set reaches the accurate regime, a combined NRMSE of $1.3$--$1.4\cdot10^{-3}$.}
 \label{fig:input_study}
 \end{figure}
 
-\subsubsection{Latent-state dimension}
+\subsubsection{Latent-state dimension (Study 2)}
 \label{subsubsec:latent_dim}
 
-With the six-signal input fixed, the latent dimension is swept over $d_s\in\{1,3,5,10\}$; for
+With the six-signal input fixed, Study~2 sweeps the latent dimension over $d_s\in\{1,3,5,10\}$; for
 each value two independent training runs are performed and the run with the
-lowest validation loss is retained. \Cref{fig:input_study} and \cref{tab:latent_sweep}
+lowest validation loss is retained. \Cref{fig:input_study} of Study~1 and \cref{tab:latent_sweep}
 report the resulting test-set accuracy. A single latent state caps the combined NRMSE at
 $4.6\cdot10^{-3}$; with more states the optimiser can reach a deep minimum of the validation
 loss ($\mathcal{L}_\mathrm{val}\approx 2\cdot10^{-5}$) where the combined NRMSE drops to $1.4\cdot10^{-3}$ at $d_s=3$
 and $1.3\cdot10^{-3}$ at $d_s=10$, with $1-\rho\le2\cdot10^{-5}$. The deep minimum is
 not reached in every run --- at $d_s=5$ neither of its two runs located it --- a residue of the
 sensitivity of the full-batch optimisation to its trajectory, which the multiple-run protocol
-mitigates. The latent dimension is set to $d_s=10$, the most accurate configuration, which is
+mitigates. We set the latent dimension to $d_s=10$, the most accurate configuration, which is
 also the value adopted for the closed-loop rollout (\cref{subsec:mpc_results}).
 
 Latent dimensions above $d_s=10$, up to $d_s=20$, were also probed without further gain, and the
@@ -58,7 +85,7 @@ rank seven, so for $d_s>7$ at least $d_s-7$ latent directions cannot be driven b
 all. Left undriven, their eigenvalue in the recurrence sits at $1-\lambda$ --- unity with the
 decay switched off --- rather than at a value training can shape, so widening $d_s$ past that
 point adds inert state, not usable dynamics. Reaching further requires widening
-$\mathcal{NN}_\mathrm{dyn}$ itself, examined next in \cref{subsubsec:depth}.
+$\mathcal{NN}_\mathrm{dyn}$ itself, examined next in \cref{subsubsec:depth} (Study~3).
 
 
 \begin{table}[t]
@@ -81,17 +108,17 @@ $10$ & $2.4\cdot10^{-3}$ & $1.6\cdot10^{-3}$ & $1.3\cdot10^{-3}$ & $2.1\cdot10^{
 \hline
 \end{tabular}
 \\[6pt]
-\caption{Open-loop test-set reconstruction accuracy of the aerodynamic loads as a function of
+\caption{Study~2: open-loop test-set reconstruction accuracy of the aerodynamic loads as a function of
 the latent dimension $d_s$, with the six-signal input: NRMSE and Pearson dissimilarity $1-\rho$ for
 $F_y$, $M_z$ and the combined output. For each $d_s$ the best of the independent training runs,
 selected on the validation loss, is reported.}
 \label{tab:latent_sweep}
 \end{table}
 
-\subsubsection{Network depth}
+\subsubsection{Network depth (Study 3)}
 \label{subsubsec:depth}
 
-The last architectural degree of freedom is the depth of the two networks. The layer widths are
+Study~3 addresses the last architectural degree of freedom, the depth of the two networks. The layer widths are
 held fixed at $7$ neurons for $\mathcal{NN}_\mathrm{dyn}$ and $24$ for $\mathcal{NN}_\mathrm{rec}$,
 and the total number of hidden layers $L$ is swept starting from $L=6$, the depth used elsewhere
 in this work, doubled twice over $L\in\{6,12,24\}$ in the fixed $1{:}2$ split between the two
@@ -129,7 +156,7 @@ $24$ & $8\times7$ & $16\times24$ & $9753$ & $10104$ \B \\
 \hline
 \end{tabular}
 \\[6pt]
-\caption{Architectures of the depth sweep: total number of hidden layers $L$, number and width
+\caption{Study~3: architectures of the depth sweep: total number of hidden layers $L$, number and width
 of the hidden layers of each network, and number of trainable weights $P$ at the two latent
 dimensions swept. $L=6$ is the depth used elsewhere in this work, and the sweep's starting point.}
 \label{tab:depth_arch}
@@ -153,150 +180,89 @@ $24$ & $5.18\cdot10^{-3}$ & $9.53\cdot10^{-3}$ & $9.18\cdot10^{-3}$ & $2.22\cdot
 \hline
 \end{tabular}
 \\[6pt]
-\caption{Open-loop test-set reconstruction accuracy of the aerodynamic loads as a function of the
+\caption{Study~3: open-loop test-set reconstruction accuracy of the aerodynamic loads as a function of the
 network depth, with the six-signal input: combined NRMSE for the architectures of
 \cref{tab:depth_arch} at the two latent dimensions. Each configuration is trained twice from two
 different random initialisations of the weights, and both outcomes are reported: the better of
-the two is the model one would retain, the worse measures how repeatable the training is. }
+the two is the LDNet one would retain, the worse measures how repeatable the training is. }
 \label{tab:depth_loads}
 \end{table}
 
-\subsubsection{Field reconstruction}
+\subsubsection{Field reconstruction (Study 4)}
 \label{subsubsec:field_recon}
 
-Evaluated at query coordinates away from the airfoil surface, $\mathcal{NN}_\mathrm{rec}$ of
-\labelcref{eq:reduced_system} returns the distributed field
-$\widetilde{\mathbf{y}}=(v_x,v_y,p)$ instead of the sectional loads. This tests the same
-latent state far more severely: $F_y$ and $M_z$ are integrals, and tolerate local errors that
-cancel, whereas the field has to be right pointwise. Errors are reported per field,
-normalised by that field's range, because the combined metric of~\eqref{eq:acc_metrics} mixes
-velocities with pressure and is dominated by the pressure scale, and per spatial
-region --- near-airfoil, near-wake, far-field and airfoil surface --- because the regions
-differ by an order of magnitude in difficulty.
+Study~4 evaluates $\mathcal{NN}_\mathrm{rec}$ of \labelcref{eq:reduced_system} at query
+coordinates away from the airfoil surface, where it returns the distributed field
+$\widetilde{\mathbf{y}}=(v_x,v_y)$ instead of the sectional loads. \Cref{fig:cc050_umag} shows the reconstruction over a full trajectory on
+a combined gust\,+\,flap case with gust peak
+$W_0=\SI{32.1}{\meter\per\second}$, gust duration $T_g=\SI{1.12}{\second}$ and peak flap deflection $\SI{5.27}{\degree}$. The results are largely
+satisfactory: the LDNet reproduces the velocity field closely at the quiescent and
+recovery instants, with the main difficulty appearing at the peak of the dynamic
+response.
 
-The dominant error of a $\tanh$ coordinate decoder taking $(x,y)$ directly is static.
-Splitting it into a time-mean and a fluctuating part attributes $97\%$ of the near-airfoil
-$v_x$ error to the time-mean bias (\cref{fig:meansplit_decomp}, red): the decoder smears the
-sharp mean boundary-layer gradient and never recovers it, while tracking the gust and flap
-fluctuations comparatively well. Since the offending component is static, it need not be
-learned at all. The training-set mean field is stored once and the decoder is trained on the
-fluctuation, with the min--max normalisation recomputed on the fluctuation ranges and the
-mean added back at inference, so the reported errors remain in total-field units. The change
-mirrors the mean/POD-mode split standard in projection-based reduced-order
-models~\cite{BennerGugercinWillcox2015} and costs nothing: no new inputs, no architecture
-change, no extra loss term, and the latent dynamics untouched. The near-airfoil $v_x$ error
-falls by a factor $5.7$ on the gust\,+\,flap trajectory and $24$ on the gust-only one; the
-static component drops by more than an order of magnitude while the dynamic one is left
-essentially unchanged (\cref{fig:meansplit_decomp}, blue). \Cref{tab:meansplit} gives the
-region-resolved figures and \cref{fig:meansplit_fields} the effect in physical space: the
-error halo that surrounds the whole profile disappears, leaving a localised residual at the
-flap gap.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_Cc050_recon_umag.png}
+\caption{Study~4: CFD (top) and LDNet (bottom) velocity-magnitude field on the held-out
+validation trajectory Cc\_050, combined gust\,+\,flap, with gust peak
+$W_0=\SI{32.1}{\meter\per\second}$, gust duration $T_g=\SI{1.12}{\second}$ and peak flap deflection $\SI{5.27}{\degree}$, at the
+quiescent state, the gust peak, the peak flap deflection and recovery. The reconstruction
+matches CFD closely except at the peak flap deflection, where it is least sharp near the
+airfoil and in the wake.}
+\label{fig:cc050_umag}
+\end{figure}
 
-Two further choices follow. Replacing the coordinate decoder with a shift-modulated
-sinusoidal representation network in the style of CORAL~\cite{Serrano2023} --- a SIREN base
-over the query coordinate, whose per-layer pre-activations are shifted by a small network of
-$\mathbf{s}(t)$ and $\boldsymbol{\eta}(t)$, with the latent dynamics unchanged --- lowers the
-combined error from $7.2\cdot10^{-3}$ to $6.2\cdot10^{-3}$ over three seeds. The gain exists
-only at a low modulation frequency: $\omega_0=10$ improves on the unmodulated decoder,
-whereas $\omega_0=30$ and $\omega_0=60$ give $9.8\cdot10^{-3}$ and $1.1\cdot10^{-2}$, worse
-than not modulating at all, which places the surviving fluctuation at the smooth end of the
-spatial spectrum. The latent dimension is set to $d_s=1$ for the field, against the $d_s=10$
-retained for the loads: accuracy is flat across $d_s\in\{1,3,5\}$ within the seed scatter,
-but repeatability is not, the seed-to-seed spread of the combined error growing from $1.4\%$
-at $d_s=1$ to $11$--$14\%$ above it.
-
-What survives is dynamic, sits on the surface where the flap deflects, and is a physical
-event rather than a smoothing artefact. At the gust peak of the gust\,+\,flap trajectory
-$23.4\%$ of the near-flap nodes show local flow reversal with respect to their own attached
-state, against $2.1\%$ reproduced by the surrogate: there the model misses the sign of the
-velocity, not merely its magnitude, and the residual is the transient separation of the flap
-cove. It proved robust to a systematic set of modifications spanning decoder architecture
-and conditioning, locally gated and mesh-graph decoders, point sampling, optimiser budget,
-multiple shooting, dynamics conditioning and loss weighting, none of which improved the
-near-flap dynamic error beyond seed scatter.
-
-The residual is nonetheless not a property of the architecture. Every modification above
-changed how the surrogate learns; none changed how often it sees the event. Counting, per
-training trajectory, the peak fraction of near-flap nodes in reversed flow shows why this
-matters: the $15$-trajectory set used above reaches the test case's separation level in
-only two of its members, and its median trajectory peaks at $1\%$ reversal, so the regime
-is present but represented a handful of times. Retraining the same architecture, unchanged,
-on $60$ trajectories --- of which $18$ reach that level --- moves every quantity at once.
-Averaged over two seeds the near-flap sign error falls from $21.7\%$ to $14.9\%$ and the
-reversed-flow fraction the surrogate reproduces rises from $2.1\%$ to $9.4\%$, against the
-$23.4\%$ of the reference, while the near and surface dynamic errors fall by $16\%$ and the
-combined error by $19\%$. This is the opposite signature to the modifications listed above,
-several of which lowered the combined error while leaving the target region worse. The
-limitation is therefore one of how densely the separated regime is sampled, not of the
-model class: a global coordinate decoder driven by a one-dimensional latent state
-reconstructs the attached field to under $2\%$ of the range of each field, and represents
-the separated one to the extent that the training set contains it.
+The gain that makes this reconstruction useful is cost, not accuracy on a dial: \cref{tab:cost_accuracy}
+compares the LDNet field reconstruction against the full-order CFD solve that generated its
+training data, at the same query resolution (the $11\,075$-node crop mesh, a full $150$-frame
+trajectory). The LDNet reconstructs a full trajectory on a single CPU core in under \SI{20}{\second}, against
+roughly \SI{2}{\hour} on $16$ cores for the CFD solve: three orders of magnitude faster in wall-clock time,
+and almost four in core-hours. This is not a trade-off against accuracy: the retained
+configuration ($d_s=1$, mean-field split, $5266$ trainable weights) is simultaneously the cheapest
+and the most accurate one tried, since the reconstruction problem's intrinsic latent dimension is
+$\approx1$ and every deeper or wider decoder variant tested lost to it. The LDNet is therefore not a
+cheaper-but-coarser surrogate for the CFD field; at this architecture's current accuracy ceiling, it
+is simply cheaper.
 
 \begin{table}[t]
 \centering
-\begin{tabular}{|l|l|c|c|c|}
-\hhline{|-|-|-|-|-|}
+\begin{tabular}{|c|c|c|}
+\hhline{|-|-|-|}
 \rowcolor{bluePoli!40}
-\multicolumn{1}{|c|}{Trajectory} & \multicolumn{1}{c|}{Region} &
-\multicolumn{1}{c|}{$(x,y)$ decoder} & \multicolumn{1}{c|}{Mean split} &
-\multicolumn{1}{c|}{Factor} \T\B \\
-\hhline{|=|=|=|=|=|}
-gust only & near-airfoil    & $0.194$  & $0.0082$ & $24\times$  \T\B \\
+\multicolumn{1}{|c|}{} & \multicolumn{1}{c|}{CFD (\textit{pimpleFoam})} & \multicolumn{1}{c|}{LDNet reconstruction} \T\B \\
+\hhline{|=|=|=|}
+cores & $16$ & $1$ \T\B \\
 \hline
-          & near-wake       & $0.0091$ & $0.0028$ & $3.2\times$ \T\B \\
+wall-clock, one trajectory & $\approx\SI{2}{\hour}$ & \SIrange{18.8}{19.5}{\second} \T\B \\
 \hline
-          & far-field       & $0.0852$ & $0.0027$ & $31\times$  \T\B \\
+core-hours, one trajectory & $\approx32$ & $\approx5.3\cdot10^{-3}$ \T\B \\
 \hline
-          & airfoil surface & $0.0420$ & $0.0112$ & $3.7\times$ \T\B \\
-\hhline{|=|=|=|=|=|}
-gust\,+\,flap & near-airfoil    & $0.140$  & $0.0244$ & $5.7\times$ \T\B \\
-\hline
-          & near-wake       & $0.0104$ & $0.0074$ & $1.4\times$ \T\B \\
-\hline
-          & far-field       & $0.0614$ & $0.0058$ & $11\times$  \T\B \\
-\hline
-          & airfoil surface & $0.0384$ & $0.0282$ & $1.4\times$ \B \\
+trainable weights & --- & $5266$ \B \\
 \hline
 \end{tabular}
 \\[6pt]
-\caption{Field-reconstruction $v_x$ error (NRMSE, normalised by the field range) by spatial
-region on the two test trajectories, for the coordinate decoder taking $(x,y)$ directly and
-for the mean-field split ($d_s=1$, mean over five seeds).}
-\label{tab:meansplit}
+\caption{Cost of reconstructing one full trajectory ($150$ frames on the $11\,075$-node crop mesh)
+with the full-order CFD solve versus the retained field LDNet ($d_s=1$, mean-field split,
+$\mathcal{NN}_\mathrm{rec}$ query over the full grid). The CFD cost is the cosim replay that
+generated the training/validation/test trajectories themselves, not a separate benchmark; the
+LDNet cost is the mean of $10$ repeated forward passes (after a warm-up call) on a single CPU
+core, on the two held-out test trajectories A\_025 and Cc\_060. The speedup is $\approx370\text{--}380\times$
+in wall-clock time and $\approx6000\times$ in core-hours.}
+\label{tab:cost_accuracy}
 \end{table}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_meansplit_decomp.png}
-\caption{Static (solid) and dynamic (hatched) $x$-velocity reconstruction error by region,
-for the coordinate decoder taking $(x,y)$ directly (red) and for the mean-field split (blue),
-on the gust-only (left) and gust\,+\,flap (right) test trajectories. Without the split the
-error is an almost purely static near-wall bias; the split removes it and leaves the dynamic
-component unchanged.}
-\label{fig:meansplit_decomp}
-\end{figure}
+\subsubsection{Retained LDNet for control}
+\label{subsubsec:rollout_results}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_meansplit_fields.png}
-\caption{Near-airfoil $x$-velocity at the gust peak of the gust\,+\,flap trajectory:
-reference field (left) and absolute reconstruction error without (centre) and with (right)
-the mean-field split, on a common colour scale. The error surrounding the whole profile is
-removed by the split, leaving a localised residual at the flap gap.}
-\label{fig:meansplit_fields}
-\end{figure}
-
-\subsubsection{Rollout model for control}
-
-The retained surrogate combines the results of the studies above: the six-signal input of
-\cref{fig:input_study} and $d_s=10$, the most accurate latent dimension of
-\cref{subsubsec:latent_dim}. Depth is the one hyperparameter they do not settle by themselves:
-\cref{tab:depth_loads} found $L=12$ the most accurate configuration of the entire study, but in
+The retained LDNet combines the results of the studies above: the six-signal input of
+\cref{fig:input_study} (Study~1) and $d_s=10$, the most accurate latent dimension of
+\cref{subsubsec:latent_dim} (Study~2). Depth is the one hyperparameter they do not settle by themselves:
+\cref{tab:depth_loads} of Study~3 found $L=12$ the most accurate configuration of the entire study, but in
 the open-loop, teacher-forced measure of \cref{subsubsec:depth}. Accuracy in that regime is
-not what the controller depends on, since the deployed model is not run teacher-forced but in
+not what the controller depends on, since the retained LDNet is not run teacher-forced but in
 autonomous rollout, fed only its own predictions once turned loose inside the control loop. $L=6$
-and $L=12$ were therefore compared directly on the rollout loss $\mathcal{L}_\mathrm{rollout}$ of
-\eqref{eq:rollout_loss} that the deployed model is actually trained and judged on. It sums the
+and $L=12$ we therefore compare directly on the rollout loss $\mathcal{L}_\mathrm{rollout}$ of
+\eqref{eq:rollout_loss} that the retained LDNet is actually trained and judged on. It sums the
 squared structural-state error to the load term over $N_\mathrm{rollout}=800$ autonomous steps,
 where each step's error shifts the next one's input away from the training distribution --- the
 recurrence that motivates fine-tuning in the first place.
@@ -304,61 +270,80 @@ recurrence that motivates fine-tuning in the first place.
 Two values of $\mathcal{L}_\mathrm{rollout}$ mark this comparison for each depth. The
 warm-start value takes the weights exactly as left by teacher-forced training, before any
 rollout-specific adjustment, and evaluates them in autonomous rollout: it measures how far
-teacher-forcing alone carries the model toward closed-loop behaviour. The
+teacher-forcing alone carries the LDNet toward closed-loop behaviour. The
 fine-tuned value is obtained after continuing training from those same weights directly on
 $\mathcal{L}_\mathrm{rollout}$, the second stage of the recipe detailed below. At the warm start
 $L=12$ is already worse than $L=6$ ($\mathcal{L}_\mathrm{rollout}=0.0864$ against $0.0373$), and
-fine-tuning widens rather than closes the gap: $L=6$ converges cleanly to $0.0114$, while $L=12$
-stalls at $0.0400$, $3.5$ times higher, only after its BFGS optimiser aborts a line search
-and is forced to restart. Unlike in the open-loop regime, where added depth is a free improvement
+fine-tuning widens rather than closes the gap: $L=6$ reaches $1.79\cdot10^{-3}$, while $L=12$
+stalls at $0.0400$, more than twenty times higher, only after its BFGS optimiser aborts a line
+search and is forced to restart. Neither depth reaches that value by converging onto it: both are
+best-validation checkpoints along a run that the optimiser later drives away from
+(\cref{fig:loss}(b)), which is why the comparison is made on the retained minimum rather than
+on the value the run happens to end at. Unlike in the open-loop regime, where added depth is a free improvement
 in both accuracy and repeatability, in the closed-loop regime it works against the training
 objective: a more expressive one-step map is harder to keep well-behaved once composed with itself
-for hundreds of steps. The retained surrogate therefore uses $L=6$: verified to be the more stable configuration under autonomous rollout, and the one that runs inside the
-control loop of the gust-load-alleviation studies of \cref{subsec:mpc_results}.
+for hundreds of steps. The retained LDNet therefore uses $L=6$: verified to be the more stable configuration under autonomous rollout, and the one that runs inside the
+control loop of the GLA studies of \cref{subsec:mpc_results}.
 
 At $L=6$, the dynamics network $\mathcal{NN}_\mathrm{dyn}$ has two hidden layers of $7$ neurons and
 the reconstruction network $\mathcal{NN}_\mathrm{rec}$ four hidden layers of $24$ neurons, all with
 $\tanh$ activation and the tail-compressing nonlinear output layer ($\beta=0.05$); the integration
-and reference time steps are $\Delta t=\Delta t_\mathrm{ref}=2\cdot10^{-3}$~s. Training uses the
-two-stage teacher-forced schedule of \cref{subsubsec:training_algorithm} ($200$ Adam epochs at
-learning rate $10^{-2}$ followed by L-BFGS) with the weight regularization and validation early
-stopping described above; the selected model attains the combined $\mathrm{NRMSE}=1.3\cdot10^{-3}$
-of \cref{tab:latent_sweep}. Figure~\ref{fig:loss} shows the corresponding training history. The
+and reference time steps are $\Delta t=\Delta t_\mathrm{ref}=\SI{2e-3}{\second}$. Training uses the
+two-stage teacher-forced schedule of \cref{subsubsec:training_algorithm} ($400$ Adam epochs at
+learning rate $10^{-2}$ followed by L-BFGS) with the weight regularization, the damped latent
+update~\eqref{eq:latent_dyn} and the validation early stopping described above.
+\Cref{fig:loss}(a) shows the corresponding training history. The
 curve flattens over the last decade of epochs, reaching a training loss
-$\mathcal{L}_\mathrm{train}\approx4\cdot10^{-5}$ and a validation loss
-$\mathcal{L}_\mathrm{val}\approx2\cdot10^{-5}$ at the retained minimum near epoch $8.8\cdot10^{3}$:
-the model is converged rather than truncated by the iteration budget. Training and validation
-track each other throughout, with the validation curve sitting slightly below because the
-Tikhonov term enters the training objective only; the absence of any late divergence between the
-two confirms that the regularized high-capacity model does not overfit. Unlike this teacher-forced
-pretraining, whose $\sim10^4$ epochs in \cref{fig:loss} run until the validation-patience rule
-above fires, the fine-tuning stage that follows keeps the same architecture and inputs, with the
-damped latent update~\eqref{eq:latent_dyn} and $\lambda$ re-optimised for the fine-tuned weights,
-but skips the Adam warm-up and runs a much shorter schedule: up to $500$ L-BFGS iterations directly
+$\mathcal{L}_\mathrm{train}\approx3.2\cdot10^{-5}$ and a validation loss
+$\mathcal{L}_\mathrm{val}\approx1.3\cdot10^{-4}$ at the retained minimum near epoch $4.2\cdot10^{3}$:
+the LDNet is converged rather than truncated by the iteration budget. Training and validation
+track each other throughout, with the validation curve sitting slightly above the training one
+once the Tikhonov term has been driven small; the absence of any late divergence between the
+two confirms that the regularized high-capacity LDNet does not overfit. Unlike this teacher-forced
+pretraining, whose $\sim4\cdot10^{3}$ epochs in \cref{fig:loss}(a) run until the validation-patience
+rule above fires, the fine-tuning stage that follows keeps the same architecture and inputs,
+but skips the Adam warm-up and runs a much shorter schedule: pure BFGS directly
 on $\mathcal{L}_\mathrm{rollout}$, saving the weights whenever the rollout loss improves.
+\Cref{fig:loss}(b) reports that second stage. Warm-started from the teacher-forced weights, the
+rollout loss falls by a factor of $21$, from $3.7\cdot10^{-2}$ to a best validation value of
+$1.79\cdot10^{-3}$ at iteration $290$; past that point the validation loss drifts upward again
+while the training loss keeps decreasing monotonically, so the run is stopped once the budget
+of $500$ BFGS iterations is spent rather than at a plateau, and the weights retained are those
+of iteration $290$. We show the two stages
+separately because they optimise different objectives with different optimisers: concatenating
+them on a single axis would suggest a continuity that the warm-start restart does not have.
 
 
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.85\textwidth]{Thesis_article_format/Chapters/Chapter2/Images/fig_ch2_loss.png}
-\caption{Training history of the selected $d_s=10$ six-signal model (log--log): training loss
-(with the Tikhonov term) and validation loss (without it) versus epoch. The dashed line marks
-the transition from the Adam warm-up to the L-BFGS phase. Training continues past the minimum of
-the validation loss until the plateau criterion fires, and the weights at that minimum are the
-ones retained.}
+\caption{Retained LDNet ($d_s=10$, six-signal input, $L=6$): the two stages of the training of
+the model that runs inside the control loop of \cref{subsec:mpc_results}.
+(a) Teacher-forced pretraining (log--log): training loss (with the Tikhonov term) and
+validation loss (without it) versus epoch. The dashed line marks the transition from the Adam
+warm-up to the L-BFGS phase. Training continues past the minimum of the validation loss until
+the plateau criterion fires, and the weights at that minimum are the ones kept. (b) Closed-loop
+rollout fine-tuning, warm-started from the weights of (a) and optimised with pure BFGS on
+$\mathcal{L}_\mathrm{rollout}$, evaluated every $10$ iterations. The validation loss reaches its
+minimum at iteration $290$ and drifts upward again while the training loss keeps falling: the
+retained weights are those of that minimum, which the checkpointing rule saves as the run
+proceeds. The horizontal axes are not comparable
+between the panels -- they count epochs of a teacher-forced objective in (a) and BFGS
+iterations of the rollout objective in (b) -- so the stages are plotted separately rather than
+joined end to end.}
 \label{fig:loss}
 \end{figure}
 
 % ---- Prepared placeholders (to be written when the field-reconstruction study is ready) ----
 % \subsubsection{Latent leak $\lambda$}                       % stability-vs-accuracy trade-off (train_lambdas.sh)
 
-\subsection{Gust load alleviation over the discrete-gust envelope}
+\subsection{GLA over the discrete-gust envelope}
 \label{subsec:mpc_results}
 
 The controller is evaluated over a parametric grid of 18 gust cases that spans the
-CS-25.341 discrete gust envelope: gust amplitude $W_0 \in \{10,\,20,\,30\}$~m/s
-and gust duration $T_g \in \{0.3,\,0.4,\,0.5,\,0.7,\,1.0,\,1.2\}$~s.
+CS-25.341 discrete gust envelope: gust amplitude $W_0 \in \{10,\,20,\,30\}\,\si{\meter\per\second}$
+and gust duration $T_g \in \{0.3,\,0.4,\,0.5,\,0.7,\,1.0,\,1.2\}\,\si{\second}$.
 Each case is located in the aerodynamically relevant parameter space by two quantities derived
 from the gust parameters of \cref{eq:gust}: the gust gradient distance $H = U_\infty T_g/2$, the
 length with which CS-25.341 parametrises the discrete-gust envelope and is therefore reported in
@@ -373,7 +358,7 @@ lift-coefficient excursion with respect to the open-loop reference:
                     \times 100\%,
 \label{eq:clred}
 \end{equation}
-where the maximum is taken over the gust window $t \in [0,\, T_g + 0.5\,\mathrm{s}]$ and
+where the maximum is taken over the gust window $t \in [0,\, T_g + \SI{0.5}{\second}]$ and
 $C_{L,\mathrm{trim}}$ is the target the controller drives the lift towards, the same
 reference whose deviations the MPC cost~\eqref{eq:mpc_cost} penalises: CLred is therefore
 the fraction of the open-loop excursion about that target that the controller removes.
@@ -392,7 +377,7 @@ load trade-off introduced by the flap. In this nominal evaluation the sensing
 chain is noise-free, so the preview vector coincides with the sampled true
 gust profile~\eqref{eq:gust}.
 \Cref{tab:results_setup} collects the numerical values of the structural,
-aerodynamic and actuator parameters shared by every run of this section;
+aerodynamic and actuator parameters shared by every run of this paragraph;
 the symbols are those of the structural model~\eqref{eq:eom}--\eqref{eq:matrices}.
 The structural and flap values are adapted from the typical-section aeroelastic
 benchmark of Hodges and Pierce~\cite{hodges2011aeroelasticity}.
@@ -404,79 +389,160 @@ benchmark of Hodges and Pierce~\cite{hodges2011aeroelasticity}.
     \rowcolor{bluePoli!40}
     Symbol & Value & Description \T\B \\
     \hline\hline
-    $U_\infty$ & $80$~m/s & freestream velocity \T\B \\
-    $\rho$ & $1.225$~kg/m$^3$ & air density \T\B \\
-    $c_{\mathrm{ref}}$ & $1$~m & chord \T\B \\
-    $S_{\mathrm{ref}}$ & $0.05$~m$^2$ & reference surface \T\B \\
-    $C_{L,\text{trim}}$ & $0.868$ & trim lift coefficient (surrogate at the trim state) \T\B \\
+    $U_\infty$ & \SI{80}{\meter\per\second} & freestream velocity \T\B \\
+    $\rho$ & \SI{1.225}{\kilogram\per\cubic\meter} & air density \T\B \\
+    $c_{\mathrm{ref}}$ & \SI{1}{\meter} & chord \T\B \\
+    $S_{\mathrm{ref}}$ & \SI{0.05}{\square\meter} & reference surface \T\B \\
+    $C_{L,\text{trim}}$ & $0.868$ & trim lift coefficient (LDNet at the trim state) \T\B \\
     \hline
-    $m_w$ & $19.24$~kg & wing mass \T\B \\
-    $I_w$ & $1.155$~kg\,m$^2$ & wing inertia about the elastic axis \T\B \\
-    $k_h$ & $25\,460$~N/m & plunge stiffness \T\B \\
-    $d_h$ & $88.0$~N\,s/m & plunge damping \T\B \\
-    $k_\alpha$ & $9530$~N\,m/rad & pitch stiffness \T\B \\
-    $d_\alpha$ & $19.8$~N\,m\,s/rad & pitch damping \T\B \\
-    $x_{\mathrm{EA}}$ & $0.40$~m ($40\%\,c_{\mathrm{ref}}$) & chordwise station of the elastic axis from the leading edge \T\B \\
+    $m_w$ & \SI{19.24}{\kilogram} & wing mass \T\B \\
+    $I_w$ & \SI{1.155}{\kilogram\square\meter} & wing inertia about the elastic axis \T\B \\
+    $k_h$ & \SI{25460}{\newton\per\meter} & plunge stiffness \T\B \\
+    $d_h$ & \SI{88.0}{\newton\second\per\meter} & plunge damping \T\B \\
+    $k_\alpha$ & \SI{9530}{\newton\meter\per\radian} & pitch stiffness \T\B \\
+    $d_\alpha$ & \SI{19.8}{\newton\meter\second\per\radian} & pitch damping \T\B \\
+    $x_{\mathrm{EA}}$ & \SI{0.40}{\meter} ($40\%\,c_{\mathrm{ref}}$) & chordwise station of the elastic axis from the leading edge \T\B \\
     \hline
-    $m_f$ & $1.19$~kg & flap mass \T\B \\
-    $I_{f,\mathrm{CG}}$ & $0.006$~kg\,m$^2$ & flap inertia about its centre of gravity \T\B \\
-    $x_{\mathrm{hinge},0}$ & $0.779$~m & chordwise station of the flap hinge from the leading edge \T\B \\
-    $\delta_{\max}$ & $14^{\circ}$ & flap deflection limit \T\B \\
-    $\dot\delta_{\max}$ & $300~^{\circ}$/s & flap rate limit \B \\
+    $m_f$ & \SI{1.19}{\kilogram} & flap mass \T\B \\
+    $I_{f,\mathrm{CG}}$ & \SI{0.006}{\kilogram\square\meter} & flap inertia about its centre of gravity \T\B \\
+    $x_{\mathrm{hinge},0}$ & \SI{0.779}{\meter} & chordwise station of the flap hinge from the leading edge \T\B \\
+    $\delta_{\max}$ & \SI{14}{\degree} & flap deflection limit \T\B \\
+    $\dot\delta_{\max}$ & \SI{300}{\degree\per\second} & flap rate limit \B \\
     \hline
     \end{tabular}
     \\[6pt]
     \caption{Aerodynamic, structural and actuator parameters shared by all
-    the simulations of this section.}
+    the simulations of this paragraph.}
     \label{tab:results_setup}
 \end{table}
 
 \subsubsection{Performance over the discrete-gust envelope}
 
-\Cref{fig:mpc_traces} shows the nominal closed-loop response at two
-representative gust cases, the severe short gust ($W_0 = 30$~m/s,
-$T_g = 0.4$~s) and a longer one ($W_0 = 30$~m/s, $T_g = 0.7$~s). The preview
+\Cref{fig:mpc_traces} shows the nominal closed-loop response at the two gust
+cases that this work follows throughout: Test~1 ($W_0 = \SI{20}{\meter\per\second}$, $T_g = \SI{0.7}{\second}$),
+the gust of \cref{fig:cfd}, and Test~2 ($W_0 = \SI{10}{\meter\per\second}$, $T_g = \SI{0.4}{\second}$), the
+short gust on which the robustness studies of
+\cref{subsec:noise_results,subsec:systematic_results} are run. The preview
 lets the flap deploy while the gust is still building up, and the closed-loop
 lift remains confined to a narrow band around trim: the peak excursion is
-reduced by $80.5\%$ and $91.8\%$ respectively, with at most $10.5^{\circ}$ of
-deflection and closed-loop pitch excursions comparable to or smaller than the
-open-loop ones (ratios $1.02$ and $0.75$).
+reduced by $91.9\%$ and $89.1\%$ respectively, with at most $\SI{8.4}{\degree}$ and
+$\SI{4.2}{\degree}$ of deflection and closed-loop pitch excursions comparable to or
+moderately larger than the open-loop ones (ratios $0.90$ and $1.15$).
 
 \begin{figure}[t]
     \centering
-    \subfloat[$W_0 = 30$~m/s, $T_g = 0.4$~s.\label{fig:mpc_traces_severe}]{%
-        \includegraphics[width=0.48\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_trace_W30Tg04.png}}
-    \hfill
-    \subfloat[$W_0 = 30$~m/s, $T_g = 0.7$~s.\label{fig:mpc_traces_long}]{%
-        \includegraphics[width=0.46\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_trace_W30Tg07.png}}
-    \caption{Noise-free closed-loop response at two points of the
-    parametric grid: gust profile (top), lift coefficient against the
-    open-loop reference (middle), commanded flap deflection (bottom), over
-    the evaluation window $t \in [0,\,T_g + 0.5~\mathrm{s}]$.}
+    \includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_trace_tests.png}
+    \caption{Noise-free closed-loop response at the two gust cases of the CS-25
+    grid of \cref{tab:cs25_grid} retained throughout this work, Test~1
+    ($W_0 = \SI{20}{\meter\per\second}$, $T_g = \SI{0.7}{\second}$, left) and Test~2 ($W_0 = \SI{10}{\meter\per\second}$,
+    $T_g = \SI{0.4}{\second}$, right): gust profile (top), lift coefficient (middle) and
+    flap deflection (bottom), over the evaluation window
+    $t \in [0,\,T_g + \SI{0.5}{\second}]$. Solid lines are the reduced-order
+    system (ROM): open loop (red), closed loop (light blue), and the
+    commanded flap (orange), against the trim value $C_{L,\mathrm{trim}}$
+    (dotted). Dashed lines repeat the closed loop on the full-order model
+    (FOM): the controller still predicts with the LDNet surrogate, but is now
+    fed the true structural state of the co-simulation at every coupling
+    window and re-plans against it, so its commanded deflection genuinely
+    differs from the reduced-order one rather than replaying it. The
+    full-order closed loop confirms the alleviation, with a peak-excursion
+    reduction of $80.7\%$ on Test~1 and $74.6\%$ on Test~2, in reasonable
+    agreement with the reduced-order values above.}
     \label{fig:mpc_traces}
 \end{figure}
 
-\Cref{tab:cs25_grid} reports the grid at $T_g\in\{0.3,0.4,0.7,1.2\}$~s for each amplitude. In
-the central portion of the gradient range ($T_g = 0.5$--$0.7$~s) the
+As with the field reconstruction of \cref{subsubsec:field_recon}, the reduced-order
+controller's value is a cost argument rather than an accuracy one: the full-order closed
+loop is not just harder to set up, it is also several orders of magnitude more expensive to
+run, which is what makes an iterative design loop on it impractical. \Cref{tab:mpc_cost_accuracy}
+times both closed loops on Test~1 and Test~2: we time the ROM controller end to end
+(preview, $161$-point flap search over the $N=8$ horizon, and plant integration) on a
+single CPU core; we measure the FOM cost on a short, freshly-run coupling segment of the
+same co-simulation used for \cref{fig:mpc_traces} ($16$ cores, coupling window aligned to
+the controller's own re-planning step, \cref{subsec:mpc_arch}), rather than reconstructed
+from the campaign's archived logs, which record simulated time but not wall-clock time per
+coupling window. The full-order loop costs on the order of \SI{1e3}{\second} wall-clock
+of CFD for every second simulated, against \SIrange{1e1}{1e2}{\second} for the
+ROM on a single core: roughly $46\times$ slower in wall-clock time at Test~1, or
+$\approx700\times$ in core-hours once the FOM's $16$ cores are accounted
+for. Against this cost gap, the accuracy gap of \cref{fig:mpc_traces} is modest: $11.3$ and
+$14.5$ points of CLred at Test~1 and Test~2, with the reduced-order controller still
+beneficial by a wide margin at both. The asymmetry compounds directly in the tuning
+procedure that produced \cref{tab:cs25_grid}: selecting $R^{\star}$ sweeps five effort
+weights per cell on the ROM, a search that is only affordable because each evaluation costs
+seconds rather than hours; repeating it on the full-order model would multiply the
+already-large per-run cost fivefold, per cell, over the whole grid. The full-order loop is
+therefore best used as a final check on a design point chosen on the reduced-order model,
+not as the model the design loop itself runs on.
+
+This cost comparison bounds what the reduced-order loop has been shown to do, and it is worth
+stating what it has not. The reduced-order entries of \cref{tab:mpc_cost_accuracy} time an
+interpreted research prototype on a single core, not an implementation written for deployment.
+On the control grid of \cref{subsec:discretisation}, $\Delta t = \SI{2}{\milli\second}$, one
+simulated second requires $500$ successive decisions, so the measured \SI{80.2}{\second} and
+\SI{88.0}{\second} per simulated second amount to roughly \SI{160}{\milli\second} per decision,
+about two orders of magnitude above the \SI{2}{\milli\second} the step itself allows. That margin is spent on the exhaustive enumeration of the
+$161$ candidate deflections over the $N=8$ horizon of \cref{subsubsec:mpc_solution} and on the
+per-call overhead of the interpreted implementation, not on evaluating the LDNet, whose two
+networks carry $7$ and $24$ neurons per layer over $L=6$ hidden layers in total. What this work
+establishes is therefore the cost reduction against the full-order model and the practicability
+of an iterative design loop on the reduced one, not embedded real-time feasibility: the latter
+requires a compiled implementation and a cheaper parametrisation of the optimisation problem,
+reducing $G$ or replacing the exhaustive search with a hierarchical or local one, and lies
+outside the scope of this work.
+
+\begin{table}[t]
+\centering
+\begin{tabular}{|c|c|c|c|c|}
+\hhline{|-|-|-|-|-|}
+\rowcolor{bluePoli!40}
+\multicolumn{1}{|c|}{} & \multicolumn{2}{c|}{Test~1 ($W_0=\SI{20}{\meter\per\second}$, $T_g=\SI{0.7}{\second}$)} & \multicolumn{2}{c|}{Test~2 ($W_0=\SI{10}{\meter\per\second}$, $T_g=\SI{0.4}{\second}$)} \T\B \\
+\hhline{|-|-|-|-|-|}
+\rowcolor{bluePoli!40}
+ & ROM & FOM & ROM & FOM \T\B \\
+\hhline{|=|=|=|=|=|}
+cores & $1$ & $16$ & $1$ & --- \T\B \\
+\hline
+wall-clock per simulated second & \SI{80.2}{\second} & \SI{3.68e3}{\second} & \SI{88.0}{\second} & --- \T\B \\
+\hline
+core-hours per simulated second & $2.2\cdot10^{-2}$ & $16.3$ & $2.4\cdot10^{-2}$ & --- \T\B \\
+\hline
+CLred & $91.9\%$ & $80.7\%$ & $89.1\%$ & $74.6\%$ \B \\
+\hline
+\end{tabular}
+\\[6pt]
+\caption{Cost of one closed-loop second at Test~1 and Test~2, reduced-order (ROM) versus
+full-order (FOM) controller. ROM cost is the wall-clock time of the controller-plus-plant
+loop of \cref{subsec:mpc_arch} (oracle preview, $N=8$, $161$-point flap search), timed on a
+single CPU core. FOM cost is measured on a short freshly-timed segment of the co-simulation
+of \cref{fig:mpc_traces} at Test~1 only (coupling window aligned to the controller's
+re-planning step, $16$ cores); the same measurement was not repeated at Test~2 within the
+scope of this comparison. The wall-clock ratio at Test~1 is $\approx46\times$; the
+core-hour ratio, accounting for the FOM's $16$ cores against the ROM's one, is
+$\approx7.3\cdot10^{2}\times$.}
+\label{tab:mpc_cost_accuracy}
+\end{table}
+
+\Cref{tab:cs25_grid} reports the grid at $T_g\in\{0.3,0.4,0.7,1.2\}\,\si{\second}$ for each amplitude. In
+the central portion of the gradient range ($T_g = \SIrange{0.5}{0.7}{\second}$) the
 controller removes more than $81\%$ of the peak excursion at every amplitude,
-and more than $88\%$ for $W_0 \le 20$~m/s. Performance degrades toward both
+and more than $88\%$ for $W_0 \le \SI{20}{\meter\per\second}$. Performance degrades toward both
 ends of the envelope, for different reasons. At the sharp--severe corner
-($W_0 = 30$~m/s, $T_g = 0.3$~s) the reduction is limited to $39.4\%$ and is
+($W_0 = \SI{30}{\meter\per\second}$, $T_g = \SI{0.3}{\second}$) the reduction is limited to $39.4\%$ and is
 only weakly sensitive to the effort weight (below $5$ percentage points of
 variation over two decades of $R$, with no stability violation): the peak
 gust slope $\pi W_0/T_g$ corresponds to an equivalent-incidence rate
-$\dot{W}/U_\infty \approx 225~^{\circ}$/s, comparable to the actuator rate
+$\dot{W}/U_\infty \approx \SI{225}{\degree\per\second}$, comparable to the actuator rate
 limit itself, so the flap---aerodynamically less effective than
 incidence---cannot track the gust ramp regardless of the tuning. At the
 long-gust corner the stability check becomes the active constraint: the
 large sustained deflection required to cancel a quasi-steady gust drives the
-pitch degree of freedom, whose open-loop peaks---and hence the $3\times$
-bounds---are small for slow gusts;
+pitch degree of freedom, whose open-loop peaks are small for slow gusts;
 aggressive tunings amplify the pitch excursion (ratios up to $1.9$) and
 violate the $\dot\alpha$ bound, so the selected weight rises to
 $R^{\star} = 10^{-2}$ and the reduction settles at $41.7\%$
-($W_0 = 30$~m/s) and $58.2\%$ ($W_0 = 20$~m/s) at $T_g = 1.2$~s. Across the
-whole grid the actuator never saturates ($|\delta|_{\max} \le 12.2^{\circ} <
+($W_0 = \SI{30}{\meter\per\second}$) and $58.2\%$ ($W_0 = \SI{20}{\meter\per\second}$) at $T_g = \SI{1.2}{\second}$. Across the
+whole grid the actuator never saturates ($|\delta|_{\max} \le \SI{12.2}{\degree} <
 \delta_{\max}$) and no selected tuning violates the stability check; the
 pitch ratio spans $0.57$--$1.47$.
 
@@ -487,8 +553,8 @@ pitch ratio spans $0.57$--$1.47$.
     \begin{tabular}{|r|r|r|r|r|r|r|r|}
     \hline
     \rowcolor{bluePoli!40}
-    $W_0$ [m/s] & $T_g$ [s] & $H$ [ft] & $k$ & CLred [\%] & $R^{\star}$ &
-    $|\delta|_{\max}$ [$^{\circ}$] & pitch ratio \T\B \\
+    $W_0$ [\si{\meter\per\second}] & $T_g$ [\si{\second}] & $H$ [\si{\foot}] & $k$ & CLred [\si{\percent}] & $R^{\star}$ &
+    $|\delta|_{\max}$ [\si{\degree}] & pitch ratio \T\B \\
     \hline\hline
     10 & 0.30 &  39 & 0.131 & 81.2 & $10^{-3}$          & 4.6  & 1.47 \T\B \\
     \hline
@@ -517,7 +583,7 @@ pitch ratio spans $0.57$--$1.47$.
     \end{tabular}
     \\[6pt]
     \caption{Noise-free results at twelve of the eighteen CS-25.341 gust cases,
-    $T_g\in\{0.3,0.4,0.7,1.2\}$~s at each amplitude: gust
+    $T_g\in\{0.3,0.4,0.7,1.2\}\,\si{\second}$ at each amplitude: gust
     gradient distance $H = U_\infty T_g/2$ and reduced frequency
     $k = \pi\,c_{\mathrm{ref}}/(U_\infty T_g)$, peak lift-excursion reduction of
     \cref{eq:clred}, effort weight $R^{\star}$ selected per case, peak flap
@@ -530,9 +596,8 @@ pitch ratio spans $0.57$--$1.47$.
 
 The stochastic robustness of the pipeline is assessed with both noise
 models of \cref{subsec:mpc_arch}: the constant-level model drives the
-amplitude sweep of this subsection, at the severe case ($W_0 = 30$~m/s,
-$T_g = 0.4$~s), while the range-proportional lidar model enters the
-multi-case check below. The sweep applies
+amplitude sweep of this paragraph, run on Test~2, while the
+range-proportional lidar model~\eqref{eq:range_prop_noise} enters the multi-case check below. The sweep applies
 the measurement model~\eqref{eq:meas_model} with the constant per-sample
 level $\sigma_j = \sigma$: at every control instant $t_n$ each of the
 $J_{\max}$ raw samples is corrupted by its own error draw,
@@ -542,13 +607,13 @@ y_j(t_n) = W\bigl(t_n + j\,\Delta t\bigr) + \varepsilon_{nj}, \qquad
 \frac{\sigma}{W_0} \in \{0, 1, 2, 5, 10, 20\}\%,
 \end{equation*}
 with the errors drawn independently across nodes and control instants:
-white noise of up to $6$~m/s per shot. The noisy samples enter the
+white noise of up to \SI{6}{\meter\per\second} per shot. The noisy samples enter the
 fusion sums of \cref{eq:invvar} exactly as drawn, and the aeroelastic
 system keeps advancing with the true gust $W(t)$: the noise reaches the
 control loop only through the preview vector $\widehat{W}_k$ in the
 horizon cost of \cref{eq:mpc_cost}. Since the outcome depends on the particular random
-sequence drawn, each level is simulated six times with independent noise
-realisations, and the statistics are taken over the six repetitions.
+sequence drawn, we simulate each level six times with independent noise
+realisations, and take the statistics over the six repetitions.
 
 \Cref{fig:noise_white} reports the resulting reduction together with the
 error actually delivered to the controller after fusion,
@@ -559,39 +624,41 @@ Since each gust
 value is measured $J_{\max} = 50$ times with independent errors before
 reaching the wing, the inverse-variance average of \cref{eq:invvar}
 shrinks the per-sample error by roughly $\sqrt{J_{\max}} \approx 7$: at
-$\sigma = 0.6$~m/s the delivered error is $0.07$~m/s, about one order of
+$\sigma = \SI{0.2}{\meter\per\second}$ the delivered error is $\SI{0.02}{\meter\per\second}$, about one order of
 magnitude below the raw level. The noise that actually reaches the horizon
 cost~\eqref{eq:mpc_cost} is therefore far smaller than the nominal
 $\sigma$, and as a result the mean reduction remains within about one
 percentage point of the noise-free value up to $\sigma = 10\%\,W_0 =
-3$~m/s---the upper end of the per-shot error of airborne Doppler hardware
+\SI{1}{\meter\per\second}$---the upper end of the per-shot error of airborne Doppler hardware
 discussed in \cref{subsec:mpc_arch}. Only at $\sigma = 20\%\,W_0$ does the
-spread across realisations open appreciably (worst realisation $+53.0\%$,
-two flagged out of six).
+spread across realisations open appreciably (worst realisation $82.1\%$,
+none flagged).
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=0.65\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_noise_white.png}
-    \caption{Peak-load reduction under white measurement noise on the raw
-    lidar samples at the severe case ($W_0 = 30$~m/s, $T_g = 0.4$~s): mean
+    \includegraphics[width=0.7\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_noise_white_W10.png}
+    \caption{Peak lift-coefficient excursion reduction under white measurement noise on the raw
+    lidar samples, on Test~2 ($W_0 = \SI{10}{\meter\per\second}$, $T_g = \SI{0.4}{\second}$): mean
     and min--max band over 6 noise realisations, with the delivered
     post-fusion error $\sigma_{\mathrm{del}}$ on the second axis row. Ringed
     points raise the stability flag in the indicated fraction of
-    realisations.}
+    realisations. Fusion over the $J_{\max}$ repeated measurements is what
+    makes the loop tolerant: the mean reduction stays within about one
+    percentage point of the noise-free $89.1\%$ up to $\sigma = 10\%\,W_0$,
+    and only at $20\%\,W_0$ does the spread across realisations open
+    appreciably, with no stability flag raised at any level.}
     \label{fig:noise_white}
 \end{figure}
 
-A multi-case check verifies that this tolerance is not a property of a
-single operating point: with one fixed, untuned configuration
-($R = 3\times 10^{-4}$), three gust cases spanning the envelope are run
-under flat noise at $\sigma = 2\%\,W_0$ and under the range-proportional
-lidar model of \cref{subsec:mpc_arch}, whose raw line-of-sight error
-(1--3~m/s) reaches $10$--$30\%$ of $W_0$ at the gentlest case. In every
-case the mean reduction stays within $1.5$ percentage points of the
-corresponding noise-free value, with no stability flag in any realisation:
-noise-free/flat/lidar CLred is $79.6\%/79.6\%/81.1\%$ at the severe case
-($W_0=30$~m/s, $T_g=0.4$~s), $93.5\%/93.5\%/92.0\%$ at $W_0=10$~m/s,
-$T_g=0.7$~s, and $91.5\%/91.5\%/91.5\%$ at $W_0=30$~m/s, $T_g=0.7$~s.
+A further check verifies that this tolerance also holds under the
+range-proportional lidar model~\eqref{eq:range_prop_noise}, whose raw
+line-of-sight error (\SIrange{1}{3}{\meter\per\second}) is largest relative to the gust on Test~2 of
+any case in the study: with one fixed, untuned configuration
+($R = 3\times 10^{-4}$), we run Test~2 under white noise at $\sigma =
+2\%\,W_0$ and under this lidar model, and in both cases the mean reduction
+stays within $3.5$ percentage points of the noise-free value, with no
+stability flag in any realisation (noise-free/white/lidar CLred is
+$89.1\%/89.1\%/85.6\%$).
 
 \subsection{Systematic errors and model mismatch}
 \label{subsec:systematic_results}
@@ -612,49 +679,48 @@ $\widehat{W}_k \approx W(t + k\Delta t + \tau) + b$, an error that
 enters every term of the horizon cost~\eqref{eq:mpc_cost} coherently
 instead of averaging down.
 
-\Cref{fig:noise_bias_timing} sweeps the two errors, again at the severe
-case. In
+\Cref{fig:noise_bias_timing} sweeps the two errors, again on Test~2. In
 both panels the curve is a deterministic sweep with the systematic error
 alone ($\varepsilon_{nj} = 0$); at $b = \pm 5\%\,W_0$ and
-$\tau = \pm 10$~ms the flat noise of the previous subsection
+$\tau = \pm\SI{10}{\milli\second}$ the white noise of the previous paragraph
 ($\sigma = 2\%\,W_0$, six realisations) is superimposed on the systematic
 error to probe the combination of the two error classes. On the tolerated
 side the noisy means reproduce the deterministic values within a fraction
-of a percentage point with no flag, so the two classes do not interact;
-past the failure threshold every realisation raises the flag. Both axes
-are strongly asymmetric. A calibration bias that
-over-reads the gust collapses the controller already at
-$+2\%\,W_0 = +0.6$~m/s ($+23.5\%$, flagged), while under-reading is nearly
-free down to $-5\%\,W_0$ ($+73.9\%$, no flag): an over-read gust keeps the
-flap deployed against a disturbance that never materialises, and the
-self-induced transient violates the pitch-rate bound. For the systematic
-time shift of the preview, a delayed preview costs
-$2$ percentage points at $-10$~ms ($+78.6\%$, no flag), because the receding
-horizon re-plans from the measured state at every step, whereas an
-anticipated preview is flagged already at $+4$~ms and collapses at $+10$~ms
-($+18.0\%$)---the flap acts against a gust that has not yet arrived.
+of a percentage point with no flag, so the two classes do not interact.
+Both axes are asymmetric. A calibration bias that over-reads the gust
+degrades slowly at first, from $+90.2\%$ at $+2\%\,W_0$ to $+53.2\%$
+at $+5\%\,W_0$ (no flag), and only collapses at $+10\%\,W_0$ (flagged,
+mean reduction below zero), while under-reading is nearly free down to
+$-10\%\,W_0$ ($+90.0\%$, no flag): an over-read gust keeps the flap
+deployed against a disturbance that never materialises, driving the flap
+excursion and the pitch peak up as the bias grows, until the self-induced
+transient destabilises the loop. For the systematic time shift of the
+preview, the tolerated range covers the entire sweep run, $\tau \in$
+\SIrange{-10}{10}{\milli\second}, with no flag raised at either end, and the two directions
+are not symmetric: a delayed preview does not merely avoid degrading the
+reduction, it is mildly beneficial, $+2.2$ percentage points at $\SI{-10}{\milli\second}$
+($+91.3\%$, peaking at $+91.6\%$ at $\SI{-5}{\milli\second}$), while an anticipated preview
+of $\SI{+10}{\milli\second}$ costs $3.9$ points ($+85.2\%$); the receding horizon re-plans
+from the measured state at every step, which keeps both directions well
+short of the instability seen on the calibration axis over the same sweep
+range.
 
-\begin{figure}[t]
+
+
+\begin{figure}[h]
     \centering
-    \includegraphics[width=\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_bias_timing.png}
-    \caption{Robustness to the two critical systematic errors at the severe
-    case ($W_0 = 30$~m/s, $T_g = 0.4$~s): calibration bias of the wind
+    \includegraphics[width=1\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ch3_bias_timing_W10.png}
+    \caption{Robustness to the two critical systematic errors, on Test~2
+    ($W_0 = \SI{10}{\meter\per\second}$, $T_g = \SI{0.4}{\second}$): calibration bias of the wind
     measurement (left) and systematic preview time shift (right).
     Deterministic noise-free sweeps with spot checks at $\sigma = 2\%\,W_0$
     (6 noise realisations, min--max bars); ringed points raise the
-    stability flag.}
+    stability flag. The calibration axis is strongly asymmetric:
+    over-reading the gust degrades the reduction well before $+10\%\,W_0$,
+    where it collapses and raises the stability flag, whereas
+    under-reading it is nearly free down to $-10\%\,W_0$. The timing axis
+    is tolerated symmetrically over the sweep range shown, with no flag
+    raised at either end.}
     \label{fig:noise_bias_timing}
 \end{figure}
-
-These asymmetries translate into a practical specification for keeping
-systematic errors harmless. First, the measurement chain should be
-calibrated to under-read: residual calibration uncertainty must sit on
-the side where the gust is underestimated, which the controller absorbs
-down to $-5\%\,W_0$, not on the over-reading side that collapses it at
-$+2\%\,W_0$. Second, residual timing uncertainty must be absorbed on the
-delayed side of the acquisition chain: the receding horizon re-plans
-from the measured state and tolerates a late preview, whereas an
-anticipated one commands the flap against a gust that has not yet
-arrived.
-
 \clearpage

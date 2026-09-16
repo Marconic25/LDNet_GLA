@@ -1,0 +1,27 @@
+#!/bin/bash
+#PBS -N recon_timing
+#PBS -q cpu
+#PBS -l select=1:ncpus=1
+#PBS -l walltime=00:20:00
+#PBS -j oe
+export APPTAINER_TMPDIR=/work/u10677113/apptainer_tmp
+export APPTAINER_CACHEDIR=/work/u10677113/apptainer_tmp
+RECON=/work/u10677113/NACA2312/recon
+echo "=== recon_timing start $(date) ==="
+hostname
+nproc
+apptainer exec --writable-tmpfs --bind /work/u10677113:/work/u10677113 \
+    /work/u10677113/tensorflow_gpu.sif \
+    bash -c "pip install -q h5py scipy matplotlib pandas 2>/dev/null; cd $RECON; \
+      OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 \
+      python3 -u analysis/time_inference.py \
+        --model models/meansplit_study/coral_o10_s0/latent_1 \
+        --data data/FIELDS_A025.h5 --index 0 --name sim_A_025 --reps 10 \
+      > analysis/timing_a025.json 2> analysis/timing_a025.log; \
+      OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 \
+      python3 -u analysis/time_inference.py \
+        --model models/meansplit_study/coral_o10_s0/latent_1 \
+        --data data/FIELDS_Cc060.h5 --index 0 --name sim_Cc_060 --reps 10 \
+      > analysis/timing_cc060.json 2> analysis/timing_cc060.log; \
+      echo RECON_TIMING_DONE"
+echo "=== recon_timing end $(date) exit $? ==="

@@ -20,11 +20,19 @@ half), and its peak near-flap reversed-flow fraction is 0.16% against Cc_060's
 31.48% -- i.e. effectively attached throughout, which is the regime this figure
 is meant to show. It is a VALIDATION trajectory, so it is held out of training.
 
-Reads recon/results/ms_coral_o10_s0_rom_cc050/ (fom/rom/points + the sim's
-structural_trajectory.csv) and recon/results/mesh_triangles.npy. The ROM there
-was produced by reconstruct_fields.py from the champion checkpoint
-(recon/models/coral_o10_s0_synced/latent_1, mean-split + CORAL omega0=10,
-d_s=1) on recon/data/FIELDS_Cc050val.h5 -- no new CFD.
+Reads recon/results/ms_coral_o10_N100_s0_rom_cc050/ (fom/rom/points + the sim's
+structural_trajectory.csv + the training run_info.json) and
+recon/results/mesh_triangles.npy. The ROM there was produced by
+reconstruct_fields.py on recon/data/FIELDS_Cc050val.h5 -- no new CFD -- from
+meansplit_study/coral_o10_N100_s0: mean-split + CORAL omega0=10, d_s=1, L6,
+trained on FIELDS_lc_N100_train.h5, i.e. N=99 trajectories.
+
+Model choice: NOT the 15-trajectory champion. On this same case the data-rich
+arms beat it on every field (u_x 9.60e-3 vs 1.10e-2, u_y 7.32e-3 vs 8.32e-3,
+p 1.08e-2 vs 1.49e-2), and they also fix a visible artefact -- at the
+leading-edge stagnation point the champion overshoots u_y by 20 m/s (173.5 vs
+the CFD's 153.6) while N=99 lands at 151.8. N=60 seed 100 is statistically
+equivalent (u_y 7.28e-3, p 1.04e-2); N=99 is used as the largest dataset.
 
 Style follows light/latex/AGENTS.md: serif + cm mathtext, no in-figure title,
 300 dpi. The description belongs in the LaTeX caption.
@@ -52,7 +60,10 @@ plt.rcParams.update({
 
 AN = Path(__file__).resolve().parent
 RES = AN.parent / "results"
-CASE = RES / "ms_coral_o10_s0_rom_cc050"
+CASE = RES / "ms_coral_o10_N100_s0_rom_cc050"
+# Same case, same champion recipe, but trained on 15 trajectories instead of
+# 99 -- used only by the data-ladder figures, which put the two side by side.
+CASE_N15 = RES / "ms_coral_o10_s0_rom_cc050"
 OUT = AN / "figs_Cc050"
 OUT.mkdir(exist_ok=True)
 
@@ -71,8 +82,10 @@ HINGE_X, HINGE_Y = 0.779, 0.0  # flap hinge, initial mesh
 EXAG_WING = 5.0
 EXAG_FLAP = 1.0
 
-# house palette (light/tests/cs25_thesis_figs.py): reference grey, model blue
-C_FOM, C_ROM = "0.35", "#4477AA"
+# house palette (light/tests/cs25_thesis_figs.py): reference grey, model blue.
+# The data-ladder figures add the 15-trajectory arm in orange, borrowing that
+# palette's severity ordering (orange = the data-poor arm, blue = current).
+C_FOM, C_ROM, C_ROM15 = "0.35", "#4477AA", "#EE7733"
 
 # Snapshot indices into the 150-frame window (dt = 20.13 ms, t = index * dt):
 # quiescent reference, gust peak (W_gust = 32.1 m/s), peak flap deflection
@@ -90,20 +103,12 @@ U_INF = 80.0
 #
 # u_y does NOT inherit that window: its undisturbed value is 0, not U_inf, so
 # it keeps its own asymmetric range at a finer 5 m/s step (the quantity spans
-# about a third as much as u_x).
-#
-# The u_y top is carried to +120 rather than the +60 the bulk of the field
-# needs, and that choice is about the LEADING-EDGE STAGNATION PEAK. There u_y
-# reaches 153.6 m/s in the CFD against 173.5 in the reconstruction: a real
-# 20 m/s overshoot by the model. At a +60 top BOTH saturate (13.9% and 11.7%
-# of the nodes within 0.15c of the leading edge), so the panels show two solid
-# patches of different size and the eye reads the difference as much larger
-# than it is. At +120 only 1.7% and 2.6% saturate -- the peak is resolved
-# instead of clipped, and the 20 m/s gap reads at its true proportion of the
-# scale. This is the LESS clipped option, not a cosmetic one, but the caption
-# must still state that the stagnation peak is off the bulk-field scale.
+# about a third as much as u_x). Both the leading-edge stagnation peak and the
+# suction region run off the top of this window; that is deliberate, since
+# sizing the scale to the near-singular peak would flatten the rest of the
+# field, but the caption must say the peak is off scale.
 UX_LEVELS = np.linspace(0.0, 2 * U_INF, 17)        # step 10 m/s, as reference
-UY_LEVELS = np.linspace(-40.0, 120.0, 33)          # step 5 m/s, u_y's own range
+UY_LEVELS = np.linspace(-40.0, 60.0, 21)           # step 5 m/s, u_y's own range
 
 # Velocity-magnitude figure: the reference's own quantity and window, unchanged.
 UMAG_LEVELS = np.linspace(0.0, 2 * U_INF, 17)      # step 10 m/s
@@ -407,20 +412,36 @@ def main():
     _verify_warp(case, times)
     _zoom_crop(case, times)
 
-    for k, nm in [(0, "v_x"), (1, "v_y")]:
-        rng = fom[:, :, k].max() - fom[:, :, k].min()
-        nr = np.sqrt(((rom[:, :, k] - fom[:, :, k]) ** 2).mean()) / rng
-        print(f"  {nm} NRMSE over the whole window: {nr:.3e}")
+    rom15 = np.load(CASE_N15 / f"rom_{SIM}.npy").astype(np.float64)
+    le = np.linalg.norm(pts, axis=1) < 0.15      # leading-edge neighbourhood
+    print(f"  {'arm':12s} {'u_x NRMSE':>11s} {'u_y NRMSE':>11s} {'p NRMSE':>11s} "
+          f"{'u_y peak LE':>12s}")
+    for nm, r in [("CFD", None), ("N=15", rom15), ("N=99", rom)]:
+        if r is None:
+            print(f"  {nm:12s} {'':>11s} {'':>11s} {'':>11s} "
+                  f"{fom[COLS[2], le, 1].max():12.1f}")
+            continue
+        cells = []
+        for k in (0, 1, 2):
+            rng = fom[:, :, k].max() - fom[:, :, k].min()
+            cells.append(f"{np.sqrt(((r[:,:,k]-fom[:,:,k])**2).mean())/rng:11.3e}")
+        print(f"  {nm:12s} " + " ".join(cells) +
+              f" {r[COLS[2], le, 1].max():12.1f}")
 
     time_labels = [f"$t$ = {times[c]:.2f} s" for c in COLS]
     n_cols = len(COLS)
-    ROW_LABELS = ["CFD", "LDNet"]
-    ROW_COLORS = [C_FOM, C_ROM]
 
-    def quantity_block(fig, gs, rows, getter, levels, cbar_label):
-        """One CFD row + one LDNet row of the same quantity, columns = times."""
-        for ri, row in enumerate(rows):
-            src = fom if ri == 0 else rom
+    # Row sets: the plain figures show CFD against the current model; the
+    # data-ladder figures insert the 15-trajectory arm between them, so the
+    # effect of training data is read top-to-bottom at fixed everything else.
+    ROWS_PLAIN = [(fom, "CFD", C_FOM), (rom, "LDNet", C_ROM)]
+    ROWS_LADDER = [(fom, "CFD", C_FOM),
+                   (rom15, "LDNet\n$N=15$", C_ROM15),
+                   (rom, "LDNet\n$N=99$", C_ROM)]
+
+    def quantity_block(fig, gs, rows, sources, getter, levels, cbar_label):
+        """One row per source, columns = time instants, one colorbar per row."""
+        for (row, (src, label, color)) in zip(rows, sources):
             mesh = None
             for col, c in enumerate(COLS):
                 ax = fig.add_subplot(gs[row, col])
@@ -435,8 +456,8 @@ def main():
                 if row == rows[0]:
                     ax.set_title(time_labels[col], fontsize=9.5)
                 if col == 0:
-                    ax.set_ylabel(ROW_LABELS[ri], fontsize=9.5, fontweight="bold",
-                                  color=ROW_COLORS[ri])
+                    ax.set_ylabel(label, fontsize=9.5, fontweight="bold",
+                                  color=color)
             cax = fig.add_subplot(gs[row, n_cols])
             fig.colorbar(mesh, cax=cax, label=cbar_label, extend="both")
 
@@ -446,30 +467,44 @@ def main():
     def magnitude(src, c):
         return np.sqrt(src[c, :, 0] ** 2 + src[c, :, 1] ** 2)
 
-    # ---- figure 1: the two components, one block each -----------------------
-    fig = plt.figure(figsize=(15, 7.9))
-    gs = fig.add_gridspec(
-        5, n_cols + 1, width_ratios=[1, 1, 1, 1, 0.06],
-        height_ratios=[1, 1, 0.32, 1, 1],
-        hspace=0.08, wspace=0.05, left=0.05, right=0.925, top=0.97, bottom=0.02)
-    quantity_block(fig, gs, [0, 1], component(0), UX_LEVELS, LBL_UX)
-    quantity_block(fig, gs, [3, 4], component(1), UY_LEVELS, LBL_UY)
-    p = OUT / "fig_Cc050_recon_slices.png"
-    fig.savefig(p)
-    plt.close(fig)
-    print(f"saved {p}")
+    def components_figure(sources, name):
+        """u_x block over u_y block, one row per source in each."""
+        n = len(sources)
+        fig = plt.figure(figsize=(15, 3.95 * n))
+        gs = fig.add_gridspec(
+            2 * n + 1, n_cols + 1, width_ratios=[1, 1, 1, 1, 0.06],
+            height_ratios=[1] * n + [0.32] + [1] * n,
+            hspace=0.08, wspace=0.05, left=0.05, right=0.925,
+            top=0.97, bottom=0.02)
+        quantity_block(fig, gs, list(range(n)), sources,
+                       component(0), UX_LEVELS, LBL_UX)
+        quantity_block(fig, gs, list(range(n + 1, 2 * n + 1)), sources,
+                       component(1), UY_LEVELS, LBL_UY)
+        p = OUT / name
+        fig.savefig(p)
+        plt.close(fig)
+        print(f"saved {p}")
 
-    # ---- figure 2: velocity magnitude only, the reference's own quantity ----
-    fig = plt.figure(figsize=(15, 4.0))
-    gs = fig.add_gridspec(
-        2, n_cols + 1, width_ratios=[1, 1, 1, 1, 0.06],
-        height_ratios=[1, 1],
-        hspace=0.08, wspace=0.05, left=0.05, right=0.925, top=0.94, bottom=0.03)
-    quantity_block(fig, gs, [0, 1], magnitude, UMAG_LEVELS, LBL_UMAG)
-    p = OUT / "fig_Cc050_recon_umag.png"
-    fig.savefig(p)
-    plt.close(fig)
-    print(f"saved {p}")
+    def magnitude_figure(sources, name):
+        """Velocity magnitude only -- the reference figure's own quantity."""
+        n = len(sources)
+        fig = plt.figure(figsize=(15, 1.97 * n))
+        gs = fig.add_gridspec(
+            n, n_cols + 1, width_ratios=[1, 1, 1, 1, 0.06],
+            height_ratios=[1] * n,
+            hspace=0.08, wspace=0.05, left=0.05, right=0.925,
+            top=1 - 0.06 / n, bottom=0.06 / n)
+        quantity_block(fig, gs, list(range(n)), sources,
+                       magnitude, UMAG_LEVELS, LBL_UMAG)
+        p = OUT / name
+        fig.savefig(p)
+        plt.close(fig)
+        print(f"saved {p}")
+
+    components_figure(ROWS_PLAIN, "fig_Cc050_recon_slices.png")
+    magnitude_figure(ROWS_PLAIN, "fig_Cc050_recon_umag.png")
+    components_figure(ROWS_LADDER, "fig_Cc050_ladder_slices.png")
+    magnitude_figure(ROWS_LADDER, "fig_Cc050_ladder_umag.png")
 
 
 if __name__ == "__main__":
