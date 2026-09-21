@@ -1,0 +1,41 @@
+[launch] 18 cells, 6 at a time, arms=ldnet,linear
+[launch] start 10:0.3 -> /home/marco/LDNet_OF/light/ablation/logs/cell_10_0.3.log
+[launch] start 10:0.4 -> /home/marco/LDNet_OF/light/ablation/logs/cell_10_0.4.log
+[launch] start 10:0.5 -> /home/marco/LDNet_OF/light/ablation/logs/cell_10_0.5.log
+[launch] start 10:0.7 -> /home/marco/LDNet_OF/light/ablation/logs/cell_10_0.7.log
+[launch] start 10:1.0 -> /home/marco/LDNet_OF/light/ablation/logs/cell_10_1.0.log
+[launch] start 10:1.2 -> /home/marco/LDNet_OF/light/ablation/logs/cell_10_1.2.log
+[launch] start 20:0.3 -> /home/marco/LDNet_OF/light/ablation/logs/cell_20_0.3.log
+[launch] start 20:0.4 -> /home/marco/LDNet_OF/light/ablation/logs/cell_20_0.4.log
+[launch] start 20:0.5 -> /home/marco/LDNet_OF/light/ablation/logs/cell_20_0.5.log
+[launch] start 20:0.7 -> /home/marco/LDNet_OF/light/ablation/logs/cell_20_0.7.log
+[launch] start 20:1.0 -> /home/marco/LDNet_OF/light/ablation/logs/cell_20_1.0.log
+[launch] start 20:1.2 -> /home/marco/LDNet_OF/light/ablation/logs/cell_20_1.2.log
+[launch] start 30:0.3 -> /home/marco/LDNet_OF/light/ablation/logs/cell_30_0.3.log
+[launch] start 30:0.4 -> /home/marco/LDNet_OF/light/ablation/logs/cell_30_0.4.log
+[launch] start 30:0.5 -> /home/marco/LDNet_OF/light/ablation/logs/cell_30_0.5.log
+[launch] start 30:0.7 -> /home/marco/LDNet_OF/light/ablation/logs/cell_30_0.7.log
+[launch] start 30:1.0 -> /home/marco/LDNet_OF/light/ablation/logs/cell_30_1.0.log
+[launch] start 30:1.2 -> /home/marco/LDNet_OF/light/ablation/logs/cell_30_1.2.log
+[launch] all cells finished
+total 152
+drwxr-xr-x 2 marco marco 4096 Sep 16 21:36 .
+drwxr-xr-x 5 marco marco 4096 Sep 16 21:36 ..
+-rw-r--r-- 1 marco marco 4396 Sep 16 20:28 cell_10_0.3.json
+-rw-r--r-- 1 marco marco 4354 Sep 16 20:28 cell_10_0.4.json
+-rw-r--r-- 1 marco marco 4335 Sep 16 20:28 cell_10_0.5.json
+-rw-r--r-- 1 marco marco 4345 Sep 16 20:28 cell_10_0.7.json
+-rw-r--r-- 1 marco marco 4348 Sep 16 20:28 cell_10_1.0.json
+-rw-r--r-- 1 marco marco 4352 Sep 16 20:28 cell_10_1.2.json
+-rw-r--r-- 1 marco marco 4163 Sep 16 21:01 cell_20_0.3.json
+-rw-r--r-- 1 marco marco 4302 Sep 16 21:01 cell_20_0.4.json
+-rw-r--r-- 1 marco marco 4295 Sep 16 21:00 cell_20_0.5.json
+-rw-r--r-- 1 marco marco 4273 Sep 16 21:02 cell_20_0.7.json
+-rw-r--r-- 1 marco marco 4255 Sep 16 21:01 cell_20_1.0.json
+-rw-r--r-- 1 marco marco 4287 Sep 16 21:01 cell_20_1.2.json
+-rw-r--r-- 1 marco marco 4215 Sep 16 21:35 cell_30_0.3.json
+-rw-r--r-- 1 marco marco 4242 Sep 16 21:35 cell_30_0.4.json
+-rw-r--r-- 1 marco marco 4203 Sep 16 21:35 cell_30_0.5.json
+-rw-r--r-- 1 marco marco 4239 Sep 16 21:35 cell_30_0.7.json
+-rw-r--r-- 1 marco marco 4221 Sep 16 21:35 cell_30_1.0.json
+-rw-r--r-- 1 marco marco 4226 Sep 16 21:36 cell_30_1.2.json

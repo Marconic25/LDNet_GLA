@@ -1,0 +1,31 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1789587470.827423 1625418 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+=== plant = linear (the LINEAR controller now has the perfect model) ===
+
+/home/marco/LDNet_OF/tfvenv/lib/python3.12/site-packages/keras/src/layers/core/dense.py:107: UserWarning: Do not pass an `input_shape`/`input_dim` argument to a layer. When using Sequential models, prefer using an `Input(shape)` object as the first layer in the model instead.
+  super().__init__(activity_regularizer=activity_regularizer, **kwargs)
+  W10/T0.4  ctrl=ldnet   CLred= +51.40%  R=0.0003  flap=7.3  ok
+  W10/T0.4  ctrl=linear  CLred= +85.32%  R=0.0003  flap=8.8  ok
+    -> gap (ldnet - linear) = -33.92 pp
+
+  W10/T0.7  ctrl=ldnet   CLred= +63.93%  R=0.001  flap=5.8  ok
+  W10/T0.7  ctrl=linear  CLred= +90.73%  R=0.0003  flap=5.8  ok
+    -> gap (ldnet - linear) = -26.81 pp
+
+  W20/T0.4  ctrl=ldnet   CLred= +19.89%  R=0.0001  flap=11.6  ok
+  W20/T0.4  ctrl=linear  CLred= +78.80%  R=0.0001  flap=14.0  ok
+    -> gap (ldnet - linear) = -58.90 pp
+
+  W30/T0.7  ctrl=ldnet   CLred= +25.99%  R=0.0003  flap=11.9  ok
+  W30/T0.7  ctrl=linear  CLred= +81.72%  R=0.001  flap=14.0  ok
+    -> gap (ldnet - linear) = -55.73 pp
+
+  W30/T1.2  ctrl=ldnet   CLred= +64.35%  R=0.001  flap=8.2  ok
+  W30/T1.2  ctrl=linear  CLred= +94.38%  R=0.0003  flap=10.5  ok
+    -> gap (ldnet - linear) = -30.03 pp
+
+  W20/T1.2  ctrl=ldnet   CLred= +68.94%  R=0.0003  flap=8.2  ok
+  W20/T1.2  ctrl=linear  CLred= +94.09%  R=0.0003  flap=7.0  ok
+    -> gap (ldnet - linear) = -25.15 pp
+

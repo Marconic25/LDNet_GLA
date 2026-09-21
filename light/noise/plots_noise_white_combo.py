@@ -70,8 +70,8 @@ clean = mean[0]
 x = np.arange(len(pcts))          # category spacing: sweep levels, not linear
 fig, ax = plt.subplots(figsize=(4.4, 2.9))
 ax.fill_between(x, lo, hi, alpha=0.25, color=C_CLOSED, lw=0,
-                label='min--max over seeds')
-ax.plot(x, mean, 'o-', ms=4, color=C_CLOSED, label='mean over seeds')
+                label='min–max over realisations')
+ax.plot(x, mean, 'o-', ms=4, color=C_CLOSED, label='mean over realisations')
 flg = [i for i in range(len(pcts)) if nflag[i] > 0]
 ax.plot(x[flg], [mean[i] for i in flg], 'o', ms=9,
         mfc='none', mec='#CC3311', mew=1.2, label='stability flag raised')

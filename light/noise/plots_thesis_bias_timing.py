@@ -72,7 +72,7 @@ def panel(ax, pts, arm, xscale, anchor):
     if len(xn):
         ax.errorbar(xn, mn, yerr=[mn - lon, hin - mn], fmt='s', ms=4,
                     color=C_NOISY, capsize=2.5, lw=1,
-                    label=r'$\sigma = 2\%\,W_0$, 6 seeds')
+                    label=r'$\sigma = 2\%\,W_0$, 6 realisations')
         ax.plot(xn[nfn > 0], mn[nfn > 0], 's', ms=9, mfc='none', mec=C_FLAG,
                 mew=1.2)
     ax.axhline(anchor, color='k', ls=':', lw=0.8)

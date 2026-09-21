@@ -26,8 +26,9 @@ WARMSTART   = os.environ.get("WARMSTART", "/work/u10677113/LDNet_GLA/clean/model
 LAMBDA_DAMP = float(os.environ.get("LAMBDA_DAMP", "0.003"))
 ROLLOUT_LEN = int(os.environ.get("ROLLOUT_LEN", "800"))
 num_epochs_Adam = int(os.environ.get("NADAM", "200"))
-num_epochs_BFGS = int(os.environ.get("NBFGS", "500"))
+num_epochs_BFGS = int(os.environ.get("NBFGS", "1500"))
 W_LOAD      = float(os.environ.get("W_LOAD", "1.0"))   # weight of the load-matching term
+PATIENCE    = int(os.environ.get("PATIENCE", "20"))    # validation samples (x10 iters)
 SELFTEST    = os.environ.get("SELFTEST", "0") == "1"
 NUM_LATENT  = 10
 # Depth-parametrized (DYN_LAYERS x DYN_WIDTH, REC_LAYERS x REC_WIDTH). Defaults
@@ -200,6 +201,8 @@ def main():
     loss_valid = lambda: loss_fn(ds_va)
     variables = NNdyn.variables + NNrec.variables
     opt = optimization.OptimizationProblem(variables, loss_train, loss_valid)
+    opt.track_best_valid = True
+    opt.patience = PATIENCE
     out_dir = RESULTS_DIR / f'latent_{NUM_LATENT}'; out_dir.mkdir(parents=True, exist_ok=True)
     cfg = {'problem':problem,'normalization':normalization,'num_latent_states':NUM_LATENT,'lambda_damp':LAMBDA_DAMP,
            'dyn_layers':DYN_LAYERS,'dyn_width':DYN_WIDTH,'rec_layers':REC_LAYERS,'rec_width':REC_WIDTH}
@@ -223,7 +226,18 @@ def main():
     opt.optimize_keras(num_epochs_Adam, tf.keras.optimizers.Adam(learning_rate=1e-3))
     print("  BFGS...", flush=True)
     opt.optimize_BFGS(num_epochs_BFGS)
-    # NOTE: best-validation weights are already saved by _ck; do NOT overwrite with final.
+
+    # opt.track_best_valid keeps the true minimum in memory across the whole run
+    # (patience-gated stop or budget exhaustion); restore it into the network
+    # variables and re-save the weights so the on-disk checkpoint matches it
+    # exactly, rather than relying on _ck's independent (but equivalent) disk
+    # checkpoint from the manual callback above.
+    best_valid = opt.restore_best()
+    if best_valid is not None:
+        best[0] = best_valid
+        NNdyn.save_weights(str(out_dir/'NNdyn_weights.weights.h5'))
+        NNrec.save_weights(str(out_dir/'NNrec_weights.weights.h5'))
+        print(f'  [restore_best] valid={best_valid:.4e} SAVED', flush=True)
 
     # Save loss history (data for the thesis rollout-loss figure), same layout
     # as sensitivity_latent.py's teacher-forced loss_history.npz.

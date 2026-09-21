@@ -1,0 +1,214 @@
+\begin{tikzpicture}[
+    scale=4.2,
+    every node/.style={font=\small},
+    spring/.style={decorate, decoration={zigzag, segment length=2.2pt, amplitude=2pt, pre length=2pt, post length=2pt}},
+    arrowstyle/.style={-Stealth, thick},
+    flowarrow/.style={-Stealth, thick},
+    quotestyle/.style={<->, thin, gray!70},
+    dashedaxis/.style={dash dot, thin, gray!60},
+    refchord/.style={dashed, thin, black!55},
+    leader/.style={thin, gray!70}
+]
+
+% ──────────────────────────────────────────────────────────────────
+% Pose
+\def\alphaDeg{-7}
+\def\deltaDeg{-18}
+
+% Geometry references (chord = 1)
+\def\EAx{0.30}
+\def\hingeX{0.75}
+
+% ──────────────────────────────────────────────────────────────────
+% NACA 2312 — main body (0 → 75% chord)
+\def\mainAirfoil{
+    (0.0000,+0.0000) (0.0015,+0.0071) (0.0062,+0.0143) (0.0138,+0.0216)
+    (0.0245,+0.0290) (0.0381,+0.0363) (0.0545,+0.0434) (0.0737,+0.0502)
+    (0.0955,+0.0566) (0.1198,+0.0624) (0.1464,+0.0675) (0.1753,+0.0719)
+    (0.2061,+0.0753) (0.2388,+0.0778) (0.2730,+0.0791) (0.3087,+0.0793)
+    (0.3455,+0.0788) (0.3833,+0.0775) (0.4218,+0.0757) (0.4608,+0.0732)
+    (0.5000,+0.0703) (0.5392,+0.0668) (0.5782,+0.0630) (0.6167,+0.0588)
+    (0.6545,+0.0544) (0.6913,+0.0498) (0.7270,+0.0450) (0.7500,+0.0418)
+    (0.7500,-0.0183) (0.7270,-0.0199) (0.6913,-0.0223) (0.6545,-0.0247)
+    (0.6167,-0.0270) (0.5782,-0.0293) (0.5392,-0.0315) (0.5000,-0.0335)
+    (0.4608,-0.0353) (0.4218,-0.0369) (0.3833,-0.0381) (0.3455,-0.0389)
+    (0.3087,-0.0394) (0.2730,-0.0394) (0.2388,-0.0394) (0.2061,-0.0392)
+    (0.1753,-0.0388) (0.1464,-0.0380) (0.1198,-0.0368) (0.0955,-0.0351)
+    (0.0737,-0.0329) (0.0545,-0.0301) (0.0381,-0.0267) (0.0245,-0.0227)
+    (0.0138,-0.0180) (0.0062,-0.0127) (0.0015,-0.0067) (0.0000,+0.0000)
+}
+
+% NACA 2312 — flap upper surface (75% → TE)
+\def\flapUpper{
+    (0.7500,+0.0418) (0.7612,+0.0401) (0.7939,+0.0353) (0.8247,+0.0305)
+    (0.8536,+0.0258) (0.8802,+0.0213) (0.9045,+0.0171) (0.9263,+0.0132)
+    (0.9455,+0.0097) (0.9619,+0.0066) (0.9755,+0.0040) (0.9862,+0.0019)
+    (0.9938,+0.0004) (0.9985,-0.0005) (1.0000,-0.0008) (1.0000,+0.0008)
+    (0.9985,+0.0007) (0.9938,+0.0003) (0.9862,-0.0003) (0.9755,-0.0012)
+    (0.9619,-0.0023) (0.9455,-0.0037) (0.9263,-0.0052) (0.9045,-0.0069)
+    (0.8802,-0.0088) (0.8536,-0.0108) (0.8247,-0.0130) (0.7939,-0.0152)
+    (0.7612,-0.0175) (0.7500,-0.0183)
+}
+
+% ──────────────────────────────────────────────────────────────────
+% Freestream reference axis (horizontal, alpha reference)
+\draw[dashedaxis] (-0.95, 0) -- (1.55, 0);
+
+% ──────────────────────────────────────────────────────────────────
+% Ceiling
+\draw[thick] (0.10, 0.65) -- (0.55, 0.65);
+\foreach \x in {0.12, 0.18, 0.24, 0.30, 0.36, 0.42, 0.48, 0.54}{
+    \draw[thin] (\x, 0.65) -- (\x - 0.04, 0.72);
+}
+
+% ──────────────────────────────────────────────────────────────────
+% MAIN AIRFOIL — rotated by alpha around the EA
+\begin{scope}[rotate around={\alphaDeg:(\EAx, 0)}]
+    \draw[thick, fill=black!4] plot coordinates \mainAirfoil -- cycle;
+
+    % Chord line of the main airfoil — extended well past LE on the left so
+    % that it serves as the reference line for the angle of attack alpha,
+    % and past the hinge on the right.
+    \draw[refchord] (-0.55, 0) -- (1.10, 0);
+
+    % Elastic axis
+    \filldraw[black] (\EAx, 0) circle (0.012);
+
+    % Wing CG
+    \coordinate (CGw) at (0.3, 0);
+    \draw[thick] (CGw) circle (0.024);
+    \fill[black] (CGw) ++(0:0.024) arc (0:90:0.024) -- (CGw) -- cycle;
+    \fill[black] (CGw) ++(180:0.024) arc (180:270:0.024) -- (CGw) -- cycle;
+
+    % Hinge (on main airfoil side, at 75% chord)
+    \filldraw[black] (\hingeX, 0) circle (0.012);
+
+    % Heave spring upper attachment
+    \coordinate (Sattach) at (\EAx, 0.075);
+
+    % Reference points exported to outer frame
+    \coordinate (EArot)    at (\EAx, 0);
+    \coordinate (Hingerot) at (\hingeX, 0);
+    \coordinate (LErot)    at (0, 0);
+    \coordinate (TEextrot) at (1.10, 0);
+\end{scope}
+
+% ──────────────────────────────────────────────────────────────────
+% FLAP — rotated by alpha (with the wing) and then by delta around the hinge.
+% LE of the flap is rounded with a semicircle joining upper and lower surfaces.
+\begin{scope}[rotate around={\alphaDeg:(\EAx, 0)}]
+    \begin{scope}[rotate around={\deltaDeg:(\hingeX, 0)}]
+        % Flap outline: upper surface (LE→TE→back to LE_lower) + rounded LE arc
+        \draw[thick, fill=black!4]
+            plot coordinates \flapUpper
+            arc (270 : 90 : 0.0301)   % rounded LE: semicircle from (0.75,-0.0183) to (0.75,+0.0418)
+            -- cycle;
+        % NOTE on the arc:
+        % center of the semicircle = midpoint of the two LE points = (0.75, +0.01175)
+        % radius                   = (0.0418 - (-0.0183)) / 2 = 0.03005
+        % drawn from angle 270° (bottom) to 90° (top), bulging to the LEFT (towards main wing)
+
+        % Hinge point at the centre of the rounded LE of the flap
+        \filldraw[black] (0.75, 0.01175) circle (0.012);
+
+        % Flap chord line (hinge to TE), dashed reference for delta
+        \draw[refchord] (\hingeX, 0) -- (1.10, 0);
+
+        % Flap CG
+        \coordinate (CGf) at (0.87, 0);
+        \draw[thick] (CGf) circle (0.020);
+        \fill[black] (CGf) ++(0:0.020) arc (0:90:0.020) -- (CGf) -- cycle;
+        \fill[black] (CGf) ++(180:0.020) arc (180:270:0.020) -- (CGf) -- cycle;
+    \end{scope}
+\end{scope}
+
+% ──────────────────────────────────────────────────────────────────
+% HEAVE SPRING k_h
+\draw[spring, thick] (\EAx, 0.65) -- (Sattach);
+\node[right] at (\EAx + 0.025, 0.45) {$k_{h}$, $d_{h}$};
+
+% ──────────────────────────────────────────────────────────────────
+% TORSIONAL SPRING k_alpha — compact spiral on the EA
+\begin{scope}[shift={(EArot)}]
+    \draw[thick]
+        (0:0.035) arc (0:330:0.035)
+        (330:0.035) -- (330:0.050)
+        arc (330:30:0.050)
+        (30:0.050) -- (30:0.065)
+        arc (30:330:0.065);
+\end{scope}
+% Label k_alpha placed UP-LEFT, near the heave spring, with a leader line
+\node at (\EAx - 0.18, 0.32) {$k_{\alpha}$, $d_{\alpha}$};
+\draw[leader] (\EAx - 0.16, 0.30) -- (\EAx - 0.04, 0.05);
+
+% ──────────────────────────────────────────────────────────────────
+% Labels EA, hinge, CG_w, CG_f
+% EA label shifted to the right so it does not overlap with the heave spring
+\node[above] at (\EAx + 0.11, 0.15) {EA};
+\draw[leader] (\EAx + 0.10, 0.15) -- (\EAx + 0.015, 0.03);
+
+\node[above] at (0.78, 0.40) {hinge};
+\draw[leader] (0.78, 0.38) -- (\hingeX + 0.005, 0.05);
+
+\node[below] at (0.42, -0.45) {CG$_{w}$};
+\draw[leader] (0.42, -0.43) -- (CGw);
+
+% CG_f label with leader pointing to the actual CG_f marker.
+% CGf in the rotated (alpha + delta) frame is at (0.87, 0); in world frame
+% this maps to approximately (0.855, -0.106).
+\node[below] at (0.95, -0.32) {CG$_{f}$};
+\draw[leader] (0.93, -0.30) -- (0.858, -0.115);
+
+% ──────────────────────────────────────────────────────────────────
+% FREESTREAM U_inf — placed UP, well separated from h
+\draw[flowarrow] (-0.85, 0.25) -- (-0.55, 0.25);
+\node[above] at (-0.70, 0.26) {$U_{\infty}$};
+
+% ──────────────────────────────────────────────────────────────────
+% PLUNGE h — measured from the horizontal freestream reference axis
+% (y = 0), which is the same dash-dot line that also defines the vertical
+% offset d_y on the right side of the figure. No extra dashed reference
+% line is needed: h is simply a downward arrow starting on that axis.
+\draw[arrowstyle] (-0.85, 0) -- (-0.85, -0.30);
+\node[left] at (-0.87, -0.15) {$h(t)$};
+
+% ──────────────────────────────────────────────────────────────────
+% ANGLE OF ATTACK alpha — defined with the SAME LOGIC as delta:
+% a compact arc drawn at the vertex (the LE) between the zero-lift
+% line (airfoil chord) and the horizontal reference axis that passes
+% through the EA. Drawn inside the alpha-rotated scope so the chord
+% sits at angle 0° (local x-axis); the world-horizontal line then
+% sits at angle -alphaDeg in this local frame.
+\begin{scope}[rotate around={\alphaDeg:(\EAx, 0)}]
+    \draw[thick] (-0.22, 0) arc (180 : 180 - \alphaDeg : 0.52);
+    \node at (-0.30, 0.055) {$\alpha(t)$};
+\end{scope}
+
+% ──────────────────────────────────────────────────────────────────
+% FLAP DEFLECTION delta — angle between the extension of the main chord
+% and the flap chord. Drawn ABOVE the hinge for clarity, ample arc.
+\begin{scope}[rotate around={\alphaDeg:(\EAx, 0)}]
+    \draw[thick] (\hingeX + 0.22, 0) arc (0 : \deltaDeg : 0.22);
+    \node at (\hingeX + 0.38, -0.09) {$\delta(t)$};
+\end{scope}
+
+% ──────────────────────────────────────────────────────────────────
+% Quote d_x between EA and CG_f
+\draw[quotestyle] (\EAx, -0.72) -- (0.87, -0.72);
+\node[below] at (0.585, -0.72) {$d_{x}$};
+\draw[dotted, thin, gray!70] (\EAx, 0) -- (\EAx, -0.72);
+\draw[dotted, thin, gray!70] (0.87, -0.12) -- (0.87, -0.72);
+
+% ──────────────────────────────────────────────────────────────────
+% GUST W(t) — freccia verticale che scende dall'alto verso l'ala
+% Posizionata sopra il profilo alare, al centro della corda
+\draw[flowarrow] (-0.20, -0.50) -- (-0.20, -0.2);
+\node[above] at (-0.20, -0.70) {$W(t)$};
+
+% ─── Reference frame x-y ─────────────────────────────────────
+\coordinate (frameorigin) at (-0.90, -0.70);
+\draw[arrowstyle] (frameorigin) -- ++(0.22, 0) node[right] {$x$};
+\draw[arrowstyle] (frameorigin) -- ++(0, -0.22) node[below] {$y$};
+\fill (frameorigin) circle (0.012);
+
+\end{tikzpicture}

@@ -276,6 +276,7 @@ def fig_loss():
         ax = axs[0, 1]
         ax.semilogy(itr, trr, 'o-', color=C_FY, ms=3, lw=1.0, label='training')
         ax.semilogy(itr, var, 'o-', color=C_MZ, ms=3, lw=1.0, label='validation')
+        ax.set_xlim(0, itr.max())
         ax.set_xlabel('BFGS iterations')
         ax.set_ylabel('rollout loss')
         ax.set_title('(b) closed-loop rollout fine-tuning', fontsize=9)

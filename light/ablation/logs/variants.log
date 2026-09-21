@@ -1,0 +1,53 @@
+########## linear_coeffs.json ##########
+  [10:0.4] linear R=0.0001   CLred=-150.78%  flap=  9.8  pr=4.47  ad!add!hdd!
+  [10:0.4] linear R=0.0003   CLred=-113.76%  flap=  9.4  pr=4.19  ad!add!hdd!
+  [10:0.4] linear R=0.001    CLred=-163.02%  flap=  8.4  pr=4.39  ad!add!hdd!
+  [10:0.4] linear R=0.003    CLred=-184.90%  flap=  6.3  pr=4.45  ad!add!hdd!
+  [10:0.4] linear R=0.01     CLred= -45.57%  flap=  3.3  pr=1.56  ok
+[sweep] 10:0.4 done in 317s | linear=-45.6%
+  [30:0.4] linear R=0.0001   CLred=  -3.66%  flap= 14.0  pr=2.92  ad!add!
+  [30:0.4] linear R=0.0003   CLred=  -3.68%  flap= 14.0  pr=2.94  ad!add!
+  [30:0.4] linear R=0.001    CLred=  -3.80%  flap= 14.0  pr=2.95  ad!add!
+  [30:0.4] linear R=0.003    CLred=  -2.03%  flap= 14.0  pr=2.99  ad!add!
+  [30:0.4] linear R=0.01     CLred=  -6.25%  flap=  9.8  pr=3.39  ad!add!
+[sweep] 30:0.4 done in 293s | linear=-3.7%
+########## linear_coeffs_ctrlgain.json ##########
+  [10:0.4] linear R=0.0001   CLred=-182.65%  flap=  6.5  pr=4.43  ad!add!hdd!
+  [10:0.4] linear R=0.0003   CLred=-183.30%  flap=  6.5  pr=4.45  ad!add!hdd!
+  [10:0.4] linear R=0.001    CLred=-187.38%  flap=  6.1  pr=4.50  ad!add!hdd!
+  [10:0.4] linear R=0.003    CLred=-186.24%  flap=  5.2  pr=4.38  ad!add!hdd!
+  [10:0.4] linear R=0.01     CLred= -44.58%  flap=  3.5  pr=1.55  ok
+[sweep] 10:0.4 done in 290s | linear=-44.6%
+  [30:0.4] linear R=0.0001   CLred=  -2.31%  flap= 14.0  pr=2.96  ad!add!
+  [30:0.4] linear R=0.0003   CLred=  -2.42%  flap= 14.0  pr=2.96  ad!add!
+  [30:0.4] linear R=0.001    CLred=  -2.35%  flap= 14.0  pr=2.90  ad!add!
+  [30:0.4] linear R=0.003    CLred=  -2.10%  flap= 14.0  pr=2.83  ad!add!
+  [30:0.4] linear R=0.01     CLred=  -4.38%  flap= 10.3  pr=3.36  ad!add!
+[sweep] 30:0.4 done in 297s | linear=-2.1%
+########## linear_coeffs_secant.json ##########
+  [10:0.4] linear R=0.0001   CLred=-118.74%  flap= 11.0  pr=4.31  ad!add!hdd!
+  [10:0.4] linear R=0.0003   CLred=-121.78%  flap= 10.5  pr=4.38  ad!add!hdd!
+  [10:0.4] linear R=0.001    CLred=-138.74%  flap=  9.1  pr=4.30  ad!add!hdd!
+  [10:0.4] linear R=0.003    CLred=-183.31%  flap=  6.5  pr=4.45  ad!add!hdd!
+  [10:0.4] linear R=0.01     CLred= -46.85%  flap=  3.3  pr=1.56  ok
+[sweep] 10:0.4 done in 296s | linear=-46.9%
+  [30:0.4] linear R=0.0001   CLred=  -4.29%  flap= 14.0  pr=2.89  ad!add!
+  [30:0.4] linear R=0.0003   CLred=  -3.71%  flap= 14.0  pr=2.91  ad!add!
+  [30:0.4] linear R=0.001    CLred=  -3.73%  flap= 14.0  pr=2.95  ad!add!
+  [30:0.4] linear R=0.003    CLred=  -2.40%  flap= 14.0  pr=2.96  ad!add!
+  [30:0.4] linear R=0.01     CLred=  -8.45%  flap=  9.3  pr=3.43  ad!add!
+[sweep] 30:0.4 done in 286s | linear=-4.3%
+########## linear_coeffs_lsqflap.json ##########
+  [10:0.4] linear R=0.0001   CLred=-195.86%  flap= 12.4  pr=4.54  ad!add!hdd!
+  [10:0.4] linear R=0.0003   CLred=-206.05%  flap= 11.9  pr=4.60  ad!add!hdd!
+  [10:0.4] linear R=0.001    CLred=-241.32%  flap= 10.5  pr=4.74  ad!add!hdd!
+  [10:0.4] linear R=0.003    CLred=-277.70%  flap=  7.9  pr=4.82  ad!add!hdd!
+  [10:0.4] linear R=0.01     CLred=-294.12%  flap=  4.2  pr=5.46  ad!add!hdd!
+[sweep] 10:0.4 done in 281s | linear=-195.9%
+  [30:0.4] linear R=0.0001   CLred=  -6.41%  flap= 14.0  pr=2.87  ad!add!
+  [30:0.4] linear R=0.0003   CLred=  -5.12%  flap= 14.0  pr=2.88  ad!add!
+  [30:0.4] linear R=0.001    CLred=  -3.65%  flap= 14.0  pr=2.91  ad!add!
+  [30:0.4] linear R=0.003    CLred=  -3.36%  flap= 14.0  pr=2.90  ad!add!
+  [30:0.4] linear R=0.01     CLred= -48.36%  flap= 10.7  pr=3.42  ad!add!
+[sweep] 30:0.4 done in 302s | linear=-6.4%
+########## done ##########

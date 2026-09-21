@@ -1,0 +1,70 @@
+\begin{tikzpicture}[
+    node distance=1.8cm and 3.2cm,
+    every node/.style={font=\small},
+    block/.style={
+        rectangle, draw, thick,
+        minimum width=3.6cm, minimum height=1.25cm,
+        align=center,
+        inner sep=6pt
+    },
+    input/.style={
+        rectangle, draw, thick, rounded corners=4pt,
+        fill=black!5,
+        minimum width=3.0cm, minimum height=1.05cm,
+        align=center,
+        inner sep=5pt
+    },
+    output/.style={
+        rectangle, draw, thick, dashed,
+        minimum width=3.0cm, minimum height=1.05cm,
+        align=center,
+        inner sep=5pt
+    },
+    arrow/.style={-Stealth, thick},
+    exchangearrow/.style={-Stealth, thick, shorten >=2pt, shorten <=2pt},
+    coupling/.style={
+        draw, dashed, thick, rounded corners=6pt,
+        inner sep=6pt
+    }
+]
+
+% ─── External inputs (top row) ───────────────────────────────
+\node[input] (gust) {Gust profile \\ $w_{g}(t)$ \\ {\footnotesize (CS-25 1-cosine)}};
+\node[input, right=of gust] (flap) {Flap schedule \\ $\delta(t)$ \\ {\footnotesize (controller)}};
+
+% ─── Main solver blocks ──────────────────────────────────────
+\node[block, below=2.4cm of gust] (cfd)
+      {CFD solver \\ \textbf{OpenFOAM} \\ {\footnotesize Navier-Stokes (ALE)}};
+\node[block, below=2.4cm of flap] (struct)
+      {Structural solver \\ \textbf{Python} \\ {\footnotesize 2-DOF EOM}};
+
+% ─── Outputs (bottom row) ────────────────────────────────────
+\node[output, below=1.8cm of cfd]    (flowfield)
+      {Flow field \\ $p(\mathbf{x}, t)$,\ $\mathbf{u}(\mathbf{x}, t)$};
+\node[output, below=1.8cm of struct] (statetraj)
+      {Structural state \\ $h(t)$,\ $\alpha(t)$};
+
+% ─── External input arrows ───────────────────────────────────
+\draw[arrow] (gust)  -- node[midway, right, font=\footnotesize] {inlet BC} (cfd);
+\draw[arrow] (flap)  -- node[midway, right, font=\footnotesize] {imposed}  (struct);
+
+% ─── Coupling (two-way exchange between CFD and structural) ──
+\draw[exchangearrow]
+    ($(cfd.east) + (0, 0.35)$) -- ($(struct.west) + (0, 0.35)$)
+    node[midway, above, font=\footnotesize] {$F_{y}(t),\ M_{z}(t)$};
+\draw[exchangearrow]
+    ($(struct.west) + (0, -0.35)$) -- ($(cfd.east) + (0, -0.35)$)
+    node[midway, below, font=\footnotesize] {$h(t),\ \alpha(t),\ \delta(t)$};
+
+% ─── Output arrows ───────────────────────────────────────────
+\draw[arrow] (cfd)    -- (flowfield);
+\draw[arrow] (struct) -- (statetraj);
+
+% ─── Dashed box around the partitioned loop (stretto) ────────
+\begin{scope}[on background layer]
+    \node[coupling, fit=(cfd) (struct)] (loop) {};
+\end{scope}
+
+
+
+\end{tikzpicture}

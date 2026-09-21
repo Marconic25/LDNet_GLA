@@ -1,0 +1,20 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1789585307.182993 1591797 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+/home/marco/LDNet_OF/tfvenv/lib/python3.12/site-packages/keras/src/layers/core/dense.py:107: UserWarning: Do not pass an `input_shape`/`input_dim` argument to a layer. When using Sequential models, prefer using an `Input(shape)` object as the first layer in the model instead.
+  super().__init__(activity_regularizer=activity_regularizer, **kwargs)
+/home/marco/LDNet_OF/tfvenv/lib/python3.12/site-packages/keras/src/layers/core/dense.py:107: UserWarning: Do not pass an `input_shape`/`input_dim` argument to a layer. When using Sequential models, prefer using an `Input(shape)` object as the first layer in the model instead.
+  super().__init__(activity_regularizer=activity_regularizer, **kwargs)
+  [30:1] ldnet  R=0.0001   CLred= +42.75%  flap= 14.0  pr=1.59  ad!
+  [30:1] ldnet  R=0.0003   CLred= +44.13%  flap= 14.0  pr=1.60  ad!
+  [30:1] ldnet  R=0.001    CLred= +47.79%  flap= 14.0  pr=1.59  ok
+  [30:1] ldnet  R=0.003    CLred= +57.27%  flap= 12.2  pr=1.45  ok
+  [30:1] ldnet  R=0.01     CLred= +56.86%  flap=  7.2  pr=1.14  ok
+  [30:1] linear R=0.0001   CLred= +14.78%  flap= 13.3  pr=1.55  ok
+  [30:1] linear R=0.0003   CLred= +14.72%  flap= 12.9  pr=1.54  ok
+  [30:1] linear R=0.001    CLred= +14.22%  flap= 11.4  pr=1.50  ok
+  [30:1] linear R=0.003    CLred= +12.94%  flap=  8.6  pr=1.39  ok
+  [30:1] linear R=0.01     CLred=  +5.72%  flap=  4.7  pr=1.19  ok
+[sweep] 30:1 done in 2047s | ldnet=+57.3% linear=+14.8%
+
+[sweep] wrote /home/marco/LDNet_OF/light/ablation/shards/cell_30_1.0.json

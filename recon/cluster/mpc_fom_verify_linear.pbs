@@ -1,0 +1,96 @@
+#!/bin/bash
+#PBS -N mpcfomlin
+#PBS -q cpu
+#PBS -l select=1:ncpus=16:mpiprocs=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/u10677113/NACA2312/mpc_fom_verify_linear/pbs_run.log
+#
+# Closed-loop MPC verification against the full-order FSI solver, using the
+# LINEAR UNSTEADY aerodynamic model (light/ablation/linear_aero.py) as the
+# controller's internal model instead of the LDNet. Identical mechanism to
+# mpc_fom_verify.pbs (same driver, same checkpoint, same coupling window),
+# the only difference being --mpc-server-script mpc_fom_server_linear.py so
+# cosim_driver_extract.py's start_mpc_server() launches
+# light/tests/mpc_fom_server_linear.py instead of mpc_fom_server.py.
+#
+# Purpose: light/latex/appendixA.tex (app:modelcomp) compares the LDNet and
+# the linear model only ROM-vs-ROM (each model driving itself as the plant,
+# light/ablation/shards/cell_10_0.4.json) and LDNet-vs-FOM (chapter3.tex
+# Test 2 row, CLred=74.6%). Neither isolates whether the linear model's own
+# poor ROM-vs-ROM showing (CLred=-45.6% at its own R*=0.01) is a property of
+# the model or an artifact of also being the simulated plant. This run
+# removes that asymmetry: the linear model only supplies the controller
+# decision, the real co-simulation supplies the true plant response.
+#
+# Submit (Test 2, W0=10, Tg=0.4 — the standard chapter-3 reference cell):
+#   qsub -v W0=10,TG=0.40,MPCR=0.01,DAMULT=3.0,TEND=1.25 mpc_fom_verify_linear.pbs
+#
+# MPCR must be the linear model's OWN R* for this cell (from
+# light/ablation/shards/cell_10_0.4.json, key linear.R_star) — NOT the
+# LDNet's R* (3e-4 for this cell): the point of the ablation study was to
+# tune each model at its own optimum, and reusing the LDNet's R* here would
+# not be a fair comparison.
+#
+# TEND=1.25 (not the original mpc_fom_verify.pbs default of 3.0): covers the
+# Tg=0.4s gust plus transient margin, consistent with the FOM diagnostic
+# convention already used for W0=10/30 in light/dagger_fom/cluster/
+# mpc_fom_openloop.pbs. Going to TEND=3.0 would roughly double the cost for
+# marginal gain past the transient (user decision, not re-litigated here).
+
+set -e
+
+WORK_BASE="/work/u10677113/NACA2312"
+: "${W0:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<linear R* from cell_*.json>}"
+: "${TG:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<linear R* from cell_*.json>}"
+: "${MPCR:?pass -v W0=<gust W0 m/s>,TG=<gust duration s>,MPCR=<linear R* from cell_*.json>}"
+DAMULT="${DAMULT:-3.0}"
+TEND="${TEND:-1.25}"
+MPC_COEFFS="${MPC_COEFFS:-/work/u10677113/LDNet_GLA/light/ablation/linear_coeffs.json}"
+
+SCRATCH="/scratch_local/$USER/mpcfomlin_W${W0}_Tg${TG}"
+CONTAINER_ABS="/work/u10677113/of7.sif"
+CHECKPOINT_SRC="$WORK_BASE/cosim_main/checkpoint_W0_baseline"
+OUT_PERSIST="$WORK_BASE/mpc_fom_verify_linear/W${W0}_Tg${TG}"
+
+mkdir -p "$OUT_PERSIST" "$SCRATCH"
+exec > >(tee "$OUT_PERSIST/run.log") 2>&1
+
+echo "=== MPC-FOM verify (LINEAR internal model)  W0=$W0  Tg=$TG  R*=$MPCR  DAMULT=$DAMULT  coeffs=$MPC_COEFFS ==="
+echo "    scratch=$SCRATCH"
+
+# ── Copy case + checkpoint to scratch (own copy per job — enables parallel cells) ──
+rsync -a --exclude='processor*' --exclude='postProcessing' --exclude='postProcessing_*' \
+      --exclude='log.*' --exclude='cosim_state.json' --exclude='figures' \
+      --exclude='__pycache__' --exclude='checkpoint' --exclude='checkpoint_*' \
+      "$WORK_BASE/cosim_main/" "$SCRATCH/"
+mkdir -p "$SCRATCH/checkpoint"
+cp "$CHECKPOINT_SRC/cosim_state.json"    "$SCRATCH/checkpoint/"
+cp "$CHECKPOINT_SRC/cosim_state_t0.json" "$SCRATCH/checkpoint/" 2>/dev/null || true
+for proc in "$CHECKPOINT_SRC"/processor*/; do
+    dst="$SCRATCH/checkpoint/$(basename "$proc")"; mkdir -p "$dst"; rsync -a "$proc" "$dst/"
+done
+
+cp "$WORK_BASE/recon/cluster/controlDict.extract" "$SCRATCH/system/controlDict"
+cp "$WORK_BASE/recon/cluster/cosim_driver_extract.py" "$SCRATCH/cosim_driver.py"
+
+cd "$SCRATCH"
+
+# ── Closed-loop MPC co-simulation, linear internal model ──
+python3 -u cosim_driver.py \
+    --np 16 --window 50 --dt 7e-05 --t-end "$TEND" \
+    --from-checkpoint \
+    --gust-w0 "$W0" \
+    --gust-t-start 0.0 \
+    --gust-t-end "$TG" \
+    --controller mpc \
+    --mpc-server-script mpc_fom_server_linear.py \
+    --mpc-coeffs "$MPC_COEFFS" \
+    --mpc-R "$MPCR" \
+    --damult "$DAMULT" \
+    2>&1 | tee log.cosim_driver_mpc_linear
+
+cp "$SCRATCH/structural_trajectory.csv" "$OUT_PERSIST/" 2>/dev/null || echo "[warn] no structural_trajectory.csv"
+cp "$SCRATCH"/*.png "$OUT_PERSIST/" 2>/dev/null || true
+echo "=== DONE W0=$W0 Tg=$TG (linear) -> $OUT_PERSIST ==="
+ls -la "$OUT_PERSIST"

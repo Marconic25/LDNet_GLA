@@ -6,59 +6,58 @@ trailing-edge flap: the aerodynamic loads are supplied by an LDNet, which acts a
 model of a preview MPC fed by fused lidar measurements. The LDNet is trained on full-order FSI
 co-simulations instead of being derived from a simplified aerodynamic theory, so that it
 reproduces the viscous, unsteady and nonlinear response to gust and flap while remaining cheap
-enough to be evaluated at every step of the receding horizon.
+enough to be evaluated at every step of the receding horizon and over the whole candidate
+grid: the closed loop runs at $\mathcal{O}(10^{1}\text{--}10^{2})$~s of wall-clock per
+simulated second on one CPU core, against $\mathcal{O}(10^{3})$~s for the full-order loop on
+sixteen, which makes the design loop iterable on the reduced model.
 
 The training set is a campaign of $146$ partitioned co-simulations spanning gust-only,
-flap-only and combined excitations. Training minimises a rollout loss, in which the LDNet is
-composed with the structural integrator and advanced autonomously over hundreds of steps, so
-that the quantity minimised is the one the controller depends on at run time. The training
-regime, rather than the capacity of the LDNet, is what decides whether it can be used in closed
-loop: teacher forcing produces LDNets that are accurate in one-step replay but unstable and
-flap-blind in autonomous rollout, whereas rollout training restores both the stability and the
-sensitivity of the predicted loads to the flap, and a damped latent update encodes the stable
-aeroelastic equilibrium that the undamped LDNet lacks.
+flap-only and combined excitations. For the depths tested in closed-loop rollout ($L\in\{6,12\}$
+at $d_s=10$), the training regime mattered
+more than the capacity: teacher forcing alone reached a loss more than twenty times
+higher than after fine-tuning, whereas rollout training restored both the stability and the flap
+sensitivity that the retained LDNet is verified to have. The damped latent update encodes the
+stable aeroelastic equilibrium towards which the airfoil relaxes, a piece of prior knowledge
+built into the formulation rather than learned.
 
-The retained LDNet, with ten latent states, the full six-signal input and six hidden layers,
-reconstructs the sectional loads on the held-out test set with a combined $\mathrm{NRMSE}$ of
-$1.3\cdot10^{-3}$; queried away from the airfoil surface, the same reconstruction network
-returns the distributed velocity field, a capability that the controller does not use and that
-the meshless formulation provides at no additional training cost. In closed loop, the
-architecture reduces the peak lift excursion by more than $81\%$ in the central portion of the
-gradient range and by $39$--$95\%$ over the eighteen cases of the CS-25.341 discrete-gust
-envelope, without actuator saturation and without violating the structural stability check. The
-degradations at the two corners of the envelope are explained by physical limits, the actuator
-rate at the sharp--severe corner and the pitch trade-off at the long-gust corner, rather than
-by the LDNet.
+The six-signal, ten-latent-state, six-hidden-layer configuration reconstructs the sectional
+loads on the held-out test set with an NRMSE as low as $2.4\cdot10^{-3}$ on $F_y$ and
+$1.6\cdot10^{-3}$ on $M_z$ open loop, teacher forced; the weights retained for control trade
+part of that accuracy for the closed-loop stability and flap-sensitivity that rollout
+fine-tuning provides and teacher forcing alone does not. The same reconstruction network also returns the
+distributed velocity field away from the airfoil surface, unused by the controller but
+available at no additional training cost. In closed loop, with the LDNet as both internal model
+and simulated plant, the architecture reduces the peak lift excursion by more than $91\%$ at
+the middle of the gradient range ($T_g = \SI{0.7}{\second}$) and by $39$--$95\%$ over the
+eighteen cases of a grid inspired by the CS-25.341 discrete gust, without actuator saturation or stability violation;
+the effort weight is selected per case over a five-point sweep, so these figures bound the best
+tuning of each cell rather than a single fixed tuning over the envelope. The degradations at its
+two corners match physical limits rather than a failure of the LDNet: the equivalent-incidence
+rate of the sharp--severe gust nears the actuator rate limit, and the pitch constraint binds at
+the long-gust corner. Closing the loop on the full-order model corroborates the trend at a lower
+absolute level on the two cases checked ($80.7\%$ and $74.6\%$, against $91.9\%$ and $89.1\%$
+with the LDNet as the plant), and, against a fitted linear unsteady model on the same full-order
+plant, isolates a $52.7$-point advantage ($74.8\%$ against $22.1\%$) attributable to the learned
+internal model alone, the strongest evidence that the model, not just the architecture, drives
+the alleviation.
 
-The sensing requirements are mild. The fusion layer keeps the mean reduction within about one
-percentage point of the noise-free value up to per-shot errors of $10\%\,W_0$, and within $1.5$
-percentage points under a range-proportional lidar model whose raw error reaches $10$--$30\%$
-of $W_0$. The systematic errors that do break the loop are asymmetric in a favourable
-direction: the controller absorbs an under-read gust down to at least $-10\%\,W_0$ with no
-loss and tolerates a preview time shift of $\pm10$~ms symmetrically with no flag, while an
-over-read gust degrades the reduction gradually from $+2\%\,W_0$ and only destabilises the
-loop at $+10\%\,W_0$.
+Within the sensing model adopted here, the fusion layer keeps the mean reduction on Test~2
+within about one percentage point of the noise-free value up to per-shot errors of
+$10\%\,W_0$, over six noise realisations per level, and within $3.5$ percentage points under
+the range-proportional lidar model. The systematic errors are asymmetric: the controller absorbs an
+under-read gust down to $-10\%\,W_0$ with no loss and tolerates a preview time shift of
+$\pm20$~ms over the range swept, while an over-read gust degrades the reduction from
+$+2\%\,W_0$ and destabilises the loop at $+10\%\,W_0$.
 
-We evaluate the closed loop on the reduced aeroelastic system driven by the true gust. We
-also evaluate the same controller, still predicting with the LDNet surrogate, on the
-full-order model in place of the reduced one. This full-order closed loop confirms the alleviation, with a peak-excursion
-reduction of $80.7\%$ on Test~1 and $74.6\%$ on Test~2, in reasonable agreement with the
-reduced-system values above.
-
-Some aspects, where there is possibility for improvement of the proposed architecture, have not
-been fully explored in this work. The aeroelastic system is a two-degree-of-freedom
-airfoil with a single trailing-edge flap, and the transfer of the methodology to a flexible
-three-dimensional wing involves structural modes and several control surfaces that the present
-formulation does not address. The depth ladder ends at $L=24$, where a plain $\tanh$ stack
-attenuates the gradient layer after layer; residual connections would extend it. The design of
-the simulation campaign was not optimised either, and automatic procedures to select the
-training trajectories would reduce the number of full-order simulations required.
-
-Finally, prior knowledge about the aeroelastic system already enters the LDNet through its
-formulation rather than through its training data: the damped latent update encodes the stable
-equilibrium towards which the airfoil relaxes, and the tail-compressing output layer biases the
-reconstruction towards the load extremes that size the structure. The same principle suggests a
-second-order latent formulation: letting the dynamics network predict the second derivative of
-the latent state rather than the first would give the latent dynamics the mass--spring--damper
-structure of the structural equation of motion, which the present first-order recurrence has to
-learn from data instead.
+Several aspects of the proposed architecture are not established by this work due to its
+proof-of-concept nature: the structural state is assumed directly available, with no observer;
+the actuator has deflection and rate limits alone, with no servo dynamics, delay or bandwidth;
+$U_\infty$ is held constant, so no generalisation over it is demonstrated; and the control
+objective penalises the sectional load available on this two-degree-of-freedom section, whereas
+a wing-root bending moment or CS-25.341/CS-25.305 compliance would need the spanwise load
+distribution and structural modes of a flexible wing with several control surfaces. Prior
+knowledge already enters the LDNet through its formulation --- the damped latent update encodes
+the stable equilibrium the airfoil relaxes towards, and the tail-expanding output layer biases
+the reconstruction towards the load extremes that size the structure --- and a second-order
+latent formulation, giving the dynamics network the mass--spring--damper structure of the
+structural equation of motion instead of leaving it to be learned, is a natural extension.

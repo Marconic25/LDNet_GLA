@@ -567,8 +567,17 @@ APPTAINER_CMD_TF = ["apptainer", "exec", "--bind", "/work", TF_CONTAINER]
 _MPC_PROC = None
 
 
-def start_mpc_server(model, R, N, damult, dt, U=80.0):
-    """Spawn the persistent MPC controller server inside the TF container."""
+def start_mpc_server(model, R, N, damult, dt, U=80.0,
+                      server_script="mpc_fom_server.py", coeffs=None):
+    """Spawn the persistent MPC controller server inside the TF container.
+
+    server_script selects which server (light/tests/<server_script>) to run.
+    Default "mpc_fom_server.py" is the original LDNet server and is byte-
+    identical to before when no other args change. "mpc_fom_server_linear.py"
+    runs the linear-unsteady internal model instead (light/ablation/
+    linear_aero.py) — it takes --coeffs rather than --model, so `model` is
+    ignored (pass None) and `coeffs` supplies the linear_coeffs.json path.
+    """
     global _MPC_PROC
     # OMP/TF thread limits are essential here: this server stays alive for the
     # WHOLE co-simulation, sharing the job's cores with pimpleFoam's 16 MPI
@@ -576,14 +585,19 @@ def start_mpc_server(model, R, N, damult, dt, U=80.0):
     # thread pools, starving pimpleFoam's ranks and stalling MPI collectives
     # (this caused hours-long hangs on Window 000 before being tracked down —
     # the controller call itself was always fast, pimpleFoam was the victim).
+    if server_script == "mpc_fom_server_linear.py":
+        model_arg = f"--coeffs {coeffs}" if coeffs else ""
+    else:
+        model_arg = f"--model {model}"
     cmd = APPTAINER_CMD_TF + [
         "/bin/bash", "-c",
         f"cd {LDNET_GLA_DIR}/light/tests && "
         f"OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 "
-        f"python3 -u mpc_fom_server.py "
-        f"--model {model} --R {R} --N {N} --damult {damult} --dt {dt} --U {U}"
+        f"python3 -u {server_script} "
+        f"{model_arg} --R {R} --N {N} --damult {damult} --dt {dt} --U {U}"
     ]
-    print(f"  Starting MPC server: model={model} R={R} N={N} damult={damult} dt={dt}")
+    print(f"  Starting MPC server: script={server_script} model={model} "
+          f"coeffs={coeffs} R={R} N={N} damult={damult} dt={dt}")
     _MPC_PROC = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=sys.stderr, text=True, bufsize=1)
     ready_line = _MPC_PROC.stdout.readline()
@@ -1008,6 +1022,17 @@ def main():
                         help="MPC flap-effort weight R* (required if --controller mpc; "
                              "use the R* found for this (W0,Tg) cell in results_cs25_combo/summary.md)")
     parser.add_argument("--mpc-N", type=int, default=8, help="MPC preview horizon length")
+    parser.add_argument("--mpc-server-script", type=str, default="mpc_fom_server.py",
+                        help="light/tests/<script> to run as the persistent MPC server "
+                             "(default: mpc_fom_server.py, the LDNet internal model — "
+                             "byte-identical default behaviour). Pass "
+                             "mpc_fom_server_linear.py to use the linear unsteady internal "
+                             "model instead (light/ablation/linear_aero.py); combine with "
+                             "--mpc-coeffs and note --mpc-model is not required in that case.")
+    parser.add_argument("--mpc-coeffs", type=str, default=None,
+                        help="linear_coeffs.json path, only used when --mpc-server-script "
+                             "is mpc_fom_server_linear.py (default there: "
+                             "light/ablation/linear_coeffs.json, resolved server-side)")
     parser.add_argument("--damult", type=float, default=1.0,
                         help="Pitch-damping multiplier applied to BOTH the real FOM structural "
                              "model (this driver's D_ALPHA) and the controller's internal horizon "
@@ -1046,9 +1071,12 @@ def main():
           f"(base 6.6 x damult {args.damult})  controller={CONTROLLER}")
     _mpc_server_needed = (CONTROLLER == "mpc") or args.also_spawn_mpc_idle
     if _mpc_server_needed:
-        if args.mpc_model is None or args.mpc_R is None:
-            raise ValueError("--controller mpc (or --also-spawn-mpc-idle) requires --mpc-model and --mpc-R")
-        start_mpc_server(args.mpc_model, args.mpc_R, args.mpc_N, args.damult, _MPC_CTRL_DT)
+        _uses_linear = (args.mpc_server_script == "mpc_fom_server_linear.py")
+        if args.mpc_R is None or (args.mpc_model is None and not _uses_linear):
+            raise ValueError("--controller mpc (or --also-spawn-mpc-idle) requires --mpc-R "
+                              "and (unless --mpc-server-script mpc_fom_server_linear.py) --mpc-model")
+        start_mpc_server(args.mpc_model, args.mpc_R, args.mpc_N, args.damult, _MPC_CTRL_DT,
+                          server_script=args.mpc_server_script, coeffs=args.mpc_coeffs)
         mpc_reset()
 
     # Build law 5 delta table if needed (must happen after gust params are set)

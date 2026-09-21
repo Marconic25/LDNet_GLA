@@ -38,7 +38,7 @@ Fluid and structural equations must be integrated in time in a coordinated way. 
 
 Within the partitioned family, a strongly coupled scheme iterates the fluid-structure pair to interface convergence within each step, whereas a loosely coupled one performs a single pass and accepts a staggering error~\cite{piperno1995,degroote2013partitioned}. The choice is governed by the added-mass effect~\cite{causin2005addedmass,forster2007added}, whose severity scales with the mass ratio between the entrained fluid and the structure, $\mu = \rho_f V_f / m_s$, where $\rho_f$ is the fluid density, $V_f$ the reference volume of the entrained flow and $m_s$ the effective structural mass of the wing. Here $\mu = O(10^{-3})$, so we adopt the loosely coupled scheme, which is stable without sub-iterations; we verify the energy consistency of the staggered exchange a posteriori in \cref{app:vv}.
 
-The co-simulation advances over co-simulation windows of $N_{\mathrm{win}}$ CFD time steps each, with $N_{\mathrm{win}} = 50$ and $\Delta t_{\mathrm{CFD}} = \SI{7e-5}{\second}$, giving windows of duration $\Delta t_{\mathrm{win}} = N_{\mathrm{win}}\,\Delta t_{\mathrm{CFD}} = \SI{3.5e-3}{\second}$. The $l$-th window spans the interval $[\tau_l,\,\tau_{l+1}]$ between the boundary instants $\tau_l = l\,\Delta t_{\mathrm{win}}$, $l = 0, 1, 2, \dots$; this window grid is distinct from the control grid $t_n$ of \cref{subsec:discretisation}. Within each window the fluid advances autonomously for $N_{\mathrm{win}}$ sub-steps, a strategy known as sub-cycling~\cite{piperno1995,felippa2001partitioned}, while the structure is updated once from the aerodynamic histories produced by the fluid over the window. The value $N_{\mathrm{win}} = 50$ balances two competing needs: a large $N_{\mathrm{win}}$ reduces the input/output and parallel-initialisation overhead incurred at each window reset, while a small $N_{\mathrm{win}}$ improves the coupling accuracy, since the staggering error of a loosely coupled scheme scales with the length of the co-simulation window~\cite{farhat2006secondorder}. The adopted window is two orders of magnitude shorter than the slowest structural timescale of interest ($T_{\mathrm{flutter}} \simeq \SI{0.4}{\second}$), which keeps the staggering error negligible.
+The co-simulation advances over co-simulation windows of $N_{\mathrm{win}}$ CFD time steps each, with $N_{\mathrm{win}} = 50$ and $\Delta t_{\mathrm{CFD}} = \SI{7e-5}{\second}$, giving windows of duration $\Delta t_{\mathrm{win}} = N_{\mathrm{win}}\,\Delta t_{\mathrm{CFD}} = \SI{3.5e-3}{\second}$. The $l$-th window spans the interval $[\tau_l,\,\tau_{l+1}]$ between the boundary instants $\tau_l = l\,\Delta t_{\mathrm{win}}$, $l = 0, 1, 2, \dots$; this window grid is distinct from the control grid $t_n$ of \cref{subsec:discretisation}. Within each window the fluid advances autonomously for $N_{\mathrm{win}}$ sub-steps, a strategy known as sub-cycling~\cite{piperno1995,felippa2001partitioned}, while the structure is updated once from the aerodynamic histories produced by the fluid over the window. The value $N_{\mathrm{win}} = 50$ balances two competing needs: a large $N_{\mathrm{win}}$ reduces the input/output and parallel-initialisation overhead incurred at each window reset, while a small $N_{\mathrm{win}}$ improves the coupling accuracy, since the staggering error of a loosely coupled scheme scales with the length of the co-simulation window~\cite{farhat2006secondorder}. What bounds that error is how well the window resolves the fastest structural motion being coupled, not the slowest: the pitch natural frequency of \cref{tab:results_setup} ($k_\alpha=\SI{9530}{\newton\meter\per\radian}$, $I_w=\SI{1.155}{\kilogram\square\meter}$) gives $f_\alpha\simeq\SI{14.5}{\hertz}$, a period of $\simeq\SI{69}{\milli\second}$, an order of magnitude longer than the $\SI{3.5}{\milli\second}$ window, which keeps the staggering error small.
 
 The fluid-structure interface $\Gamma_I(t)$ carries the exchange in both directions. In the fluid-to-structure direction the aerodynamic loads are obtained at each CFD time step by evaluating the interface integrals \labelcref{eq:interface-loads,eq:interface-moment} over the \texttt{wing\_main} and \texttt{flap} patches. At the end of the window the driver reads the full time series $F_y(t)$ and $M_z(t)$ and passes it as the forcing of Equation~\eqref{eq:structural-state-space}. In the opposite direction the predicted structural motion $h^{\mathrm{pred}}(t)$, $\alpha^{\mathrm{pred}}(t)$ over the incoming window, defined in \labelcref{eq:first-order-hold}, and the prescribed flap schedule $\delta(t)$ are written to two motion tables in the \texttt{tabulated6DoFMotion} OpenFOAM format, which encode the wing and flap motion as sequences of rigid transformations in time. At the start of the next window the mesh-motion solver of \cref{subsubsec:fluidsolver} reads the new tables, computes the displacement field at the wing and flap nodes and deforms the grid accordingly. The resulting information flow is sketched in \cref{fig:fsi_scheme}.
 
@@ -49,7 +49,7 @@ The fluid-structure interface $\Gamma_I(t)$ carries the exchange in both directi
     \label{fig:fsi_scheme}
 \end{figure}
 
-The structural state is advanced over each window by the adaptive RK45 pair of \cref{subsubsec:integrator}: the step is accepted when the local error estimate stays below the componentwise threshold $\mathrm{sc}_i = \mathrm{atol} + \mathrm{rtol}\,\lvert \zeta_i\rvert$, with the relative tolerance $\mathrm{rtol}=10^{-8}$ setting the significant digits kept in each degree of freedom and the absolute tolerance $\mathrm{atol}=10^{-10}$ acting as a floor when a component approaches zero. These tolerances make the structural integration error negligible. The step is capped at twice the CFD time step, so that every stage falls inside the current co-simulation window, where the loads $F_y(t)$ and $M_z(t)$ are already available and are interpolated linearly. An explicit scheme is preferred to an implicit one (e.g.\ Newmark~\cite{newmark1959}): an implicit update would require the load $\mathbf{f}(\tau_{l+1})$ consistent with the still-unknown state $\boldsymbol{\zeta}(\tau_{l+1})$, a consistency that a loosely coupled partitioned scheme cannot provide without sub-iterations, since that load is produced by the fluid from the structural motion predicted by the first-order hold. The four-dimensional state makes the cost of the explicit stages negligible.
+The structural state is advanced over each window by the adaptive RK45 pair of \cref{subsubsec:integrator}: the step is accepted when the local error estimate stays below the componentwise threshold $\mathrm{sc}_i = \mathrm{atol} + \mathrm{rtol}\,\lvert \zeta_i\rvert$, with the relative tolerance $\mathrm{rtol}=10^{-8}$ setting the significant digits kept in each degree of freedom and the absolute tolerance $\mathrm{atol}=10^{-10}$ acting as a floor when a component approaches zero. These tolerances make the structural integration error negligible. The step is capped at twice the CFD time step and clipped at the window boundary, so that every stage falls inside the current co-simulation window, where the loads $F_y(t)$ and $M_z(t)$ are already available, over the whole window, and are interpolated linearly. Since the load history over the window is already known by the time the structural integrator runs, an implicit scheme (e.g.\ Newmark~\cite{newmark1959}) would be equally feasible here; the explicit Dormand--Prince pair is preferred instead for its adaptive error control at negligible extra cost, the four-dimensional state making the cost of its explicit stages negligible.
 
 Because the loads over the incoming window are not yet available when the motion tables are written, the histories transmitted to the fluid are not the true structural response but its first-order prediction from the position and velocity at $\tau_l$:
 \begin{equation}
@@ -59,7 +59,7 @@ Because the loads over the incoming window are not yet available when the motion
     \qquad \text{in } [\tau_l,\,\tau_{l+1}].
     \label{eq:first-order-hold}
 \end{equation}
-The first-order hold keeps the grid velocity continuous across the window boundary, a property that a zero-order hold does not have, since the latter extrapolates only the position and leaves the grid velocity discontinuous at each window reset; the resulting jump in grid velocity would produce a spurious Courant-number spike at the first sub-step of the new window, which the first-order hold removes. At the end of the window the new state $\boldsymbol{\zeta}(\tau_{l+1})$ produced by the structural integrator becomes the initial condition for the following window, realising the loosely coupled partitioned scheme, in which the fluid moves according to the prediction and the structure responds to the loads produced by that prediction~\cite{farhat2006secondorder}.
+Within a window the first-order hold keeps the grid velocity continuous, a property that a zero-order hold does not have, since the latter extrapolates only the position and leaves the grid velocity discontinuous at every sub-step boundary inside the window; a zero-order hold would therefore produce a spurious Courant-number spike at every sub-step, not only at the window reset, which the first-order hold removes. Across the window boundary itself grid velocity is generally not continuous even with the first-order hold: the new window's prediction restarts from the true state $\boldsymbol{\zeta}(\tau_{l+1})$ produced by the structural integrator, which the previous window's linear extrapolation $\dot h^{\mathrm{pred}}(\tau_l)$, $\dot\alpha^{\mathrm{pred}}(\tau_l)$ generally does not match, since the true loads varied over the window while the hold assumed them frozen at $\tau_l$. At the end of the window the new state $\boldsymbol{\zeta}(\tau_{l+1})$ produced by the structural integrator becomes the initial condition for the following window, realising the loosely coupled partitioned scheme, in which the fluid moves according to the prediction and the structure responds to the loads produced by that prediction~\cite{farhat2006secondorder}.
 
 \subsection{Fluid solver, mesh and mesh motion}
 \label{openfoam}
@@ -71,15 +71,15 @@ The flow is solved on the deformable domain $\Omega_f(t)$ in the Arbitrary Lagra
     \qquad
     \frac{\partial \mathbf{u}}{\partial t}\bigg|_{\boldsymbol\chi}
     + \bigl[(\mathbf{u} - \mathbf{u}_g) \cdot \nabla\bigr]\mathbf{u}
-    = -\frac{1}{\rho}\nabla p + \nu\,\nabla^2 \mathbf{u},
+    = -\frac{1}{\rho}\nabla p + \nabla\cdot\bigl[\nu_{\mathrm{eff}}\bigl(\nabla\mathbf u+\nabla\mathbf u^T\bigr)\bigr],
     \qquad \text{in } \Omega_f(t)\times(0,T],
     \label{eq:ns-ale}
 \end{equation}
-with $\rho$ the air density and $\nu$ its kinematic viscosity. The time derivative is taken at fixed grid coordinate $\boldsymbol\chi$, so the convective velocity is the relative one $\mathbf{u}-\mathbf{u}_g$: the formulation recovers the Lagrangian description when $\mathbf{u}_g=\mathbf{u}$ and the Eulerian one when $\mathbf{u}_g=\mathbf{0}$. The grid velocity satisfies the Geometric Conservation Law, so that a uniform flow is reproduced without spurious mass sources due to mesh motion. The boundary and initial conditions coincide with those of the system \labelcref{eq:coupled_system}.
+with $\rho$ the air density, $p$ here the dimensional pressure, and $\nu_{\mathrm{eff}}=\nu+\nu_t$ the effective viscosity of \labelcref{eq:urans}, so that this ALE form of momentum conservation differs from the fixed-domain one only in the convective velocity $\mathbf u-\mathbf u_g$. The time derivative is taken at fixed grid coordinate $\boldsymbol\chi$, so the convective velocity is the relative one $\mathbf{u}-\mathbf{u}_g$: the formulation recovers the Lagrangian description when $\mathbf{u}_g=\mathbf{u}$ and the Eulerian one when $\mathbf{u}_g=\mathbf{0}$. The grid velocity satisfies the Geometric Conservation Law, so that a uniform flow is reproduced without spurious mass sources due to mesh motion. The boundary and initial conditions coincide with those of the system \labelcref{eq:coupled_system}.
 
-The discretisation and numerical solution of Equation~\eqref{eq:ns-ale} are carried out by \texttt{pimpleFoam}, the incompressible transient solver of OpenFOAM~v7. The exact numerical settings are collected in the case dictionaries archived in the repository; the following text reports only the qualitative choices needed to reproduce and trust the data. The physical properties are those of standard air, density $\rho = \SI{1.225}{\kilogram\per\cubic\meter}$ and kinematic viscosity $\nu = \SI{1e-5}{\meter\squared\per\second}$.
+The discretisation and numerical solution of Equation~\eqref{eq:ns-ale} are carried out by \texttt{pimpleFoam}, the incompressible transient solver of OpenFOAM~v7. The exact numerical settings are collected in the case dictionaries archived in the repository; the following text reports only the qualitative choices needed to reproduce and trust the data. The density $\rho = \SI{1.225}{\kilogram\per\cubic\meter}$ matches standard sea-level air, while the kinematic viscosity is set to $\nu = \SI{1e-5}{\meter\squared\per\second}$, somewhat below the $\SI{1.5e-5}{\meter\squared\per\second}$ of standard air at that density; the resulting Reynolds number of \cref{subsec:aeroelastic_airfoil} and every simulation of this campaign use this value of $\nu$.
 
-The main components of the case are collected in \Cref{tab:cfd_setup}. The spatial discretisation is a cell-centred finite-volume method (FVM)~\cite{ferziger2002cfd}, second-order accurate on the main convective and diffusive terms, with bounded total-variation-diminishing (TVD) limiters~\cite{sweby1984limiters} where distorted cells require them and a non-orthogonality correction on the Laplacian and surface-normal-gradient terms~\cite{jasak1996error}. Time integration is first-order implicit Euler~\cite{ferziger2002cfd}, which tolerates the step changes imposed by the adaptive Courant control and by the mesh motion during the flap excursions. The high-Reynolds regime is closed with the $k$--$\omega$ SST model of Menter~\cite{menter1994sst}, chosen for its behaviour under the adverse pressure gradients and incipient separation expected on the suction side at high instantaneous incidence. The production grid has \num{374584} cells, which we select by the grid-convergence study of \cref{app:vv}.
+The main components of the case are collected in \Cref{tab:cfd_setup}. The spatial discretisation is a cell-centred finite-volume method (FVM)~\cite{ferziger2002cfd}, second-order accurate on the main convective and diffusive terms, with bounded total-variation-diminishing (TVD) limiters~\cite{sweby1984limiters} where distorted cells require them and a non-orthogonality correction on the Laplacian and surface-normal-gradient terms~\cite{jasak1996error}. Time integration is first-order implicit Euler~\cite{ferziger2002cfd}: its unconditional stability tolerates the step changes imposed by the mesh motion during the flap excursions, and the same robustness is what supports the adaptive-Courant sweep of \cref{subsubsec:temporal} that bounds the sensitivity of the fixed step adopted for the dataset campaign. The high-Reynolds regime is closed with the $k$--$\omega$ SST model of Menter~\cite{menter1994sst}, chosen for its behaviour under the adverse pressure gradients and incipient separation expected on the suction side at high instantaneous incidence. The production grid has \num{374584} cells, which we select by the grid-convergence study of \cref{app:vv}.
 
 \begin{table}[t]
     \centering
@@ -90,7 +90,7 @@ The main components of the case are collected in \Cref{tab:cfd_setup}. The spati
     \hline\hline
     Solver & \texttt{pimpleFoam} (OpenFOAM~v7) \T\B \\
     Turbulence model & $k$--$\omega$ SST, continuous wall functions \T\B \\
-    Inlet turbulence & $k = \SI{24}{\meter\squared\per\second\squared}$, $\omega = \SI{32}{\per\second}$ ($I = 5\%$, $\nu_t/\nu = 10$) \T\B \\
+    Inlet turbulence & $k = \SI{24}{\meter\squared\per\second\squared}$, $\omega = \SI{32}{\per\second}$ ($I = 5\%$; these two values imply $\nu_t/\nu = k/(\nu\,\omega) \approx 7.5\times10^{4}$, not the $\nu_t/\nu=10$ that a length-scale-consistent $\omega$ would give) \T\B \\
     Spatial scheme & cell-centred FVM, 2nd order; TVD-limited momentum convection; bounded $k,\omega$ \T\B \\
     Time scheme & implicit Euler; fixed $\Delta t_{\mathrm{CFD}} = \SI{7e-5}{\second}$, observed $\mathrm{Co}_{\max} \simeq 2$ \T\B \\
     Linear solvers & GAMG (pressure), smoothSolver ($\mathbf u$, $k$, $\omega$) \B \\
@@ -159,7 +159,7 @@ The boundary conditions in \texttt{0.orig/} implement the continuous formulation
 
 A Python driver advances the partitioned scheme, implementing both the structural integrator of Equation~\eqref{eq:structural-state-space} and the coordination of the OpenFOAM co-simulation. We do not use an external co-simulation framework, because the two-degree-of-freedom structural model is simple enough that a dedicated driver keeps full control over the information exchange between the solvers at a lower overhead.
 
-Execution is organised as an outer loop over the co-simulation windows. Before entering the loop the driver initialises the case: it regenerates the inlet gust boundary condition (a \texttt{codedFixedValue} populated with the current constants $U_\infty$, $W_0$, $T_g$, $t_0$), copies \texttt{0.orig} to \texttt{0}, clears the logs and residual processor directories of previous runs, runs \texttt{decomposePar} to decompose the domain over the requested number of MPI processes, and writes two zero-displacement motion tables spanning the whole simulation horizon. The initial structural state is $(h,\,\dot h,\,\alpha,\,\dot\alpha) = \mathbf 0$; the runs of the dataset campaign do not start from the zero state and restore instead the structural state and the decomposed fluid fields stored in the pre-gust checkpoint.
+Execution is organised as an outer loop over the co-simulation windows. Before entering the loop the driver initialises the case: it regenerates the inlet gust boundary condition (a \texttt{codedFixedValue} populated with the current constants $U_\infty$, $W_0$, $T_g$, $t_0$), copies \texttt{0.orig} to \texttt{0}, clears the logs and residual processor directories of previous runs, runs \texttt{decomposePar} to decompose the domain over the requested number of MPI processes, and writes two zero-displacement motion tables spanning the whole simulation horizon. The initial structural state is $(h,\,\dot h,\,\alpha,\,\dot\alpha) = \mathbf 0$; the runs of the dataset campaign do not start from the zero state and instead restore the structural state and the decomposed fluid fields stored in the pre-gust checkpoint.
 
 The per-window sequence is given in Algorithm~\ref{alg:cosim}.
 
@@ -178,21 +178,66 @@ The per-window sequence is given in Algorithm~\ref{alg:cosim}.
 \end{algorithm}
 The loop terminates when $\tau_l$ reaches the final simulation time.
 
+\subsection{Structural, aerodynamic and actuator parameters}
+\label{subsec:results_setup}
 
-\section{Verification and validation of the full-order model}
+\Cref{tab:results_setup} collects the numerical values of the structural, aerodynamic and
+actuator parameters used throughout the closed-loop results of \cref{sec:results}; the symbols
+are those of the structural model~\eqref{eq:eom}--\eqref{eq:matrices}. The structural and flap
+values are adapted from the typical-section aeroelastic benchmark of Hodges and
+Pierce~\cite{hodges2011aeroelasticity}.
+
+\begin{table}[t]
+    \centering
+    \begin{tabular}{|p{0.16\textwidth}|p{0.22\textwidth}|p{0.50\textwidth}|}
+    \hline
+    \rowcolor{bluePoli!40}
+    Symbol & Value & Description \T\B \\
+    \hline\hline
+    $U_\infty$ & \SI{80}{\meter\per\second} & freestream velocity \T\B \\
+    $\rho$ & \SI{1.225}{\kilogram\per\cubic\meter} & air density \T\B \\
+    $c_{\mathrm{ref}}$ & \SI{1}{\meter} & chord \T\B \\
+    $S_{\mathrm{ref}}$ & \SI{0.05}{\square\meter} & reference surface \T\B \\
+    $C_{L,\text{trim}}$ & $0.868$ & trim lift coefficient (LDNet at the trim state) \T\B \\
+    \hline
+    $m_w$ & \SI{19.24}{\kilogram} & wing mass \T\B \\
+    $I_w$ & \SI{1.155}{\kilogram\square\meter} & wing inertia about the elastic axis \T\B \\
+    $k_h$ & \SI{25460}{\newton\per\meter} & plunge stiffness \T\B \\
+    $d_h$ & \SI{88.0}{\newton\second\per\meter} & plunge damping \T\B \\
+    $k_\alpha$ & \SI{9530}{\newton\meter\per\radian} & pitch stiffness \T\B \\
+    $d_\alpha$ & \SI{19.8}{\newton\meter\second\per\radian} & pitch damping \T\B \\
+    $x_{\mathrm{EA}}$ & \SI{0.40}{\meter} ($40\%\,c_{\mathrm{ref}}$) & chordwise station of the elastic axis from the leading edge \T\B \\
+    \hline
+    $m_f$ & \SI{1.19}{\kilogram} & flap mass \T\B \\
+    $I_{f,\mathrm{CG}}$ & \SI{0.006}{\kilogram\square\meter} & flap inertia about its centre of gravity \T\B \\
+    $x_{\mathrm{hinge},0}$ & \SI{0.779}{\meter} & chordwise station of the flap hinge from the leading edge \T\B \\
+    $\delta_{\max}$ & \SI{14}{\degree} & flap deflection limit \T\B \\
+    $\dot\delta_{\max}$ & \SI{300}{\degree\per\second} & flap rate limit \B \\
+    \hline
+    \end{tabular}
+    \\[6pt]
+    \caption{Aerodynamic, structural and actuator parameters shared by all the closed-loop
+    simulations of \cref{sec:results}. The actuator is represented by the deflection and
+    rate limits $\delta_{\max}$, $\dot\delta_{\max}$ alone; no servo dynamics or transport
+    delay is modelled.}
+    \label{tab:results_setup}
+\end{table}
+
+
+\section{Numerical verification of the full-order model}
 \label{app:vv}
 
-We collect in this appendix the verification studies of the full-order model of \cref{app:fom}: the grid-convergence study that selects the mesh, the temporal studies that select the co-simulation window and the CFD time step, and the consistency check of the loosely coupled scheme. Scripts and data of the three analyses are archived in the \texttt{validation/} folder of the repository (\texttt{grid\_convergence/}, \texttt{temporal/}, \texttt{courant\_mild/}, \texttt{coupling/}).
+We collect in this appendix the numerical verification of the full-order model of \cref{app:fom}: the grid-convergence study that selects the mesh, the temporal studies that select the co-simulation window and the CFD time step, and the energy-consistency check of the loosely coupled scheme. These establish that the discrete solution is converged with respect to its own discretisation parameters in the regimes tested --- the attached, quasi-steady flow for the grid, and the dynamic co-simulation cases themselves for the temporal and coupling studies; grid sensitivity in the dynamic regime was checked against quality criteria but not separately quantified, as \cref{subsubsec:grid_convergence} details. The model is not validated against experimental data, and no such comparison is claimed here. Scripts and data of the three analyses are archived in the \texttt{validation/} folder of the repository (\texttt{grid\_convergence/}, \texttt{temporal/}, \texttt{courant\_mild/}, \texttt{coupling/}).
 
 \subsection{Grid convergence}
 \label{subsubsec:grid_convergence}
-We solve the flow at the trim condition on four meshes of increasing resolution with the steady RANS solver \texttt{simpleFoam}: \num{36042}, \num{75934}, \num{374584} and \num{1911931} cells. Between the two finest grids, $C_L$ changes by $0.61\%$ and the Grid Convergence Index~\cite{celik2008procedure} on the \num{374584}-cell grid is $0.84\%$; $C_D$ changes by $1.02\%$, marginally above the $1\%$ criterion, which is acceptable for an application dominated by lift loads. We adopt the \num{374584}-cell grid for the dataset generation and all co-simulations.
+We solve the flow at the trim condition on four meshes of increasing resolution with the steady RANS solver \texttt{simpleFoam}: \num{36042}, \num{75934}, \num{374584} and \num{1911931} cells. Between the two finest grids, $C_L$ changes by $0.61\%$ and the Grid Convergence Index~\cite{celik2008procedure} on the \num{374584}-cell grid is $0.84\%$; $C_D$ changes by $1.02\%$, marginally above the $1\%$ criterion, which is acceptable for an application dominated by lift loads. We adopt the \num{374584}-cell grid for the dataset generation and all co-simulations. The study is run at the trim condition with the steady solver, so it verifies the spatial discretisation on the attached, quasi-steady flow that the co-simulations start from. It does not resolve the grid sensitivity of the most demanding dynamic states of the campaign, the gust peak at high $r_g$ and the large flap excursions, where the flow departs from that condition; for those states the mesh was checked against the quality criteria of the case rather than re-converged, and the grid sensitivity in the dynamic regime is not quantified here.
 
 \subsection{Time step and Courant number}
 \label{subsubsec:temporal}
 We run two studies to select the temporal discretisation of the co-simulation on the mesh chosen above, one for each of the two quantities that define it, linked by $\Delta t_{\mathrm{win}} = N_{\mathrm{win}}\,\Delta t_{\mathrm{CFD}}$: a refinement of the co-simulation window of \cref{subsec:partitioned} at fixed CFD time step, and a CFD time-step sweep at fixed co-simulation window. The outcome is the pair we adopt for the dataset generation, $N_{\mathrm{win}} = 50$ steps of $\Delta t_{\mathrm{CFD}} = \SI{7e-5}{\second}$, i.e.\ windows of $\Delta t_{\mathrm{win}} = \SI{3.5}{\milli\second}$.
 
-We refine the co-simulation window on a flap step from \SI{0}{\degree} to \SI{15}{\degree} over $[0,0.2]$~\si{\second} without gust, up to \SI{1}{\second}, with the CFD time step fixed at $\SI{7e-5}{\second}$; only the number of CFD steps per window $N_{\mathrm{win}}$ varies. \Cref{tab:appA_window} reports the steady lift $\bar C_L$, averaged over $t\in[0.6,1.0]$~\si{\second}, and the NRMSE of $C_L(t)$ over $t\in[0.25,1.0]$~\si{\second} with respect to the finest window, normalised by the reference mean. Over a tenfold window range all metrics stay below $1\%$, and consecutive variations of $\bar C_L$ are $0.016\%$, $0.001\%$ and $0.049\%$: the $50$-step window is converged with a factor-two margin, and we select it for the co-simulation, balancing coupling accuracy against the per-window overhead discussed in \cref{subsec:partitioned}.
+We refine the co-simulation window on a flap step from \SI{0}{\degree} to \SI{15}{\degree} over $[0,0.2]$~\si{\second} without gust, up to \SI{1}{\second}, with the CFD time step fixed at $\SI{7e-5}{\second}$; only the number of CFD steps per window $N_{\mathrm{win}}$ varies. \Cref{tab:appA_window} reports the steady lift $\bar C_L$, averaged over $t\in[0.6,1.0]$~\si{\second}, and the NRMSE of $C_L(t)$ over $t\in[0.25,1.0]$~\si{\second} with respect to the finest window, normalised by the reference mean. Both metrics stay below $1\%$ over the tenfold window range, and consecutive variations of $\bar C_L$, the metric that tracks the windowing systematically, are $0.016\%$, $0.001\%$ and $0.049\%$: the $50$-step window is converged with a factor-two margin on $\bar C_L$, and we select it for the co-simulation, balancing coupling accuracy against the per-window overhead discussed in \cref{subsec:partitioned}. The NRMSE column is not monotone in $N_{\mathrm{win}}$ ($0.602\%$, $0.697\%$, $0.352\%$): at these sub-percent levels it is dominated by the transient's small residual phase shift against the finest-window reference rather than by a windowing trend, so we do not read a convergence rate from it.
 
 \begin{table}[t]
     \centering
@@ -215,7 +260,7 @@ We refine the co-simulation window on a flap step from \SI{0}{\degree} to \SI{15
     \label{tab:appA_window}
 \end{table}
 
-We sweep the CFD time step on a reference gust case with the co-simulation window fixed at the value of \SI{3.5}{\milli\second} selected above: the ``$1-\cos$'' pulse of \cref{eq:gust} over $t\in[0.1,0.9]$~\si{\second} with $W_0=\SI{5}{\meter\per\second}$, gust-to-freestream ratio $r_g=0.0625$. Adaptive time stepping is enabled with maximum Courant number $\mathrm{Co}_{\max}\in\{1,2,4\}$ and $\Delta t_{\max} = \SI{5e-4}{\second}$, warm-started from the checkpoint of the fixed-step run; the reference is the fixed-step configuration $\Delta t_{\mathrm{CFD}} = \SI{7e-5}{\second}$. \Cref{tab:appA_courant} reports the average time step, the peak lift increment $\Delta C_L^{\mathrm{peak}}$, the maximum deviation of $C_L$ from its pre-gust trim value, and its relative deviation from the fixed-step reference.
+We sweep the CFD time step on a reference gust case with the co-simulation window fixed at the value of \SI{3.5}{\milli\second} selected above: the ``$1-\cos$'' pulse of \cref{eq:gust} over $t\in[0.1,0.9]$~\si{\second} with $W_0=\SI{5}{\meter\per\second}$, gust-to-freestream ratio $r_g=0.0625$. Adaptive time stepping is enabled with maximum Courant number $\mathrm{Co}_{\max}\in\{1,2,4\}$ and $\Delta t_{\max} = \SI{5e-4}{\second}$, warm-started from the checkpoint of the fixed-step run; the reference is the fixed-step configuration $\Delta t_{\mathrm{CFD}} = \SI{7e-5}{\second}$. \Cref{tab:appA_courant} reports the average time step, the peak lift increment $\Delta C_L^{\mathrm{peak}}$ (the maximum deviation of $C_L$ from its pre-gust trim value), and its relative deviation from the fixed-step reference.
 
 \begin{table}[t]
     \centering
@@ -238,8 +283,86 @@ We sweep the CFD time step on a reference gust case with the co-simulation windo
     \label{tab:appA_courant}
 \end{table}
 
-Coarsening the step with respect to the fixed-step reference leaves the peak within $2\%$, and refining it changes the peak by $+1.1\%$ at the adjacent step and $+4.3\%$ at $\mathrm{Co}_{\max}=1$, with the peak time unchanged within $0.4\%$, consistent with the first-order accuracy of the temporal discretisation. We therefore select the fixed step $\Delta t_{\mathrm{CFD}} = \SI{7e-5}{\second}$ for the dataset generation.
+Coarsening the step with respect to the fixed-step reference leaves the peak within $2\%$, while refining it grows the deviation rather than shrinking it, from $+1.1\%$ at the adjacent step to $+4.3\%$ at $\mathrm{Co}_{\max}=1$, with the peak time unchanged within $0.4\%$ throughout. This is not the shrinking deviation a converging refinement would show; over this range the reference itself is evidently not yet asymptotic, so the sweep bounds the sensitivity of the peak to the time step (within $\pm4.3\%$ down to roughly half the fixed step) rather than demonstrating convergence. We select the fixed step $\Delta t_{\mathrm{CFD}} = \SI{7e-5}{\second}$ for the dataset generation on that bound, together with the practical cost of a finer step over the full campaign.
 
 \subsection{Coupling scheme}
 \label{subsubsec:coupling_check}
-The loosely coupled scheme of \cref{subsec:partitioned} is justified a priori by the low added-mass ratio of the configuration; we check it a posteriori by the interface energy balance on a full gust run of the dataset campaign. We re-integrate the recorded aerodynamic load histories over the $858$ windows by the structural integrator of \cref{python-struct} from the warm-start initial state, and monitor the per-window mismatch between the work done by the aerodynamic loads and the change in mechanical plus dissipated structural energy. The global balance closes to $0.78\%$, with \SI{3.997}{\joule} of fluid work against a mechanical-energy change of \SI{0.027}{\joule} plus a structural dissipation of \SI{3.938}{\joule}, and the per-window imbalance has median $1.9\times10^{-5}$ and maximum $4.2\times10^{-3}$. The staggered exchange is therefore energetically consistent over the trajectory, and we adopt the loosely coupled scheme for the whole campaign.
+The loosely coupled scheme of \cref{subsec:partitioned} is justified a priori by the low added-mass ratio of the configuration; we check the structural side of the exchange a posteriori by the interface energy balance on a full gust run of the dataset campaign. We re-integrate the recorded aerodynamic load histories over the $858$ windows by the structural integrator of \cref{python-struct} from the warm-start initial state, and monitor the per-window mismatch between the work done by the aerodynamic loads and the change in mechanical plus dissipated structural energy. The global balance closes to $0.80\%$, with \SI{3.997}{\joule} of fluid work against a mechanical-energy change of \SI{0.027}{\joule} plus a structural dissipation of \SI{3.938}{\joule}, and the per-window imbalance has median $1.9\times10^{-5}$ and maximum $4.2\times10^{-3}$. This confirms the structural integrator is energetically consistent given the recorded loads; it re-uses the same loads and the same integrator that produced them, so it does not probe the staggering error itself, which lives in the mismatch between the first-order-hold motion the fluid actually saw~\eqref{eq:first-order-hold} and the true structural response, a mismatch this check cannot see. We adopt the loosely coupled scheme for the whole campaign on the a priori added-mass argument, with the integrator's own consistency confirmed here.
+
+
+\section{Comparison of internal models}
+\label{app:modelcomp}
+
+The architecture rests on the premise that the alleviation of \cref{subsec:mpc_results}
+requires an internal model able to reproduce a viscous, nonlinear response. We test it by
+running the same loop twice, once with the LDNet as internal model and once with a linear
+unsteady aerodynamic model in its place, at equal preview and equal cost function.
+
+Circulatory lift and moment follow the effective downwash
+\begin{equation}
+    w_m = \alpha + \frac{\dot h}{U_\infty} + \frac{c_\mathrm{ref}}{U_\infty}\left(\tfrac34-\frac{x_\mathrm{EA}}{c_\mathrm{ref}}\right)\dot\alpha,
+    \qquad
+    w_g = \frac{W}{U_\infty},
+    \label{eq:modelcomp_downwash}
+\end{equation}
+with $x_\mathrm{EA}$ the chordwise station of the elastic axis from the leading edge
+(\cref{tab:results_setup}), filtered through the
+Wagner and K\"ussner indicial functions in the two-pole approximations of
+Jones~\cite{Jones1940,hoblit1988gust}, realised as four lag states $z_1,\dots,z_4$ with
+\begin{equation}
+\begin{gathered}
+    \dot z_i = \frac{2U_\infty}{c_\mathrm{ref}}\bigl(-b_i\,z_i + w_{(i)}\bigr),
+    \qquad
+    w_m^\mathrm{eff} = w_m\Bigl(1-\textstyle\sum_{i=1,2}A_i\Bigr) + \textstyle\sum_{i=1,2} A_i b_i z_i,
+    \\
+    w_g^\mathrm{eff} = w_g\Bigl(1-\textstyle\sum_{i=3,4}A_i\Bigr) + \textstyle\sum_{i=3,4} A_i b_i z_i,
+\end{gathered}
+    \label{eq:modelcomp_lag}
+\end{equation}
+where $w_{(i)}=w_m$ for $i=1,2$ and $w_g$ for $i=3,4$, and $(A_1,b_1)$, $(A_2,b_2)$ are the
+standard two-pole coefficients of the Wagner function for the motion pair and $(A_3,b_3)$,
+$(A_4,b_4)$ those of the K\"ussner function for the gust pair, taken from
+Jones~\cite{Jones1940,hoblit1988gust}. Loads follow
+\begin{equation}
+    C_L = C_{L\alpha}\,w_m^\mathrm{eff} + C_{Lg}\,w_g^\mathrm{eff} + C_{L\delta}\,\delta
+        + \frac{\pi c_\mathrm{ref}}{2U_\infty}\dot\alpha + C_{L0},
+    \label{eq:modelcomp_loads}
+\end{equation}
+the non-circulatory term being the apparent-mass contribution of a flat plate
+in $\dot\alpha$~\cite{Theodorsen}, and analogously for $C_M$. We fit
+$C_{L\alpha},C_{Lg},C_{L\delta},C_{L0}$ (and the $C_M$ counterparts) by least squares to the
+campaign that trained the LDNet, so the comparison measures the physics the linear structure
+omits and not an error in its gains; $C_{L\alpha}$ is pinned to $2\pi$, since the campaign
+determines it too weakly to fit ($w_m^\mathrm{eff}$ carries \SI{2.8}{\percent} of the
+variance of $C_L$). The model exposes the same interface as the LDNet, so controller, flap
+grid, limits, preview and structural integrator are untouched.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.7\textwidth]{Thesis_article_format/Chapters/Chapter 3/Images/fig_ablation_trajectory.png}
+    \caption{Open-loop load prediction, neither model as the controlled system: true $C_L$
+    against the eight-step forecast of the retained LDNet ($d_s=10$, six-signal input, $L=6$)
+    and of the fitted linear unsteady model, on the held-out trajectory with the largest peak
+    deflection.}
+    \label{fig:modelcomp_cfd}
+\end{figure}
+
+We first compare the two models where neither is the controlled system, rolling the
+eight-step horizon the controller uses from the true state and deflection history of held-out
+full-order trajectories. \Cref{fig:modelcomp_cfd} follows both forecasts against the true
+trace on the trajectory with the largest peak deflection, \SI{14.8}{\degree}: the linear
+model overshoots by \num{0.21} in $C_L$ and drifts for over a second, while
+the LDNet tracks throughout. Over all $1320$ $C_L$ probes on $10$ held-out trajectories, stratified
+by deflection and gust amplitude, the LDNet is more accurate by a factor $9.8$ overall in RMS, growing to $15.1$ above \SI{11}{\degree} of
+deflection and $20.7$ in the \SIrange{25}{35}{\meter\per\second} gust band, as
+\cref{sec:introduction} anticipated.
+
+Closing the loop on the full-order model of \cref{app:fom} measures what that accuracy gap
+costs in control. On Test~2, each model tuned at its own effort weight and driving the
+co-simulation at equal coupling cadence, the peak lift-excursion reduction of
+\cref{eq:clred} is \SI{74.8}{\percent} with the LDNet against \SI{22.1}{\percent} with the
+linear model. Neither model is the controlled system here, so the \SI{52.7}{pp} between them
+is attributable to the internal model alone. The linear model still alleviates the gust and
+stays well inside the deflection limit, so what its missing nonlinearity costs is a
+degradation of the alleviation rather than a loss of control.
+

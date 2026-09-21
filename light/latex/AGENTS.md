@@ -49,17 +49,28 @@ progetto Overleaf `Thesis_article_format`; i nuovi file vanno inclusi lì):
 - `chapter3.tex` — Sez. 4 Results (`sec:results`): 4.1 accuratezza del
   surrogato e tuning (`subsec:training_results`), 4.2 GLA sull'inviluppo
   CS-25 (`subsec:mpc_results`), 4.3 robustezza al rumore lidar
-  (`subsec:noise_results`), 4.4 errori sistematici e model mismatch
-  (`subsec:systematic_results`).
+  (`subsec:noise_results`), 4.4 errori sistematici di sensing
+  (`subsec:systematic_results` — bias di calibrazione e time shift del preview,
+  che agiscono sul solo preview). Il model mismatch fra modello interno e
+  sistema controllato non sta nel capitolo: è in Appendice C
+  (`app:ablation`), insieme al confronto ROM/FOM di `fig:mpc_traces`.
 - `Conclusion.tex` — Sez. 5 Conclusion (`sec:conclusion`).
-- `appendixA.tex` — contiene due appendici. Appendice A (`app:fom`): metodi
+- `appendixA.tex` — contiene tre appendici. Appendice A (`app:fom`): metodi
   numerici e setup di co-simulazione del FOM (schema partizionato
   `subsec:partitioned`, che ospita anche lo schema del flusso di informazione fra
   i due solutori `fig:fsi_scheme`; solutore fluido, mesh e mesh motion
-  `openfoam`, driver di co-simulazione `python-struct`). Appendice B (`app:vv`): verifica e
-  validazione del FOM (convergenza di griglia, passo temporale, schema di
-  accoppiamento). Lo switch `\appendix` è nel main su Overleaf
-  (`\startappendices`), non in questo file.
+  `openfoam`, driver di co-simulazione `python-struct`). Appendice B (`app:vv`):
+  verifica numerica del FOM (convergenza di griglia, passo temporale, schema di
+  accoppiamento) — non è validazione sperimentale, nessun confronto con dati
+  di prova è presente. Appendice C (`app:ablation`): ablation del modello
+  interno, sostituzione del LDNet con un modello lineare unsteady
+  (Wagner/Jones, Küssner, massa apparente) dentro lo stesso anello a pari
+  preview e pari costo. Vincolo: **deve stare in una pagina**. Numeri e codice
+  in `light/ablation/`, record completo in `light/ablation/NOTES.md`;
+  attenzione a citare il confronto su CFD held-out (fattore 9.8, CI
+  [8.8, 11.0]) come misura di accuratezza, non il margine closed-loop, che per
+  il 78% è artefatto di self-consistency. Lo switch `\appendix` è nel main su
+  Overleaf (`\startappendices`), non in questo file.
 
 Ogni macro-sezione (2, 3, 4) apre con un breve paragrafo che ne anticipa i
 contenuti; mantenerlo aggiornato se si spostano sottosezioni.
@@ -270,7 +281,13 @@ titoli di sezione, legende delle figure). Sono l'analogo lessicale della regola
   mai "baseline"/"baseline value(s)" per indicare una configurazione di partenza
   di uno sweep (larghezza, profondità, iperparametro): nominare il valore
   esplicito ("$L=6$", "$7$ neurons") e, se serve dire che è il punto da cui
-  parte lo sweep, scriverlo per esteso ("the sweep starts from $L=6$").
+  parte lo sweep, scriverlo per esteso ("the sweep starts from $L=6$"), e mai
+  "ablation"/"to ablate" per uno studio che sostituisce un componente con un
+  altro: si scrive "comparison" nominando il componente confrontato
+  ("internal-model comparison", label `app:modelcomp`, `fig:modelcomp`), e si
+  dice nel testo che il sostituto gira dentro lo stesso anello, perché
+  "comparison" da solo non lo implica. Vale anche per gli studi di §4.1, dove
+  il termine corretto è "study" con il proprio numero.
 - Preferire la forma sintetica: mostrare equazioni, algoritmi e risultati
   (formule, pseudo-codice, tabelle, figure) invece di descriverli a parole. La
   prosa serve a spiegare e collegare quando necessario, non a sostituire ciò che
